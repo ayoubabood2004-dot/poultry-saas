@@ -19,7 +19,7 @@ import { closeFlock, loadCloseForm, type CloseAction, type CloseForm, type Close
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
 import { amountText, failureText, pendingKey, readPending, storePending, surelyUnsaved } from './GivePage';
-import { BackLink, flockPath, kgText, ofDaysText } from './parts';
+import { BackLink, flockPath, kgText } from './parts';
 import { birdsText, kgDecimals, signedCount, ticketBack, ticketBackLabel, ticketName, ticketPath } from './ticketParts';
 
 // «أغلق الدورة» (0028، كلمة المالك 2026-11-12 وأجوبته O2–O5، العقد §4.7 و§5.6 و§10): /halls/close/:flockId بقراءة flock_close_form. خلاصة الطيور (الحيّ
@@ -543,14 +543,11 @@ function CloseView({ flockId }: { flockId: string }) {
       </section>
 
       <section className="card flex flex-col gap-3 p-4" data-action="close-feed">
-        <h2 className="font-semibold">{t('halls.close.feed', 'الباقي في القاعة')}</h2>
+        <h2 className="font-semibold">{t('halls.close.feed', 'الباقي الفعليّ في القاعة')}</h2>
         <p className="text-sm" data-action="close-estimate">
-          {/* «الباقي في القاعة» بتعريفه الواحد (left_in_hall_kg، مراجعة 0028 O2/M5): للفوج القائم = النازل − المأكول، وبعد الإغلاق ينقص ما خرج عنده فلا يُقال «فالمتوقّع». */}
-          {flock.status === 'active'
-            ? t('halls.close.estimate', 'النازل للقاعة {given}، والمأكول المسجّل {eaten}، فالمتوقّع في القاعة {left}.', { given: kgText(feed.givenKg), eaten: kgText(feed.eatenKg), left: kgText(feed.leftInHallKg) })
-            : t('halls.close.estimate_closed', 'النازل للقاعة {given}، والمأكول المسجّل {eaten}، والباقي في القاعة {left}.', { given: kgText(feed.givenKg), eaten: kgText(feed.eatenKg), left: kgText(feed.leftInHallKg) })}
-          {feed.feedDays < feed.feedSpan ? t('halls.close.estimate_days', ' سُجّل العلف {n} من {days}، فالتقدير ناقص.', { n: feed.feedDays, days: ofDaysText(feed.feedSpan) }) : ''}
-          {feed.leftInHallUnweighed > 0 ? t('halls.close.estimate_unweighed', ' وسطور بلا وزن خارج الكيلو: {n}.', { n: feed.leftInHallUnweighed }) : ''}
+          {/* 0036 (جواب المالك «عوف سالفة العلف الماكول»): النازل للقاعة وحده، بلا المأكول ولا «المتوقّع في القاعة» المحسوب منه؛ الباقي يُكتب فعليّاً لكلّ مادّة. */}
+          {t('halls.close.estimate', 'النازل للقاعة {given}.', { given: kgText(feed.givenKg) })}
+          {feed.givenUnweighed > 0 ? t('halls.close.estimate_unweighed', ' وسطور بلا وزن خارج الكيلو: {n}.', { n: feed.givenUnweighed }) : ''}
         </p>
         <p className="text-sm text-ink-muted">{t('halls.close.items_hint', 'اكتب الباقي الفعليّ لكلّ مادّة بوحدتها، واختر مصيره. المادّة بلا باقٍ تُحسب مستهلَكة كلّها.')}</p>
         <DataTable caption={t('halls.close.items', 'ما نزل للقاعة وباقيه')} columns={itemColumns} rows={form.items} rowKey={(item) => item.itemId} empty={t('halls.close.no_items', 'لم ينزل للقاعة شيء من المخازن في هذه الدورة.')} />

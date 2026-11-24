@@ -8,6 +8,9 @@
 // والحدّ والمسح بلا حذف واليوم القادم)؛ (٧) طفرات داخل معاملة صاحب الجداول ترجع: كلّ قاعدة مكسورة يمسكها فحصها، والثابت يمسك سطر شهر وسطر بداية مكسورين؛
 // (٨) التراجع داخل معاملة ترجع: يرفض بصوت والملاحظات قائمة، ويكمل بلاها فيرجّع private.actions كما في 0022 حرفاً. منشأة هذا الملفّ وحدها: المعرّفات
 // d3131000 والهواتف 96477031310 (ومنشأة النقل بين الدورات منها: المعرّفات 201 وما بعدها والهواتف 71 وما بعدها). وعيّنات القاعدة الحقيقية للشاشات: HISTORY_SAMPLES_OUT=1 يكتب scripts/tests/fixtures/halls-history-0031.json.
+// 0036 (جواب المالك «عوف سالفة العلف الماكول»): علف اليوم (feed_kg) صافي العلف المرسل لا المأكول — لكلّ فوج يومه في halls_day: النازل ناقص الخارج يوم
+// الإغلاق (feed_given_kg − feed_out_kg)، وسطوره بلا كتلة (feed_unweighed)؛ و(١ب) = ورقة القاعة لكلّ فوج يومه (feed_kg − feed_back_kg في hall_sheet)
+// وأيّام كلّ دورة تُجمع إلى صافي ورقتها، في البذرة وفي منشأة النقل (بإرجاع إلى المخزن ونقل للدورة التالية).
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -32,12 +35,13 @@ const NOTE = 'select public.set_halls_note($1, $2, $3) as v';
 const FN = { history: 'public.halls_history(date)', note: 'public.set_halls_note(date, text, bigint)' };
 const KINDS = ['broiler', 'layer'];
 // 0035: الغاز في كلّ يوم وشهر وفي «منذ البداية» (مفحوص بقيمه في hall-sheet.test).
-const DAY_KEYS = ['on', 'flocks', 'rounds', 'rounds_expected', 'placed', 'live_start', 'dead', 'culled', 'sold', 'count_diff', 'live_end', 'feed_kg', 'given_kg',
-  'given_unweighed', 'eggs_total', 'eggs_broken', 'hdep', 'gas'];
-const MONTH_KEYS = ['month', 'days', 'placed', 'dead', 'culled', 'sold', 'count_diff', 'feed_kg', 'given_kg', 'given_unweighed', 'eggs_total', 'eggs_broken', 'hdep',
-  'live_end', 'opened', 'closed', 'gas'];
-const TOTAL_KEYS = ['days', 'placed', 'dead', 'culled', 'sold', 'count_diff', 'feed_kg', 'given_kg', 'given_unweighed', 'eggs_total', 'eggs_broken', 'hdep', 'live_now',
-  'opened', 'closed', 'halls', 'gas'];
+// 0036: سطور صافي العلف المرسل بلا كتلة (feed_unweighed) يوماً وشهراً ومنذ البداية.
+const DAY_KEYS = ['on', 'flocks', 'rounds', 'rounds_expected', 'placed', 'live_start', 'dead', 'culled', 'sold', 'count_diff', 'live_end', 'feed_kg', 'feed_unweighed',
+  'given_kg', 'given_unweighed', 'eggs_total', 'eggs_broken', 'hdep', 'gas'];
+const MONTH_KEYS = ['month', 'days', 'placed', 'dead', 'culled', 'sold', 'count_diff', 'feed_kg', 'feed_unweighed', 'given_kg', 'given_unweighed', 'eggs_total', 'eggs_broken',
+  'hdep', 'live_end', 'opened', 'closed', 'gas'];
+const TOTAL_KEYS = ['days', 'placed', 'dead', 'culled', 'sold', 'count_diff', 'feed_kg', 'feed_unweighed', 'given_kg', 'given_unweighed', 'eggs_total', 'eggs_broken', 'hdep',
+  'live_now', 'opened', 'closed', 'halls', 'gas'];
 const KIND_KEYS = ['kind', 'start', 'days', 'months', 'total', 'events'];
 const TOP_KEYS = ['today', 'month', 'prev', 'next', 'kinds', 'notes'];
 
@@ -214,6 +218,11 @@ async function scenario(t, db) {
   const kindOf = (v, kind) => v.kinds.find((k) => k.kind === kind);
 
   // ── ١) كلّ يوم = مجاميع halls_day لقاعات النوع، لكلّ هويّة ────────────────────────────────────────────────────────────
+  /** صافي العلف المرسل لأفواج يوم من halls_day (0036): Σ (النازل − الخارج يوم الإغلاق)، أو null حين لا سطر علف في أيّ فوج. */
+  const netOf = (flocks) => {
+    const fed = flocks.filter((f) => milli(f.feed_given_kg) !== 0n || Number(f.feed_given_unweighed) > 0 || milli(f.feed_out_kg) !== 0n || Number(f.feed_out_unweighed) > 0);
+    return fed.length ? kgText(fed.reduce((a, f) => a + milli(f.feed_given_kg) - milli(f.feed_out_kg), 0n)) : null;
+  };
   /** صفّ اليوم المتوقَّع لكلّ نوع من halls_day(اليوم) بهويّة المستخدم: المجاميع من private.halls_day_totals نفسها، والبيض من أفواج النوع. */
   const expectedDays = async (user, on) => {
     const hd = await one(user, 'select public.halls_day($1) as v', [on]);
@@ -233,8 +242,10 @@ async function scenario(t, db) {
         on, flocks: tot.flocks, rounds: tot.rounds, rounds_expected: tot.rounds_expected,
         placed: flocks.filter((f) => f.placed_on === on).reduce((a, f) => a + Number(f.placed_count), 0),
         live_start: tot.live_start, dead: tot.dead, culled: tot.culled, sold: tot.sold, count_diff: tot.count_diff, live_end: tot.live_end, gas: tot.gas,
+        // 0036: صافي العلف المرسل لكلّ فوج يومه (النازل ناقص الخارج يوم الإغلاق)، وفارغ حين لا سطر علف في أيّ فوج؛ وسطوره بلا كتلة.
+        feed_kg: netOf(flocks), feed_unweighed: flocks.reduce((a, f) => a + Number(f.feed_given_unweighed) + Number(f.feed_out_unweighed), 0),
         // النازل من المخزن: نازل halls_day ناقص العلف المنقول من الدورة السابقة (يُعدّ يوم صُرف أوّل مرّة؛ مراجعة 0031 M1).
-        feed_kg: tot.feed_eaten_kg, given_kg: kgText(milli(tot.feed_given_kg) - flocks.reduce((a, f) => a + (milli(f.feed_carry_in_kg) ?? 0n), 0n)),
+        given_kg: kgText(milli(tot.feed_given_kg) - flocks.reduce((a, f) => a + (milli(f.feed_carry_in_kg) ?? 0n), 0n)),
         given_unweighed: tot.feed_given_unweighed,
         eggs_total: kind === 'layer' ? eggs : null, eggs_broken: kind === 'layer' ? broken : null, hdep: kind === 'layer' ? hdep : null,
       };
@@ -284,6 +295,49 @@ async function scenario(t, db) {
     }
   });
 
+  // ── ١ب) علف كلّ يوم = ورقة القاعة لكلّ فوج يومه (0036، جواب المالك «عوف سالفة العلف الماكول») ──────────────────────────────
+  /**
+   * صافي كلّ (نوع، يوم) من أوراق أفواجه حتى يوم الخادم: علف اليوم في الورقة (المرسل بيومه + المنقول إليها) ناقص الراجع والمنقول منها يوم الإغلاق
+   * (feed_kg − feed_back_kg)؛ ولكلّ ورقة صافيها (summary.feed_net_kg) ومجموع أيّامها.
+   */
+  const sheetNet = async (user, flocks) => {
+    const byDay = new Map();
+    const sums = [];
+    for (const [kind, flock] of flocks) {
+      const sheet = await one(user, 'select public.hall_sheet($1) as v', [flock]);
+      let sum = 0n;
+      for (const d of sheet.days.filter((x) => x.on <= TODAY)) {
+        const net = (milli(d.feed_kg) ?? 0n) - (milli(d.feed_back_kg) ?? 0n);
+        sum += net;
+        byDay.set(`${kind}|${d.on}`, (byDay.get(`${kind}|${d.on}`) ?? 0n) + net);
+      }
+      sums.push([sheet.summary.feed_net_kg, kgText(sum)]);
+    }
+    return { byDay, sums };
+  };
+  /** أيّام السجلّ التي لا يساوي علفها صافي الأوراق (الفارغ صفر في الطرفين). */
+  const sheetMismatches = (byMonth, byDay) => {
+    const out = [];
+    let compared = 0;
+    for (const v of byMonth) {
+      for (const k of v.kinds) {
+        for (const d of k.days) {
+          compared += 1;
+          const want = byDay.get(`${k.kind}|${d.on}`) ?? 0n;
+          if ((milli(d.feed_kg) ?? 0n) !== want) out.push(`${k.kind} ${d.on}: ${d.feed_kg} ≠ ${kgText(want)}`);
+        }
+      }
+    }
+    return { out, compared };
+  };
+  await section('علف اليوم = ورقة القاعة', async () => {
+    const { byDay, sums } = await sheetNet(U.owner, [['broiler', F.f0], ['broiler', F.fx], ['broiler', F.f2], ['layer', F.fl], ['broiler', F.f1], ['broiler', F.fb]]);
+    const { out, compared } = sheetMismatches(Object.values(H_OWNER), byDay);
+    t.same(out.slice(0, 6), [], `علف كلّ يوم في السجلّ = مجموع (علف اليوم − الراجع والمنقول يوم الإغلاق) في أوراق قاعات نوعه (${compared} يوم نوع)`);
+    t.eq(compared, 47 + 24, 'كلّ أيّام اللاحم والبيّاض');
+    same(sums.map(([net, days]) => net === days), Array(sums.length).fill(true), `وأيّام كلّ ورقة تُجمع إلى صافيها (${sums.map(([net]) => net).join('، ')})`);
+  });
+
   // ── ٢) الأشهر و«منذ البداية» ─────────────────────────────────────────────────────────────────────────────────────────
   await section('الأشهر وسطر البداية', async () => {
     const problems = [];
@@ -301,7 +355,8 @@ async function scenario(t, db) {
         }
         const want = {
           days: BigInt(days.length), placed: sumInt(days, 'placed'), dead: sumInt(days, 'dead'), culled: sumInt(days, 'culled'), sold: sumInt(days, 'sold'), gas: sumInt(days, 'gas'),
-          count_diff: sumInt(days, 'count_diff'), given_unweighed: sumInt(days, 'given_unweighed'), live_end: BigInt(days.at(-1).live_end),
+          count_diff: sumInt(days, 'count_diff'), given_unweighed: sumInt(days, 'given_unweighed'), feed_unweighed: sumInt(days, 'feed_unweighed'),
+          live_end: BigInt(days.at(-1).live_end),
         };
         for (const [key, value] of Object.entries(want)) if (BigInt(row[key]) !== value) problems.push(`${kind} ${m} ${key}: ${row[key]} ≠ ${value}`);
         for (const key of ['feed_kg', 'given_kg']) if (milli(row[key]) !== sumMilli(days, key)) problems.push(`${kind} ${m} ${key}: ${row[key]}`);
@@ -311,7 +366,7 @@ async function scenario(t, db) {
         }
       }
       const total = all[1].total;
-      for (const key of ['days', 'placed', 'dead', 'culled', 'sold', 'count_diff', 'given_unweighed', 'opened', 'closed', 'gas']) {
+      for (const key of ['days', 'placed', 'dead', 'culled', 'sold', 'count_diff', 'given_unweighed', 'feed_unweighed', 'opened', 'closed', 'gas']) {
         if (BigInt(total[key]) !== sumInt(monthRows, key)) problems.push(`${kind} total ${key}: ${total[key]}`);
       }
       for (const key of ['feed_kg', 'given_kg']) if (milli(total[key]) !== sumMilli(monthRows, key)) problems.push(`${kind} total ${key}: ${total[key]}`);
@@ -329,25 +384,26 @@ async function scenario(t, db) {
     const broiler = kindOf(H_OWNER[months[1]], 'broiler');
     same(broiler.months.map((m) => [m.month, m.days, m.placed, m.dead, m.culled, m.sold, m.count_diff, m.opened, m.closed]),
       [['2026-10-01', 30, 3500, 25, 3, 400, -1088, 3, 2], ['2026-11-01', 17, 2700, 27, 3, 0, -5, 2, 0]], 'اللاحم: سطرا الشهرين باليد');
-    // المأكول: ت1 50 + 20 + 60 + 70 + 150 + 200 = 550، وت2 210 + 40 + 90 + 260 + 100 + 280 + 60 = 1,040؛ والنازل: ت1 500 + 1,000 = 1,500، وت2 1,500 + 200
-    // (4 أكياس × 50) = 1,700 وسطر بلا وزن.
-    same(broiler.months.map((m) => [m.feed_kg, m.given_kg, m.given_unweighed, m.eggs_total, m.hdep]),
-      [['550.000', '1500.000', 0, null, null], ['1040.000', '1700.000', 1, null, null]], 'اللاحم: المأكول والنازل والبيض باليد');
+    // 0036: صافي العلف المرسل (لا المأكول: علف الجولات 550 في ت1 و1,040 في ت2 لا يُعدّ): الدورتان المغلقتان بلا راجع ولا منقول، فالصافي = النازل: ت1 500 +
+    // 1,000 = 1,500، وت2 1,500 + 200 (4 أكياس × 50) = 1,700 وسطر بلا وزن.
+    same(broiler.months.map((m) => [m.feed_kg, m.feed_unweighed, m.given_kg, m.given_unweighed, m.eggs_total, m.hdep]),
+      [['1500.000', 0, '1500.000', 0, null, null], ['1700.000', 1, '1700.000', 1, null, null]], 'اللاحم: صافي العلف المرسل والنازل والبيض باليد (لا المأكول)');
     // الحيّ الآن: F2 2,000 − (10+2) − 4 − (5+1) − 5 (فرق العدّ) − 3 − 1 = 1,969؛ F1 1,200 − 6 − (3+1) = 1,190؛ FB 1,500 − (7+1) − 2 = 1,490.
-    same(pickTotal(broiler.total), { days: 47, placed: 6200, dead: 52, culled: 6, sold: 400, count_diff: -1093, feed_kg: '1590.000', given_kg: '3200.000',
+    same(pickTotal(broiler.total), { days: 47, placed: 6200, dead: 52, culled: 6, sold: 400, count_diff: -1093, feed_kg: '3200.000', feed_unweighed: 1, given_kg: '3200.000',
       given_unweighed: 1, eggs_total: null, eggs_broken: null, hdep: null, live_now: 4649, opened: 5, closed: 2, halls: 4, gas: 0 }, 'اللاحم: منذ البداية باليد');
     same([broiler.start, broiler.months.find((m) => m.month === '2026-10-01').live_end], [day(-46), 1984], 'اللاحم: البداية 2 ت1، وحيّ آخر ت1 = F2 وحده (2,000 − 12 − 4 = 1,984)');
     // البيّاض: 3,000 بعمر 140 يوم 25 ت1؛ البيض ت1 2,500 + 2,600 = 5,100 (المكسور 5 + 8 = 13) من الحيّ أوّل يومَيهما 3,000 + 2,997 = 5,997؛ وت2 2,550 (مكسور 3)
     // من 2,995، وجولة 15 ت2 بلا بيض لا تدخل المقام.
     const layer = kindOf(H_OWNER[months[1]], 'layer');
+    // وصافي علفه 2,000 كغم مرسلة في ت1 (لا المأكول 610 ثمّ 320)، ولا شيء في ت2.
     same(layer.months.map((m) => [m.month, m.days, m.placed, m.dead, m.eggs_total, m.eggs_broken, m.hdep, m.feed_kg, m.given_kg, m.live_end, m.opened]),
-      [['2026-10-01', 7, 3000, 5, 5100, 13, '85.04', '610.000', '2000.000', 2995, 1], ['2026-11-01', 17, 0, 3, 2550, 3, '85.14', '320.000', '0.000', 2992, 0]],
+      [['2026-10-01', 7, 3000, 5, 5100, 13, '85.04', '2000.000', '2000.000', 2995, 1], ['2026-11-01', 17, 0, 3, 2550, 3, '85.14', '0.000', '0.000', 2992, 0]],
       'البيّاض: الشهران باليد (نسبة الإنتاج = البيض ÷ الحيّ أوّل أيّام البيض)');
-    same(pickTotal(layer.total), { days: 24, placed: 3000, dead: 8, culled: 0, sold: 0, count_diff: 0, feed_kg: '930.000', given_kg: '2000.000', given_unweighed: 0,
-      eggs_total: 7650, eggs_broken: 16, hdep: '85.08', live_now: 2992, opened: 1, closed: 0, halls: 1, gas: 0 }, 'البيّاض: منذ البداية باليد');
+    same(pickTotal(layer.total), { days: 24, placed: 3000, dead: 8, culled: 0, sold: 0, count_diff: 0, feed_kg: '2000.000', feed_unweighed: 0, given_kg: '2000.000',
+      given_unweighed: 0, eggs_total: 7650, eggs_broken: 16, hdep: '85.08', live_now: 2992, opened: 1, closed: 0, halls: 1, gas: 0 }, 'البيّاض: منذ البداية باليد');
     const gap = kindOf(H_OWNER[months[0]], 'broiler').days.filter((d) => d.on >= day(-37) && d.on <= day(-31));
-    same(gap.map((d) => [d.flocks, d.live_start, d.dead, d.feed_kg, d.given_kg, d.rounds_expected]), Array(7).fill([0, 0, null, null, '0.000', 0]),
-      'الفجوة (11–17 ت1): صفوف بصفر أفواج، والنافق والمأكول null، والنازل 0.000');
+    same(gap.map((d) => [d.flocks, d.live_start, d.dead, d.feed_kg, d.feed_unweighed, d.given_kg, d.rounds_expected]), Array(7).fill([0, 0, null, null, 0, '0.000', 0]),
+      'الفجوة (11–17 ت1): صفوف بصفر أفواج، والنافق وصافي العلف المرسل null، والنازل 0.000');
   });
 
   // ── ٣) الشهر والتنقّل والمنشأة الفارغة ─────────────────────────────────────────────────────────────────────────────
@@ -429,7 +485,8 @@ async function scenario(t, db) {
   // ── ٥ب) النقل بين الدورات (مراجعة 0031 M1) ─────────────────────────────────────────────────────────────────────────
   // منشأة ثانية (فلا تتغيّر عيّنات الشاشات): فوج A في «قاعة 5» (23 ت1، 1,000 طير) يُصرف له 500 كغم وسطر بلا وزن، ويُغلق 2 ت2 بنقل 200 كغم والسطر بلا
   // وزن إلى الدورة التالية، ثمّ فوج B في القاعة نفسها (7 ت2، 800 طير) يأخذ المنقول يوم تسكينه. ما نزل من المخزن 500 كغم وسطر واحد بلا وزن؛ وhalls_day يعدّ
-  // المنقول نازلاً لـB يوم تسكينه، فجمعه في الشهر و«منذ البداية» كان يعدّه مرّتين (700 كغم وسطران).
+  // المنقول نازلاً لـB يوم تسكينه، فجمعه في الشهر و«منذ البداية» كان يعدّه مرّتين (700 كغم وسطران). و0036: صافي العلف المرسل يطرح المنقول من A يوم
+  // إغلاقها ويضيفه لـB يوم تسكينها، فلا يُعدّ مرّتين: 500 − 200 + 200 = 500 (والراجع إلى المخزن في round-once-feed.test).
   let C = null;
   await section('النقل بين الدورات', async () => {
     C = await makeOrg(db, { name: 'مزرعة النقل', id: (n) => id(200 + n), phone: (n) => phone(70 + n), roles: [['owner', 'owner'], ['manager', 'manager']] });
@@ -455,8 +512,9 @@ async function scenario(t, db) {
         [uid(), uid(), fa, day(-15), form.flock.live, form.sales.birds, JSON.stringify(form.items.map((i) => ({ item_id: i.item_id, qty: i.pool_qty }))),
           JSON.stringify(lines), form.plan]);
     });
+    let fb2 = null;
     await at(day(-10), async () => {
-      await one2(CU.manager, 'select public.open_flock($1, $2, 800, 0, null, $3) as v', [hallC, day(-10), uid()]);
+      fb2 = (await one2(CU.manager, 'select public.open_flock($1, $2, 800, 0, null, $3) as v', [hallC, day(-10), uid()])).flock_id;
     });
     const hd = await one2(CU.owner, 'select public.halls_day($1) as v', [day(-10)]);
     const fb = hd.sites.flatMap((x) => x.halls).find((h) => h.hall_name === 'قاعة 5').flock;
@@ -471,6 +529,20 @@ async function scenario(t, db) {
     same(k.days.find((d) => d.on === day(-10)), { ...k.days.find((d) => d.on === day(-10)), given_kg: '0.000', given_unweighed: 0, placed: 800 },
       'يوم تسكين B في السجلّ: لا نازل من المخزن (والمنقول في halls_day نفسه)');
     same(kindOf(oct, 'broiler').days.find((d) => d.on === day(-25)).given_kg, '500.000', 'يوم الصرف الأوّل: 500 كغم');
+    // 0036: صافي العلف المرسل: ت1 500 (وسطر بلا وزن)، وت2 −200 يوم إغلاق A (المنقول وسطره) و+200 يوم تسكين B (والسطر المنقول)، فمنذ البداية 500 = ما نزل
+    // من المخزن، والمنقول لا يُعدّ مرّتين. وكلّ يوم = ورقة القاعة، وأيّام كلّ دورة = صافي ورقتها.
+    const pick2 = (d) => (d ? [d.on, d.feed_kg, d.feed_unweighed] : null);
+    same([k.total.feed_kg, k.total.feed_unweighed, k.months.map((m) => [m.month, m.feed_kg, m.feed_unweighed]),
+      pick2(kindOf(oct, 'broiler').days.find((d) => d.on === day(-25))), pick2(k.days.find((d) => d.on === day(-15))), pick2(k.days.find((d) => d.on === day(-10))),
+      pick2(k.days.find((d) => d.on === day(-12)))],
+    ['500.000', 3, [['2026-10-01', '500.000', 1], ['2026-11-01', '0.000', 2]], [day(-25), '500.000', 1], [day(-15), '-200.000', 1], [day(-10), '200.000', 1],
+      [day(-12), null, 0]],
+    'صافي العلف المرسل: يوم الصرف 500، ويوم الإغلاق −200 (المنقول)، ويوم تسكين B +200، ويوم بلا فوج فارغ؛ ومنذ البداية 500 (لا 700)');
+    const { byDay, sums } = await sheetNet(CU.owner, [['broiler', fa], ['broiler', fb2]]);
+    const check = sheetMismatches([oct, now], byDay);
+    t.same(check.out, [], `كلّ يوم في سجلّ منشأة النقل = ورقة قاعة فوجه (${check.compared} يوم)`);
+    same(sums, [['300.000', '300.000'], ['200.000', '200.000']], 'وصافي ورقة A (500 − 200) وB (200 المنقول) = مجموع أيّامهما في السجلّ');
+    samples.halls_history_carry = now;
     const v = Object.fromEntries((await db.asService((q) => q('select check_name, violations::int as v from public.verify_halls_history()'))).rows.map((r) => [r.check_name, r.v]));
     same(v, { halls_note_versions: 0, history_days_month: 0, history_months_total: 0 }, 'verify_halls_history بالصفر مع النقل');
   });
@@ -643,6 +715,7 @@ async function scenario(t, db) {
       halls_history_prev_month: samples.halls_history_prev_month,
       halls_history_scoped: samples.halls_history_scoped,
       halls_history_empty: samples.halls_history_empty,
+      halls_history_carry: samples.halls_history_carry,
       set_halls_note: samples.set_halls_note,
     }, null, 1) + '\n');
   }

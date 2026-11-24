@@ -480,6 +480,7 @@ export interface MonthDay {
   age: number | null;
   dead: number | null;
   culled: number | null;
+  /** العلف المرسل يوم القاعة = خانة يوم الورقة (0036: المرسل بيومه والمنقول إليها يوم تسكينها، لا المأكول)؛ null بلا سطر. */
   feedKg: Milli | null;
   note: string | null;
   issues: readonly DayIssue[];
@@ -555,8 +556,9 @@ export interface SampleWeight {
 }
 
 /**
- * يوم من أيّام الدورة (0027، العقد §2: كلّ يوم من التسكين إلى «حتى»، الأقدم أوّلاً). الجولة الغائبة: نافقها ومستبعدها وعلفها null (لا صفر)،
- * ولا تُنقص الحيّ. الكيلو بالآلاف (Milli)، والنسبة بمرتبتين، والوزن بأعشار الغرام؛ والباقي = النازل التراكميّ − المأكول التراكميّ (قد يكون سالباً).
+ * يوم من أيّام الدورة (0027، العقد §2: كلّ يوم من التسكين إلى «حتى»، الأقدم أوّلاً). الجولة الغائبة: نافقها ومستبعدها null (لا صفر)، ولا تُنقص الحيّ.
+ * الكيلو بالآلاف (Milli)، والنسبة بمرتبتين، والوزن بأعشار الغرام. والعلف النازل وحده (0036، جواب المالك «عوف سالفة العلف الماكول»): المأكول والباقي
+ * المحسوب منه لا يُقرآن.
  */
 export interface CycleDay {
   on: Day;
@@ -570,19 +572,11 @@ export interface CycleDay {
   culled: number | null;
   liveEnd: number;
   mortalityCumPct: bigint | null;
-  feedEatenKg: Milli | null;
-  feedEatenCumKg: Milli;
   feedGivenKg: Milli;
   feedGivenCumKg: Milli;
   /** سطور العلف بلا وزن في اليوم وحتى اليوم (خارج الكيلو)، وفي «حتى» = feed.unweighed. */
   feedGivenUnweighed: number;
   feedGivenCumUnweighed: number;
-  /**
-   * «الباقي في القاعة» آخر اليوم بتعريفه الواحد (مراجعة 0028 O2/M5: left_in_hall_kg)، وسطوره بلا كتلة؛ وخادم قبل 0028: feed_left_kg (النازل − المأكول)
-   * وfeed_given_cum_unweighed.
-   */
-  leftInHallKg: Milli;
-  leftInHallUnweighed: number;
   weight: { sampleCount: number; avgG: bigint } | null;
   /** للبيّاض وحده (null للّاحم). */
   eggsTotal: number | null;
@@ -598,8 +592,9 @@ export interface CycleDay {
 }
 
 /**
- * أسبوع بعمر الطيور (الأسبوع n للأعمار 7(n−1)+1 إلى 7n، والعمر صفر في الأوّل). نافقه ومستبعده ونفوقه null حين لا جولة فيه، وعلفه null حين لم
- * يُسجَّل فيه علف؛ وfeedGPerBirdDay بأعشار الغرام، وfcr بالأجزاء من الألف في آخر يوم منه، وweight آخر عيّنة فيه.
+ * أسبوع بعمر الطيور (الأسبوع n للأعمار 7(n−1)+1 إلى 7n، والعمر صفر في الأوّل). نافقه ومستبعده ونفوقه null حين لا جولة فيه؛ وfeedGivenKg النازل فيه
+ * (المرسل بيومه والمنقول إليها، 0036) وسطوره بلا كتلة (null من خادم قبل 0036)، وfeedGPerBirdDay بأعشار الغرام من صافي العلف المرسل فيه، وfcr بالأجزاء
+ * من الألف في آخر يوم منه، وweight آخر عيّنة فيه.
  */
 export interface CycleWeek {
   week: number;
@@ -616,16 +611,16 @@ export interface CycleWeek {
   mortalityPct: bigint | null;
   mortalityCumPct: bigint | null;
   liveEnd: number;
-  feedEatenKg: Milli | null;
+  feedGivenKg: Milli | null;
+  feedGivenUnweighed: number | null;
   feedGPerBirdDay: bigint | null;
   weight: SampleWeight | null;
   fcr: bigint | null;
 }
 
 /**
- * مؤشّرات الدورة في «حتى». كلّ مؤشّر ناقص المدخلات null (لا صفر)، والشاشة تقول سببه: fcr بقاعدة flock_summary (0012) واليوم = «حتى»، وepef
- * (مؤشّر الإنتاج) عدد صحيح. وما يحسبه الخادم من يوم «حتى» نفسه (العمر والحيّ والعلف وأيّامه) قد يأتي null إن لم يكن في التقرير يوم، فيُقرأ هنا
- * كذلك ولا يرمي.
+ * مؤشّرات الدورة في «حتى». كلّ مؤشّر ناقص المدخلات null (لا صفر)، والشاشة تقول سببه: fcr من صافي العلف المرسل (0036) واليوم = «حتى»، وepef
+ * (مؤشّر الإنتاج) عدد صحيح. وما يحسبه الخادم من يوم «حتى» نفسه (العمر والحيّ والعلف) قد يأتي null إن لم يكن في التقرير يوم، فيُقرأ هنا كذلك ولا يرمي.
  */
 export interface CycleKpis {
   days: number;
@@ -637,12 +632,6 @@ export interface CycleKpis {
   mortalityPct: bigint | null;
   livabilityPct: bigint | null;
   feedGivenKg: Milli | null;
-  feedEatenKg: Milli | null;
-  /** «الباقي في القاعة» في «حتى» بتعريفه الواحد (left_in_hall_kg، وخادم قبل 0028 feed_left_kg)، وسطوره بلا كتلة (null قبل 0028: feed.unweighed). */
-  leftInHallKg: Milli | null;
-  leftInHallUnweighed: number | null;
-  feedDays: number | null;
-  feedSpan: number | null;
   feedPerBirdKg: Milli | null;
   lastWeight: SampleWeight | null;
   fcr: bigint | null;
@@ -662,6 +651,12 @@ export interface CycleKpis {
   feedNetKg: Milli | null;
   fcrFinal: bigint | null;
   epefFinal: bigint | null;
+  /**
+   * 0036: الباقي الفعليّ عند الإغلاق (ما كُتب لكلّ مادّة علف: الراجع والمنقول والمحسوب مستهلَكاً) وسطوره بلا كتلة، للدورة المغلقة وحدها؛ null للقائمة
+   * ومن خادم قبل 0036.
+   */
+  feedCloseLeftKg: Milli | null;
+  feedCloseLeftUnweighed: number | null;
 }
 
 export interface CycleDetail {
@@ -701,14 +696,10 @@ function parseCycleDetail(json: Row): CycleDetail | null {
         culled: optInt(row, 'culled'),
         liveEnd: int(row, 'live_end'),
         mortalityCumPct: optScaled(row, 'mortality_cum_pct', 2),
-        feedEatenKg: optScaled(row, 'feed_eaten_kg', 3),
-        feedEatenCumKg: scaled(row, 'feed_eaten_cum_kg', 3),
         feedGivenKg: scaled(row, 'feed_given_kg', 3),
         feedGivenCumKg: scaled(row, 'feed_given_cum_kg', 3),
         feedGivenUnweighed: int(row, 'feed_given_unweighed'),
         feedGivenCumUnweighed: int(row, 'feed_given_cum_unweighed'),
-        leftInHallKg: scaled(row, row.left_in_hall_kg === undefined ? 'feed_left_kg' : 'left_in_hall_kg', 3),
-        leftInHallUnweighed: int(row, row.left_in_hall_unweighed === undefined ? 'feed_given_cum_unweighed' : 'left_in_hall_unweighed'),
         weight: weight ? { sampleCount: int(weight, 'sample_count'), avgG: scaled(weight, 'avg_g', 1) } : null,
         eggsTotal: optInt(row, 'eggs_total'),
         hdep: optScaled(row, 'hdep', 2),
@@ -732,7 +723,8 @@ function parseCycleDetail(json: Row): CycleDetail | null {
       mortalityPct: optScaled(row, 'mortality_pct', 2),
       mortalityCumPct: optScaled(row, 'mortality_cum_pct', 2),
       liveEnd: int(row, 'live_end'),
-      feedEatenKg: optScaled(row, 'feed_eaten_kg', 3),
+      feedGivenKg: optScaled(row, 'feed_given_kg', 3),
+      feedGivenUnweighed: optInt(row, 'feed_given_unweighed'),
       feedGPerBirdDay: optScaled(row, 'feed_g_per_bird_day', 1),
       weight: sampleWeight(row.weight, 'weight'),
       fcr: optScaled(row, 'fcr', 3),
@@ -753,11 +745,6 @@ function parseCycleDetail(json: Row): CycleDetail | null {
       mortalityPct: optScaled(kpis, 'mortality_pct', 2),
       livabilityPct: optScaled(kpis, 'livability_pct', 2),
       feedGivenKg: optScaled(kpis, 'feed_given_kg', 3),
-      feedEatenKg: optScaled(kpis, 'feed_eaten_kg', 3),
-      leftInHallKg: optScaled(kpis, kpis.left_in_hall_kg === undefined ? 'feed_left_kg' : 'left_in_hall_kg', 3),
-      leftInHallUnweighed: optInt(kpis, 'left_in_hall_unweighed'),
-      feedDays: optInt(kpis, 'feed_days'),
-      feedSpan: optInt(kpis, 'feed_span'),
       feedPerBirdKg: optScaled(kpis, 'feed_per_bird_kg', 3),
       lastWeight: sampleWeight(kpis.last_weight, 'last_weight'),
       fcr: optScaled(kpis, 'fcr', 3),
@@ -772,6 +759,8 @@ function parseCycleDetail(json: Row): CycleDetail | null {
       feedNetKg: optScaled(kpis, 'feed_net_kg', 3),
       fcrFinal: optScaled(kpis, 'fcr_final', 3),
       epefFinal: optScaled(kpis, 'epef_final', 0),
+      feedCloseLeftKg: optScaled(kpis, 'feed_close_left_kg', 3),
+      feedCloseLeftUnweighed: optInt(kpis, 'feed_close_left_unweighed'),
     },
   };
 }
@@ -830,14 +819,8 @@ export interface CycleReport {
     lines: readonly { on: Day; docNo: string; itemName: string; qty: Milli; baseUnit: BaseUnit; kg: Milli | null; cumKg: Milli; value: Fils | null }[];
     /** kg مجموع الموزون من سطور المادّة (null حين لا موزون فيها)، وunweighed عدد سطورها بلا وزن (مراجعة 0026 C). */
     byItem: readonly { itemId: string; name: string; qty: Milli; baseUnit: BaseUnit; kg: Milli | null; unweighed: number }[];
+    /** المصروف للقاعة من المخزن (0036: بلا المستهلك المسجّل ولا الباقي المحسوب منه، جواب المالك «عوف سالفة العلف الماكول»). */
     deliveredKg: Milli;
-    consumedKg: Milli;
-    /**
-     * «الباقي في القاعة» بتعريفه الواحد (مراجعة 0028 O2/M5: left_in_hall_kg = المؤشّرات وآخر يوم)، وسطوره بلا كتلة؛ وخادم قبل 0028: remaining_kg (المصروف −
-     * المستهلك) وunweighed.
-     */
-    leftInHallKg: Milli;
-    leftInHallUnweighed: number;
     unweighed: number;
   };
   medicines: readonly { on: Day; source: 'store' | 'log'; name: string; qty: Milli | null; baseUnit: BaseUnit | null; dose: string | null; docNo: string | null }[];
@@ -904,10 +887,6 @@ export function parseCycleReport(value: unknown): CycleReport {
         unweighed: int(row, 'unweighed'),
       })),
       deliveredKg: scaled(feed, 'delivered_kg', 3),
-      consumedKg: scaled(feed, 'consumed_kg', 3),
-      // من المؤشّرات في «حتى»: null حين لا يوم في التقرير (كالمؤشّرات)، فالقديمان (المصروف − المستهلك وسطوره بلا وزن) بدلهما كخادم قبل 0028.
-      leftInHallKg: scaled(feed, feed.left_in_hall_kg === undefined || feed.left_in_hall_kg === null ? 'remaining_kg' : 'left_in_hall_kg', 3),
-      leftInHallUnweighed: int(feed, feed.left_in_hall_unweighed === undefined || feed.left_in_hall_unweighed === null ? 'unweighed' : 'left_in_hall_unweighed'),
       unweighed: int(feed, 'unweighed'),
     },
     medicines: list(json.medicines, 'medicines').map((row) => ({

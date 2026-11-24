@@ -71,7 +71,12 @@ const NEW_KEYS_35 = { dayFlock: ['gas'], issue: ['issued_on'], totals: ['gas'], 
 // ومفاتيح غيّر 0036 معناها (جواب المالك «عوف سالفة العلف الماكول»): معامل التحويل وEPEF والعلف لكلّ طير وغراماته لكلّ طير في الأسبوع من صافي العلف
 // المرسل لا من المأكول؛ تُنزع من الطرفين في مقارنة 0027، وتُفحص بتعريفها الجديد من أيّام التقرير نفسه.
 const CHANGED_36 = { dayFlock: ['fcr'], kpis: ['fcr', 'epef', 'feed_per_bird_kg'], week: ['fcr', 'feed_g_per_bird_day'] };
-const report36 = (v) => (v && typeof v === 'object' ? { ...v, kpis: without(v.kpis, CHANGED_36.kpis), weeks: v.weeks.map((w) => without(w, CHANGED_36.week)) } : v);
+// ومفاتيح 0036 الجديدة في تقرير الدورة (جواب المالك نفسه): النازل في كلّ أسبوع وسطوره بلا كتلة، والباقي الفعليّ عند الإغلاق للمغلقة؛ تُنزع من الطرفين
+// في مقارنة 0027، وتُفحص بتعريفها من أيّام التقرير نفسه.
+const NEW_KEYS_36 = { kpis: ['feed_close_left_kg', 'feed_close_left_unweighed'], week: ['feed_given_kg', 'feed_given_unweighed'] };
+const report36 = (v) => (v && typeof v === 'object'
+  ? { ...v, kpis: without(v.kpis, [...CHANGED_36.kpis, ...NEW_KEYS_36.kpis]), weeks: v.weeks.map((w) => without(w, [...CHANGED_36.week, ...NEW_KEYS_36.week])) }
+  : v);
 const site36 = (s) => (s ? { ...s, halls: s.halls.map((h) => ({ ...h, flock: h.flock ? without(h.flock, CHANGED_36.dayFlock) : h.flock })) } : s);
 const without = (object, keys) => (object && typeof object === 'object' ? Object.fromEntries(Object.entries(object).filter(([k]) => !keys.includes(k))) : object);
 const pick = (object, keys) => Object.fromEntries(keys.map((k) => [k, object?.[k]]));
@@ -959,6 +964,12 @@ async function scenario(t, db) {
     same([pick(r.kpis, ['fcr', 'feed_per_bird_kg']), r.weeks.map((w) => pick(w, CHANGED_36.week))],
       [{ fcr: dayFcr.at(-1), feed_per_bird_kg: unweighedAll === 0 && netAll > 0 ? (Math.round(netAll / r.kpis.placed) / 1000).toFixed(3) : null }, weeks36],
       `0036: معامل التحويل والعلف لكلّ طير وغرامات كلّ أسبوع من صافي العلف المرسل بتعريفه، لا من المأكول (${JSON.stringify([r.kpis.fcr, r.kpis.feed_per_bird_kg, r.weeks.map((w) => w.feed_g_per_bird_day)])})`);
+    same([pick(r.kpis, NEW_KEYS_36.kpis), r.weeks.map((w) => pick(w, NEW_KEYS_36.week))],
+      [{ feed_close_left_kg: null, feed_close_left_unweighed: null }, r.weeks.map((w) => {
+        const days = r.days.filter((d) => weekOf(d.age) === w.week);
+        return { feed_given_kg: (days.reduce((a, d) => a + grams(d.feed_given_kg), 0) / 1000).toFixed(3), feed_given_unweighed: days.reduce((a, d) => a + d.feed_given_unweighed, 0) };
+      })],
+      '0036: النازل في كلّ أسبوع وسطوره بلا كتلة = مجموع أيّامه، والباقي الفعليّ عند الإغلاق فارغ للدورة القائمة');
     // ضابط المقارنة: جسم 0028 يغيّر مفتاحاً قديماً (الباقي في القاعة ينقص كيلوغراماً) فتبين المقارنة على أيّام الفوج كلّها.
     const drift = await broken([[SIG.reportDay, [["'feed_left_kg', (r.given_cum_kg - e.out_cum_kg - r.feed_cum_kg)::text", "'feed_left_kg', (r.given_cum_kg - e.out_cum_kg - r.feed_cum_kg - 1)::text"]]]],
       async ({ attempt }) => {

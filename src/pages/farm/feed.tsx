@@ -1,13 +1,11 @@
-import { Link } from 'react-router-dom';
 import type { Milli } from '../../domain/money';
 import { fmtInt, fmtQty } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import type { FlockFeed } from '../../lib/repo/flocks';
 
-// علف القاعة بسطر واحد (0019، كلمة المالك 2026-11-07: «ويكلي شكد عندك واكدر اصرف منها للقاعة»): المصروف للقاعة من المخزن، والمستهلك
-// المسجّل في الجولات، و«الباقي في القاعة» بتعريفه الواحد في كلّ الشاشات (مراجعة 0028 O2/M5: left_in_hall_kg، يعدّ المنقول إليها ويُنقص ما خرج
-// عند الإغلاق؛ وقد يكون سالباً حين سُجّل استهلاك أكثر ممّا نزل)، وسطوره بلا وزن. في شاشة الفوج (محفوظة للفتح بلا نت) وصفحة الصرف معاً، فهي صغيرة
-// بلا أفعال. ومعه روابط القاعة المشتركة بين حزم الحقول والمخزن.
+// علف القاعة بسطر واحد (0019، كلمة المالك 2026-11-07: «ويكلي شكد عندك واكدر اصرف منها للقاعة»): المصروف للقاعة من المخزن، وسطوره بلا وزن.
+// و0036 (جواب المالك «عوف سالفة العلف الماكول»): لا «المستهلك المسجّل» ولا «الباقي في القاعة» المحسوب منه. في صفحة الصرف، صغيرة بلا أفعال. ومعه
+// روابط القاعة المشتركة بين حزم الحقول والمخزن.
 
 /** بالكيلوغرام دائماً («مجموع كيلوات»)، لا «1.2 طن». */
 const kg = (qty: Milli): string => {
@@ -15,37 +13,13 @@ const kg = (qty: Milli): string => {
   return shown.sub ?? shown.main;
 };
 
-export function FeedLine({ feed, giveTo }: { feed: FlockFeed; giveTo?: string }) {
-  // الباقي السالب (أُكل أكثر ممّا نزل) كان يُكتب «100- كغم» بإشارة تنقلب في السطر العربي، ومعناه لا يُفهم (كلمة المالك 2026-11-16):
-  // يقال بجملة وطريق إصلاحه، والسطر الأوّل بلا «الباقي».
-  const short = feed.leftInHallKg < 0n;
+export function FeedLine({ feed }: { feed: FlockFeed }) {
   return (
     <div className="flex flex-col gap-1" data-action="feed-line">
-      <p className="font-semibold">
-        {short
-          ? t('feed.line.short', 'المصروف للقاعة: {issued} — المستهلك المسجّل: {consumed}', { issued: kg(feed.issuedFeedKg), consumed: kg(feed.consumedFeedKg) })
-          : t('feed.line', 'المصروف للقاعة: {issued} — المستهلك المسجّل: {consumed} — الباقي في القاعة: {left}', {
-              issued: kg(feed.issuedFeedKg),
-              consumed: kg(feed.consumedFeedKg),
-              left: kg(feed.leftInHallKg),
-            })}
-      </p>
-      {short ? (
-        <p className="text-sm font-semibold text-warn-800 dark:text-warn-200" data-action="feed-negative">
-          {t('feed.negative', 'سُجّل أكل {n} أكثر ممّا صُرف لهذه القاعة: سجّل الصرف، أو صحّح علف الجولات.', { n: kg(-feed.leftInHallKg) })}
-          {giveTo ? (
-            <>
-              {' '}
-              <Link to={giveTo} className={LINK_CLASS} data-action="feed-negative-give">
-                {t('give.open', 'أضف للقاعة')}
-              </Link>
-            </>
-          ) : null}
-        </p>
-      ) : null}
-      {feed.leftInHallUnweighed > 0 ? (
+      <p className="font-semibold">{t('feed.line', 'المصروف للقاعة: {issued}', { issued: kg(feed.issuedFeedKg) })}</p>
+      {feed.issuedUnweighed > 0 ? (
         <p className="text-sm text-ink-muted" data-action="feed-unweighed">
-          {t('feed.unweighed', 'سطور علف لا يُعرف وزنها (سائل بلا كثافة أو كيس بلا وزن) فلم تُحسب بالكيلو: {n}.', { n: fmtInt(feed.leftInHallUnweighed) })}
+          {t('feed.unweighed', 'سطور علف لا يُعرف وزنها (سائل بلا كثافة أو كيس بلا وزن) فلم تُحسب بالكيلو: {n}.', { n: fmtInt(feed.issuedUnweighed) })}
         </p>
       ) : null}
     </div>

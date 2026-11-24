@@ -306,8 +306,9 @@ function DayPanel({ data, day, reading, calendarUrl, onClose, onChanged }: { dat
           roundPresent ? (
             <dl className="grid grid-cols-2 gap-2 text-sm">
               <div>
-                <dt className="text-ink-muted">{t('halls.cal.consumed', 'الاستهلاك المسجّل')}</dt>
-                <dd data-action="day-consumed">{day.feedKg === null ? '—' : kgText(day.feedKg)}</dd>
+                {/* 0036 (جواب المالك «عوف سالفة العلف الماكول»): العلف المرسل يوم القاعة كخانة الورقة (flock_month)، لا الاستهلاك المسجّل. */}
+                <dt className="text-ink-muted">{t('halls.cal.feed_sent', 'العلف المرسل')}</dt>
+                <dd data-action="day-feed-sent">{day.feedKg === null ? '—' : kgText(day.feedKg)}</dd>
               </div>
               <div>
                 <dt className="text-ink-muted">{t('round.dead', 'النافق')}</dt>

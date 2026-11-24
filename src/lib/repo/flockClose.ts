@@ -244,10 +244,10 @@ export interface CloseForm {
   sales: { birds: number; netKg: Milli; avgKg: Milli | null; invoices: readonly { soldOn: Day; ticketOn: Day; birds: number; netKg: Milli; ticketNo: string | null; docNo: string | null }[] };
   pendingTickets: readonly { ticketId: string; ticketNo: string | null; status: (typeof TICKET_STATUSES)[number]; onDate: Day; birds: number | null }[];
   /**
-   * leftInHallKg ما في القاعة بتعريفه الواحد في كلّ الشاشات (مراجعة 0028 O2/M5: left_in_hall_kg)، وleftInHallUnweighed سطوره بلا كتلة (خارج الكيلو)؛ وخادم
-   * قبله بالتقدير القديم (estimate_left_kg = النازل − المأكول، وunweighed).
+   * النازل للقاعة (الصرف والمنقول إليها) وسطوره بلا كتلة (خارج الكيلو). 0036 (جواب المالك «عوف سالفة العلف الماكول»): لا المأكول ولا «المتوقّع في
+   * القاعة» المحسوب منه (eaten_kg وestimate_left_kg وleft_in_hall_kg بقيمها في الخادم للواجهة المنشورة)؛ الباقي الفعليّ يُكتب لكلّ مادّة.
    */
-  feed: { givenKg: Milli; eatenKg: Milli; leftInHallKg: Milli; feedDays: number; feedSpan: number; leftInHallUnweighed: number };
+  feed: { givenKg: Milli; givenUnweighed: number };
   items: readonly CloseItem[];
   carryIn: readonly CarryLine[];
   canClose: boolean;
@@ -303,11 +303,7 @@ export function parseCloseForm(value: unknown): CloseForm {
     })),
     feed: {
       givenKg: scaled(feed, 'given_kg', 3),
-      eatenKg: scaled(feed, 'eaten_kg', 3),
-      leftInHallKg: scaled(feed, feed.left_in_hall_kg === undefined ? 'estimate_left_kg' : 'left_in_hall_kg', 3),
-      feedDays: int(feed, 'feed_days'),
-      feedSpan: int(feed, 'feed_span'),
-      leftInHallUnweighed: int(feed, feed.left_in_hall_unweighed === undefined ? 'unweighed' : 'left_in_hall_unweighed'),
+      givenUnweighed: int(feed, 'unweighed'),
     },
     items: list(json.items, 'items').map((row) => {
       const money = optRecord(row.money, 'money');

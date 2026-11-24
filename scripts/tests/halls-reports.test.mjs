@@ -286,24 +286,25 @@ export default async function (t) {
         'P halls_day: اليوم واليوم الحاليّ والتنقّل، والحقول بقاعاتها، والقاعة الفارغة flock null',
       );
       t.same(
-        [h1.flock.round, h1.flock.dead, h1.flock.liveEnd, h1.flock.mortalityCumPct, h1.flock.feedEatenKg, h1.flock.feedEatenCumKg, h1.flock.leftInHallKg, h1.flock.weight, h1.flock.lastWeight, h1.flock.fcr],
-        [true, 3, 11987, 11n, 350000n, 1200500n, 799500n, { sampleCount: 50, avgG: 1805n }, { onDate: '2026-11-12', age: 6, avgG: 1805n }, null],
-        'P قاعة بجولة: النافق والحيّ والنفوق بالمئات والكيلو بالآلاف والوزن بأعشار الغرام، وFCR الغائب null',
+        [h1.flock.round, h1.flock.dead, h1.flock.liveEnd, h1.flock.mortalityCumPct, h1.flock.feedGivenCumKg, h1.flock.weight, h1.flock.lastWeight, h1.flock.fcr,
+          ['feedEatenKg', 'feedEatenCumKg', 'feedDays', 'feedSpan', 'leftInHallKg', 'leftInHallUnweighed'].filter((key) => key in h1.flock)],
+        [true, 3, 11987, 11n, 2_000_000n, { sampleCount: 50, avgG: 1805n }, { onDate: '2026-11-12', age: 6, avgG: 1805n }, null, []],
+        'P قاعة بجولة: النافق والحيّ والنفوق بالمئات والكيلو بالآلاف والوزن بأعشار الغرام، وFCR الغائب null؛ و0036: المأكول وأيّامه والباقي لا تُقرأ',
       );
       t.same(
-        [h2.flock.round, h2.flock.dead, h2.flock.culled, h2.flock.feedEatenKg, h2.flock.feedGivenKg, h2.flock.feedGivenUnweighed, h2.flock.leftInHallKg, h2.flock.weight, h2.flock.issues.map((x) => [x.costKind, x.kg])],
-        [false, null, null, null, 500000n, 1, -100000n, null, [['feed', 500000n], ['feed', null]]],
-        'P قاعة بلا جولة: النافق والمستبعد والمأكول null لا صفر، والباقي سالب، وسطر القطعة بلا وزن null',
+        [h2.flock.round, h2.flock.dead, h2.flock.culled, h2.flock.feedGivenKg, h2.flock.feedGivenUnweighed, h2.flock.weight, h2.flock.issues.map((x) => [x.costKind, x.kg])],
+        [false, null, null, 500000n, 1, null, [['feed', 500000n], ['feed', null]]],
+        'P قاعة بلا جولة: النافق والمستبعد null لا صفر، والنازل وسطره بلا وزن، وسطر القطعة بلا وزن null',
       );
       t.same(
-        [l1.flock.kind, l1.flock.eggsTotal, l1.flock.eggsBroken, l1.flock.hdep, l2.flock.status, l2.flock.closedOn, l2.flock.feedEatenKg, l2.flock.eggsTotal, l2.flock.hdep],
-        ['layer', 4100, 12, 8367n, 'closed', '2026-11-12', null, null, null],
+        [l1.flock.kind, l1.flock.eggsTotal, l1.flock.eggsBroken, l1.flock.hdep, l2.flock.status, l2.flock.closedOn, l2.flock.eggsTotal, l2.flock.hdep],
+        ['layer', 4100, 12, 8367n, 'closed', '2026-11-12', null, null],
         'P البيّاض: البيض ونسبة الإنتاج، والفوج المغلق يومه بجولة بلا علف ولا بيض (null)',
       );
       t.same(
-        [day.sites[0].totals, day.totals.feedEatenKg, day.totals.feedEatenFlocks],
-        // مفاتيح 0028 (المباع وفرق العدّ وطيور التذاكر) null من خادم قبلها، لا صفر؛ والجولات المنتظرة (O7) كلّ الأفواج من خادم قبلها.
-        [{ halls: 3, flocks: 2, rounds: 1, roundsExpected: 2, liveStart: 21980, dead: 3, culled: 0, liveEnd: 21977, feedEatenKg: 350000n, feedEatenFlocks: 1, feedGivenKg: 500000n, feedGivenUnweighed: 1, sold: null, countDiff: null, ticketed: null, gas: null }, 900000n, 2],
+        [day.sites[0].totals, day.totals.feedGivenKg],
+        // مفاتيح 0028 (المباع وفرق العدّ وطيور التذاكر) null من خادم قبلها، لا صفر؛ والجولات المنتظرة (O7) كلّ الأفواج من خادم قبلها. و0036: لا مأكول.
+        [{ halls: 3, flocks: 2, rounds: 1, roundsExpected: 2, liveStart: 21980, dead: 3, culled: 0, liveEnd: 21977, feedGivenKg: 500000n, feedGivenUnweighed: 1, sold: null, countDiff: null, ticketed: null, gas: null }, 500000n],
         'P مجاميع الخادم كما هي (لا جمع في المحلّل)',
       );
       // 52ca9fd: سطور العلف بلا وزن حتى اليوم لكلّ فوج (feed_given_cum_unweighed)، وفي مجاميع اليوم (feed_given_unweighed)، عدداً صحيحاً إلزامياً.
@@ -328,18 +329,18 @@ export default async function (t) {
       t.same(
         [
           bad((json) => { json.sites[0].halls[0].flock.dead = '3'; }),
-          bad((json) => { json.sites[0].halls[1].flock.feed_eaten_kg = 0; }),
+          bad((json) => { json.sites[0].halls[1].flock.feed_given_kg = 0; }),
           bad((json) => { json.sites[0].halls[0].flock.status = 'preparing'; }),
           bad((json) => { delete json.sites[0].totals.rounds; }),
           bad((json) => { json.sites[0].halls[0].flock.vaccines[0].color = 10; }),
-          bad((json) => { json.sites[0].halls[0].flock.feed_left_kg = '1.2345'; }),
+          bad((json) => { json.sites[0].halls[0].flock.feed_given_cum_kg = '1.2345'; }),
           bad((json) => { json.sites[0].halls[0].flock.round = 1; }),
           bad((json) => { delete json.sites[0].halls[1].flock.feed_given_cum_unweighed; }),
           bad((json) => { json.sites[0].halls[1].flock.feed_given_cum_unweighed = '1'; }),
           bad((json) => { delete json.sites[1].totals.feed_given_unweighed; }),
           bad((json) => { json.totals.feed_given_unweighed = null; }),
         ],
-        ['dead', 'feed_eaten_kg', 'status', 'rounds', 'color', 'feed_left_kg', 'round', 'feed_given_cum_unweighed', 'feed_given_cum_unweighed', 'feed_given_unweighed', 'feed_given_unweighed'],
+        ['dead', 'feed_given_kg', 'status', 'rounds', 'color', 'feed_given_cum_kg', 'round', 'feed_given_cum_unweighed', 'feed_given_cum_unweighed', 'feed_given_unweighed', 'feed_given_unweighed'],
         'P خطأ الشكل يسمّي الخانة: نصّ مكان عدد، وعدد مكان نصّ عشري، وحالة خارج العقد، وخانة غائبة، ولون خارج اللوحة، ومراتب زائدة، وعلم غير منطقي، وعدّا السطور بلا وزن غائبين أو بغير عدد',
       );
       const cycles = m.repo.parseFlockCycles(clone(F.flock_cycles));

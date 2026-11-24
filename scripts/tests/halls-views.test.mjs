@@ -381,7 +381,9 @@ export default async function (t) {
       t.same(byAction('day-issue').map((n) => n.textContent), ['FI-2026-0100أموكسيسيلينلتران'], 'C3 دواء المخزن بكميته');
       await click(byAction('day-close')[0]);
       await click(cell('2026-11-06'));
-      t.same([textOf('day-note'), textOf('day-consumed')], ['تهوية إضافية بعد الظهر', '140 كغم'], 'C3 الجولة: الملاحظة والاستهلاك المسجّل');
+      // 0036 (جواب المالك «عوف سالفة العلف الماكول»): العلف المرسل يوم القاعة (flock_month.feed_kg = خانة الورقة) لا «الاستهلاك المسجّل».
+      const sentLabel = byAction('day-feed-sent')[0]?.parentNode?.children?.[0]?.textContent ?? null;
+      t.same([textOf('day-note'), sentLabel, textOf('day-feed-sent'), byAction('day-consumed').length], ['تهوية إضافية بعد الظهر', 'العلف المرسل', '140 كغم', 0], 'C3 الجولة: الملاحظة والعلف المرسل (لا الاستهلاك المسجّل)');
       await click(byAction('day-close')[0]);
       await click(cell('2026-11-12'));
       t.same([byAction('give-day').length, byAction('vac-row').map((row) => row.getAttribute('data-state')), byAction('vac-undo').length, byAction('vac-round').length], [0, ['planned'], 0, 0], 'C3 يوم قادم: لا «أضف» ولا أفعال على الموعد القادم');
@@ -585,10 +587,11 @@ export default async function (t) {
         'R1 العلف بكلّ نزول: التاريخ والمستند والمادّة والكمية والكيلو والتراكمي والقيمة، والمجموع من الخادم',
       );
       t.same([tableRows('العلف حسب المادّة'), tableFoot('العلف حسب المادّة')], [[['علف بادئ', '2,000', 'كغم', '2,000'], ['علف نامي', '40', 'قطعة', '—']], [['المجموع', '2,000']]], 'R1 العلف حسب المادّة');
+      // 0036 (جواب المالك «عوف سالفة العلف الماكول»): «خلاصة علف القاعة» بما وقع وحده: لا «المستهلك المسجّل» ولا «الباقي في القاعة».
       t.same(
-        [tableHeaders('المصروف والمستهلك والباقي'), tableRows('المصروف والمستهلك والباقي'), textOf('rep-unweighed')],
-        [['المصروف للقاعة (كغم)', 'المستهلك المسجّل (كغم)', 'الباقي في القاعة (كغم)'], [['2,000.0', '1,450.5', '549.5']], 'لم يُحسب في الكيلو سطر واحد بلا وزن (لتر بلا كثافة أو قطعة بلا وزن).'],
-        'R1 المصروف والمستهلك والباقي، و«لم يُحسب في الكيلو سطر واحد بلا وزن» (الفعل قبل فاعله العدد، مراجعة 0027 V3-H2-BALANCE-VERB)',
+        [tableHeaders('خلاصة علف القاعة'), tableRows('خلاصة علف القاعة'), textOf('rep-unweighed'), tableHeaders('المصروف والمستهلك والباقي')],
+        [['المصروف للقاعة (كغم)'], [['2,000']], 'لم يُحسب في الكيلو سطر واحد بلا وزن (لتر بلا كثافة أو قطعة بلا وزن).', null],
+        'R1 خلاصة علف القاعة بالمصروف وحده للقائمة، و«لم يُحسب في الكيلو سطر واحد بلا وزن» (الفعل قبل فاعله العدد، مراجعة 0027 V3-H2-BALANCE-VERB)',
       );
       t.same(
         tableRows('الأدوية'),
@@ -616,13 +619,14 @@ export default async function (t) {
       );
       t.eq(showsMoney(), true, 'R1 ضابط: فحص «لا مبلغ» يرى المبلغ حين يُعرض');
     });
-    // مراجعة 0027 V3-H2-BALANCE-VERB: جملة «المصروف والمستهلك والباقي» كان عددها فاعلاً قبل «فلم تُحسب» فلا يطابقه الفعل في الواحد والاثنين («سطران … فلم
-    // تُحسب»)؛ والفعل الآن قبل فاعله مفرداً مذكّراً يصلح لكلّ عدد. الملاحظة تقرأ feed.unweighed وحده.
-    await step('R1 جملة السطور بلا وزن فوق «المصروف والمستهلك والباقي» لكلّ عدد', async () => {
+    // مراجعة 0027 V3-H2-BALANCE-VERB: جملة الخلاصة كان عددها فاعلاً قبل «فلم تُحسب» فلا يطابقه الفعل في الواحد والاثنين («سطران … فلم تُحسب»)؛ والفعل
+    // الآن قبل فاعله مفرداً مذكّراً يصلح لكلّ عدد. و0036: الملاحظة تعدّ سطور النازل بلا وزن حتى «حتى» (feed_given_cum_unweighed: الصرف والمنقول إليها).
+    await step('R1 جملة السطور بلا وزن فوق «خلاصة علف القاعة» لكلّ عدد', async () => {
       const notes = [];
       for (const n of [1, 2, 3, 11, 100]) {
         const report = clone(F.flock_cycle_report);
         report.feed.unweighed = n;
+        report.days.at(-1).feed_given_cum_unweighed = n;
         fresh(MANAGER, { rpcs: { flock_cycle_report: () => report } });
         await mount(reportUrl);
         notes.push(textOf('rep-unweighed'));

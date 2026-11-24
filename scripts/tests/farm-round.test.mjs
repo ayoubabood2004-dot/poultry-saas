@@ -28,6 +28,9 @@ const REAL_SHEET = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'hallShe
 const HAND = readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'round-once.hand.json'), 'utf8');
 // عيّنات القاعدة الحقيقية (round-once.test بـROUND_ONCE_SAMPLES_OUT=1، يومها المثبَّت 2026-11-24): تكامل 0036، جواب القاعدة بمحلّلات الشاشة الحقيقية.
 const REAL36 = readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'round-once-0036.json'), 'utf8');
+// وعيّنات «عوف سالفة العلف الماكول» (round-once-feed.test بـROUND_FEED_SAMPLES_OUT=1، يومها 2026-11-24): الوجبة التالية N في «قاعة الإغلاق» يوم تسكينها
+// بالمنقول إليها (سطر carry) والمرسل.
+const FEED36 = readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'round-feed-0036.json'), 'utf8');
 const OVERRIDES = ['loadOverviewJson', 'loadFlockDetail', 'createHall', 'updateHall', 'archiveHall', 'openFlock', 'recordFlockWeight'];
 const STUBS = {
   // loadOverview مثل الحقيقي بالضبط (parseOverview(await loadOverviewJson())) بس عبر البديل، حتى الرئيسية القديمة تقرا من نفس الخادم المزيّف.
@@ -899,6 +902,26 @@ export default async function (t) {
       await settle(60);
       const LF = 'c672387c-e2e1-43ed-8aa6-f008dbbcde48';
       t.same([Boolean(inCard(LF, '-dead')), Boolean(inCard(LF, '-eggsTotal'))], [true, true], 'Q36 البيّاض الحقيقيّ: بيض اليوم لا يقفل الهلاكات (dead_entered false)، وخانة البيض قائمة');
+    });
+
+    // ── Q36F: «أُرسل اليوم» يوم التسكين بالمنقول من الوجبة السابقة (0036، جواب المالك «عوف سالفة العلف الماكول»): سطر المنقول بعلامته أوّلاً ثمّ المرسل،
+    // والمجموع من الخادم يعدّهما مرّة (لا جمع بالشاشة)؛ ولا كلمة علف مأكول في الجولة ────────────────────────────────────────────────────────
+    await step('Q36F', async () => {
+      const shifted = () => JSON.parse(FEED36.replaceAll('2026-11-24', TODAY).replaceAll('2026-11-23', m.addDays(TODAY, -1))).flocks_overview;
+      const N = JSON.parse(FEED36).ids.flocks.n;
+      fresh(owner('u-q36f'), { loadOverviewJson: shifted });
+      await mount('/broiler/round');
+      await settle(60);
+      const lines = actionIn(N, 'round-feed-lines')[0];
+      t.same(
+        [
+          actionIn(N, 'round-feed-today')[0]?.children?.[0]?.textContent ?? null,
+          lines ? lines.children.map((li) => [li.textContent, li.getAttribute('data-carry')]) : null,
+          /مأكول|أُكل|المستهلك المسجّل|الباقي في القاعة/u.test(text()),
+        ],
+        ['أُرسل اليوم: 70 كغم', [['«علف ناهي»: 30 كغم (منقول من الوجبة السابقة)', '1'], ['«علف ناهي»: 40 كغم', null]], false],
+        'Q36F «أُرسل اليوم» لـN: المنقول 30 بعلامته أوّلاً ثمّ المرسل 40 (مفتاحان لا مفتاح المادّة وحده)، والمجموع 70 من الخادم مرّة؛ ولا علف مأكول في الجولة',
+      );
     });
 
     // ── R2: بلا نت تُحفظ بالجهاز («تنتظر الإرسال») بلا إرسال، ولمّا يرجع الاتصال ترتفع لحالها ─────────────────────────────────────

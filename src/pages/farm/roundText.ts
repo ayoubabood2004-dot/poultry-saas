@@ -164,6 +164,9 @@ export function parkText(reason: string | null): string {
       return t('sheet.park.locked', 'كان اليوم في فترة حسابات مقفلة');
     case 'date_too_old':
       return t('sheet.park.old', 'كان اليوم أقدم من سبعة أيام قبل أن يُرفع هذا الحدّ');
+    case 'dead_recorded':
+      // 0036: زيارة بهلاكات ليوم سُجّلت هلاكاته (تُدخل مرّة في اليوم) لا تُضاف إليها؛ تصحيحها من ورقة القاعة بالقلم.
+      return t('sheet.park.dead_recorded', 'سُجّلت هلاكات هذا اليوم قبلها، فلم تُضف إليها؛ وتصحيحها من صفحة القاعة ← ✎ تعديل الجدول');
     default:
       return t('sheet.park.other', 'رُدّ من الخادم');
   }

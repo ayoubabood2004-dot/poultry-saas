@@ -119,7 +119,7 @@ async function loadRaw(db, org) {
   const flockList = (await db.admin(`select f.id, f.hall_id, h.name as hall_name, f.site_id, s.name as site_name, f.kind, f.status, f.placed_on::text as placed_on,
       f.placed_count, f.age_days_at_placement as age0, f.closed_on::text as closed_on
     from public.flocks f join public.halls h on h.id = f.hall_id join public.sites s on s.id = f.site_id where f.org_id = $1 and f.placed_on is not null`, [org])).rows;
-  const flocks = new Map(flockList.map((f) => [f.id, { f, rows: new Map(), weights: new Map(), given: new Map(), counts: new Map() }]));
+  const flocks = new Map(flockList.map((f) => [f.id, { f, rows: new Map(), weights: new Map(), given: new Map(), counts: new Map(), closeLeft: { kg: 0n, unweighed: 0 } }]));
   for (const r of (await db.admin(`select flock_id, on_date::text as d, dead, culled, feed_kg::text as feed, eggs_total, eggs_broken, eggs_cracked, note
       from public.flock_daily where org_id = $1`, [org])).rows) flocks.get(r.flock_id)?.rows.set(r.d, r);
   for (const w of (await db.admin('select flock_id, on_date::text as d, sample_count, avg_g::text as avg from public.flock_weights where org_id = $1', [org])).rows) {
@@ -146,6 +146,15 @@ async function loadRaw(db, org) {
       n.soldMilli += units(c.kg, 3);
     } else n.adjust += BigInt(c.birds);
     fx.counts.set(c.d, n);
+  }
+  // 0036: الباقي الفعليّ عند الإغلاق = ما كُتب في إغلاق قائم لكلّ مادّة علف (راجعاً ومنقولاً ومحسوباً مستهلَكاً) بكتلته، وسطوره بلا كتلة تُعدّ.
+  for (const l of (await db.admin(`select c.flock_id, l.qty_base::text as qty, l.base_unit as unit, l.density_kg_per_l::text as density, l.piece_mass_kg::text as piece
+    from public.flock_closes c join public.flock_close_lines l on l.org_id = c.org_id and l.close_id = c.id
+    where c.org_id = $1 and c.status = 'closed' and l.cost_kind = 'feed'`, [org])).rows) {
+    const left = flocks.get(l.flock_id).closeLeft;
+    const mass = massMilli(l.unit, l.qty, l.density, l.piece);
+    if (mass === null) left.unweighed += 1;
+    else left.kg += mass;
   }
   return { halls, flockList, flocks };
 }
@@ -328,14 +337,16 @@ function weeksOf(days) {
       mortality_cum_pct: last.view.mortality_cum_pct, live_end: last.view.live_end,
       feed_eaten_kg: fed.length ? text(feed, 3) : null,
       feed_g_per_bird_day: sentUnweighed > 0 || sent <= 0n || birdDays <= 0n ? null : ratio(sent, birdDays, 1),
+      // 0036: النازل في الأسبوع (مجموع أيّامه بالكيلو، الموزون وحده) وسطوره بلا كتلة، بجانب غراماته.
+      feed_given_kg: text(sent, 3), feed_given_unweighed: sentUnweighed,
       weight: weighed ? { on_date: weighed.view.on, age: weighed.view.age, avg_g: text(weighed.weight, 1) } : null,
       fcr: last.view.fcr,
     };
   });
 }
 
-/** المؤشّرات في «حتى». */
-function kpisOf(f, days) {
+/** المؤشّرات في «حتى»؛ closeLeft ما كُتب عند الإغلاق (loadRaw). */
+function kpisOf(f, days, closeLeft) {
   const last = days.at(-1).view;
   const placed = BigInt(f.placed_count);
   const sent = units(last.feed_given_cum_kg, 3);
@@ -349,6 +360,8 @@ function kpisOf(f, days) {
     // 0036: العلف لكلّ طير مسكَّن من صافي المرسل (فارغ بسطر بلا كتلة) لا من المأكول.
     feed_per_bird_kg: last.feed_given_cum_unweighed === 0 && sent > 0n && placed > 0n ? ratio(sent, placed * 1000n, 3) : null,
     last_weight: lw, fcr,
+    // 0036: الباقي الفعليّ عند الإغلاق للمغلقة وحدها (لا سطر إغلاق علف في هذا الملفّ: صفر للمغلقتين)، وفارغ للقائمة.
+    feed_close_left_kg: f.status === 'closed' ? text(closeLeft.kg, 3) : null, feed_close_left_unweighed: f.status === 'closed' ? closeLeft.unweighed : null,
     epef: fcr !== null && units(fcr, 3) > 0n && lw && livability > 0n && last.age > 0
       ? ratio(livability * units(lw.avg_g, 1), 10n * BigInt(last.age) * units(fcr, 3), 0) : null,
   };
@@ -679,7 +692,7 @@ async function scenario(t, db) {
       weeks: weeksOf(days),
       weights: [...fx.weights.values()].sort((a, b) => (a.d < b.d ? -1 : 1)).map((w) => ({ on_date: w.d, age: between(w.d, fx.f.placed_on) + fx.f.age0,
         sample_count: w.sample_count, avg_g: text(units(w.avg, 1), 1) })),
-      kpis: kpisOf(fx.f, days),
+      kpis: kpisOf(fx.f, days, fx.closeLeft),
     };
     const sum = (k) => got.days.reduce((s, d) => s + (d[k] ?? 0), 0);
     const last = got.days.at(-1);
@@ -720,6 +733,7 @@ async function scenario(t, db) {
   ], 'أسابيع البيّاض (عمر 140): أسبوع بلا جولة نافقه وعلفه ونفوقه null لا صفر، والتراكم والحيّ في آخر يومه؛ و0036: لا علف مرسل فلا غرام لكلّ طير (كان 118.8 بالمأكول)');
   t.same(deep(without(reports.f2.kpis, NEW_KPI_KEYS)), deep({ days: 9, age_end: 9, placed: 3000, dead: 21, culled: 4, live: 2975, mortality_pct: '0.83', livability_pct: '99.17',
     feed_given_kg: '1209.2', feed_eaten_kg: '1260', feed_left_kg: '-50.8', feed_days: 9, feed_span: 9, feed_per_bird_kg: null,
+    feed_close_left_kg: null, feed_close_left_unweighed: null,
     last_weight: { on_date: TODAY, age: 9, avg_g: '260.0' }, fcr: null, epef: null }),
   'مؤشّرات F2: الحيوية 100 − 0.83، والمأكول وأيّامه كما هي؛ و0036: العلف لكلّ طير ومعامل التحويل وEPEF من صافي المرسل وفيه أكياس بلا وزن، فلا شيء منها (كانت 0.42 و1.629 و176 بالمأكول)');
   t.same([reports.f1.kpis.fcr, reports.f1.kpis.epef, reports.f1.kpis.livability_pct, reports.f1.kpis.feed_per_bird_kg, reports.f1.kpis.feed_days, reports.f1.kpis.feed_span],
@@ -972,8 +986,9 @@ async function scenario(t, db) {
   await caught('ضابط النموذج: النازل بيوم الجولة (given على r.on_date لا g.d) يُسقط ما صُرف بلا جولة، فتفشل مقارنة halls_day بالنموذج من تسكين «ن1» إلى اليوم، وأيّام تقريرَي «ن1» و«ن2» ومؤشّرات «ن1»، ومجاميع الأيّام مقابل feed وflock_feed (الكيلو والباقي والسطور بلا وزن)',
     [[FN.days, [['left join given i on i.d = g.d', 'left join given i on i.d = r.on_date']]]],
     ({ attempt }) => attempt(N.users.manager, async (q) => [await nDiffers(viaQ(q)), await cycleGaps(viaQ(q), NF.na), await cycleGaps(viaQ(q), NF.nb)]),
-    // 0036: غرامات العلف لكلّ طير في الأسبوع من النازل أيضاً، فالأسابيع تبين مع الأيّام والمؤشّرات.
-    (v) => same(v, [NA_DAYS.map((o) => day(o)), [['days', 'weeks', 'kpis'], [['50', '400'], ['-150', '200'], [0, 4], [0, 4]]], [['days'], [[0, 1], [0, 1]]]]), N.users.manager);
+    // 0036: غرامات العلف لكلّ طير في الأسبوع من النازل أيضاً، فالأسابيع تبين مع الأيّام والمؤشّرات؛ والنازل في الأسبوع وسطوره بلا كتلة (جواب المالك
+    // «عوف سالفة العلف الماكول») فأسبوع «ن2» يبين بسطره بلا كتلة الساقط.
+    (v) => same(v, [NA_DAYS.map((o) => day(o)), [['days', 'weeks', 'kpis'], [['50', '400'], ['-150', '200'], [0, 4], [0, 4]]], [['days', 'weeks'], [[0, 1], [0, 1]]]]), N.users.manager);
   await caught('ضابط النموذج: عدد السطور بلا وزن صفراً في يوم بلا جولة (report_day) يُفشل مقارنة halls_day بالنموذج في أيّام الصرف بلا جولة: تسكين «ن1» ويوم 9 واليوم',
     [[FN.one, [["'feed_given_unweighed', r.given_unweighed", "'feed_given_unweighed', case when r.has_round then r.given_unweighed else 0 end"]]]],
     ({ attempt }) => attempt(N.users.manager, async (q) => nDiffers(viaQ(q))), (v) => same(v, [day(-6), day(-3), TODAY]), N.users.manager);

@@ -123,9 +123,12 @@ export function recorder(value) {
 // gas (0035، B6): مفتاح التقرير اليوميّ بعد عيّنات 0028، فالمحلّل يقرؤه null حين يغيب.
 // ومفاتيح الجولة (0036، عقد D1/D4): «سُجّلت هلاكات اليوم» في صفّ اليوم، وغاز اليوم وعلفه وآخر علف في ملخّص الفوج، وأعلاف الجولة في flocks_overview؛ تغيب في
 // أجوبة 0028 المحفوظة هنا، والمحلّل يقرؤها null و[] حين تغيب (فحص P في farm-round بالأشكال الجديدة).
+// ومفاتيح «عوف سالفة العلف الماكول» (0036): النازل في كلّ أسبوع والباقي الفعليّ عند الإغلاق في تقرير الدورة؛ تغيب في أجوبة 0028، والمحلّل يقرؤها null
+// (فحص no-eaten-0036 بعيّنات round-feed-0036).
 const OPTIONAL = [
   /(^|\.)money$/u, /(^|\.)stores$/u, /^\.then$/u, /^\.ticket\.can$/u, /^\.site$/u, /^\.totals\.open$/u, /^\.today$/u, /(^|\.)gas$/u,
   /(^|\.)(dead_entered|gas_today|gas_today_version|feed_today_kg|feed_today|last_feed_item_id|feed_items)$/u,
+  /^\.weeks\.feed_given_(kg|unweighed)$/u, /^\.kpis\.feed_close_left_(kg|unweighed)$/u,
 ];
 
 const camel = (key) => key.replace(/_([a-z0-9])/gu, (_, c) => c.toUpperCase());
