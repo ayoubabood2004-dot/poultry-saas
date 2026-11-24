@@ -166,6 +166,13 @@ const typeIn = async (text) => {
   }
   await settle(10);
 };
+const tap = async (node, rounds = 60) => {
+  if (node) {
+    fire(node, 'pointerdown', { pointerType: 'touch', button: 0, buttons: 1 });
+    fire(node, 'click', { button: 0, detail: 1 });
+  }
+  await settle(rounds);
+};
 /** الفأرة تنزل على عنصر كالمتصفّح: ينقل التركيز إليه ما لم يُمنع mousedown (فيطلق focusout على المركَّز قبله). يرجّع: هل مُنع. */
 const mouseDownOn = async (node, init = {}) => {
   const before = focused();
@@ -687,6 +694,27 @@ export default async function (t) {
       const events = ['ArrowLeft', 'ArrowRight', 'ArrowDown', 'Home', 'End', 'PageDown'].map((key) => fire(focused(), 'keydown', { key, altKey: true }));
       await settle(30);
       t.same([events.map((event) => event.defaultPrevented), cursorAt()], [Array(6).fill(false), before], 'R12 Alt+← وAlt+→ (وكلّ مفتاح مع Alt) تمرّ إلى المتصفّح: لا تُمنع ولا تحرّك الخانة النشطة');
+    });
+
+    // ── R13: ورقة الخانة (اللمس) في التراجع ──────────────────────────────────────────────────────────────────────────
+    await step('R13', async () => {
+      let version = 1;
+      const { sent } = await open(BROILER, { hall_sheet: slowRereads() }, { send: async () => ({ kind: 'saved', version: ++version }) });
+      await pencil();
+      // A (لوحة المفاتيح): غاز 02/12 إلى 3.
+      await moveTo(19, 3);
+      await press('3');
+      await press('Enter', {}, 160);
+      // B (إصبع): هلاكات اليوم ← الورقة السفلية ← 7 ← «تم».
+      await tap(td(20, 2));
+      const sheet = dialogs()[0] ?? null;
+      const padKey = (value) => (sheet ? descendants(sheet).find((n) => n.localName === 'button' && n.getAttribute('aria-label') === value) ?? null : null);
+      await click(padKey('7'), 20);
+      await click(sheet ? descendants(sheet).find((n) => n.getAttribute('data-action') === 'cell-done') ?? null : null, 160);
+      const afterB = ops(sent).map(([fn, day, payload]) => [fn, day, payload.cylinders ?? payload.dead]);
+      await click(byAction('grid-undo')[0], 160);
+      t.same(afterB, [['set_flock_gas', dayOf(19), 3], ['save_flock_day', TODAY, 7]], 'R13 ضابط: A (غاز 02/12 إلى 3) بلوحة المفاتيح، ثمّ B (هلاكات 03/12 إلى 7) بالورقة السفلية');
+      t.same(ops(sent).slice(2).map(([fn, day, payload]) => [fn, day, payload.cylinders ?? payload.dead]), [['save_flock_day', TODAY, 4]], 'R13 «تراجع» بعد تعديل الورقة السفلية B يتراجع عن B (الهلاكات إلى 4)، لا عن تعديل لوحة المفاتيح قبله');
     });
   } finally {
     if (savedRect) Object.defineProperty(Element.prototype, 'getBoundingClientRect', savedRect);

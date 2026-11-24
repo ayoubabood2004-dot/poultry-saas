@@ -18,8 +18,8 @@ import { at, cellsOf, digitKey, editKey, enterMove, gridKey, isRange, parseCount
 // ما يحس بالفرق… حاول توفر كل وسائل الراحة وسهولة الاستخدام الي تعرفها حتى لو ما اذكرها الك»). الجدول نفسه (DataTable بأعمدة الورقة) في الوضعين، وهذا
 // المكوّن يلفّه: مقفولاً لا خانة تُلمس ولا زرّ فيها، وفي وضع التعديل شبكة (role="grid") بخانة نشطة ونطاق، والأسهم بموضعها على الشاشة، وEnter وTab والكتابة
 // فوق القيمة وF2 والنقرتان وEsc وDelete وHome/End وCtrl+Home/End وPageUp/PageDown وCtrl مع سهم، والنسخ واللصق بنصّ إكسل بعد تأكيد يسمّي كلّ يوم وقيمته،
-// والتراجع والإعادة، ومجموع النطاق كشريط حال إكسل. واللمس (أو شاشة اللمس): لمسة الخانة تفتح ورقتها السفلية القائمة.
-// وخانة العلف تفتح نافذة العلف ولا يُصرف شيء بضغطة (جواب المالك). والكتابة كلّها من الورقة نفسها (commit: save_flock_day
+// والتراجع والإعادة، ومجموع النطاق كشريط حال إكسل. واللمس (أو شاشة اللمس): لمسة الخانة تفتح ورقتها السفلية القائمة،
+// وما تحفظه يدخل التراجع كالمكتوب. وخانة العلف تفتح نافذة العلف ولا يُصرف شيء بضغطة (جواب المالك). والكتابة كلّها من الورقة نفسها (commit: save_flock_day
 // بنسخة صفّ اليوم وset_flock_gas بالطابور والرافع الواحد)، والقيمة تظهر فور الحفظ («بانتظار الرفع» حتى يُعرف مصيرها)، وما رُدّ يُقال في خانته. والتحديد
 // والمحرّر بيوم الخانة وعمودها لا برقم صفّها (المراجعة العدائية R3)، والمحرّر المفتوح تعديلٌ لم يُحفظ (R2) لا يفقد تركيزه بنقرة (R1، R6).
 
@@ -54,8 +54,14 @@ export interface CellChange {
  * ورفعه في الطريق، أو قراءتها؛ المراجعة R11)، والكتابة (commit) بما في الطابور لحظتها.
  */
 export type ChangeCheck = { kind: 'ok'; shown: string } | { kind: 'error'; error: string };
-/** مصير تغيير: saved في الخادم، أو device على هذا الجهاز ينتظر الرفع، أو same، أو error (لم يُكتب: سببه)، أو failed (رُدّ: سببه). */
-export type ChangeResult = { kind: 'saved' } | { kind: 'device' } | { kind: 'same' } | { kind: 'error'; error: string } | { kind: 'failed'; message: string };
+/**
+ * مصير تغيير: saved في الخادم، أو device على هذا الجهاز ينتظر الرفع، أو same، أو error (لم يُكتب: سببه)، أو failed (لم يُحفظ: سببه؛ وrefused حين ردّه الخادم
+ * وقيل بتنبيه).
+ */
+export type ChangeResult = { kind: 'saved' } | { kind: 'device' } | { kind: 'same' } | { kind: 'error'; error: string } | { kind: 'failed'; message: string; refused?: boolean };
+
+/** كتابة خانة من ورقتها السفلية بالجدول نفسه: القيمة (عدد، أو نصّ الملاحظة، أو null: امسح الغاز) ومصيرها. */
+export type SheetSubmit = (value: CellValue) => Promise<ChangeResult>;
 
 /** محتوى خانة يرسمه الجدول نفسه: بقيمة أخرى تُعرض مكان قيمته (ما حُفظ للتوّ ولم تصلها القراءة) و«بانتظار الرفع»، أو بلا شيء (قيمته كما هي). */
 export type CellRender = (override?: { value: CellValue; pending: boolean }) => ReactNode;
@@ -81,8 +87,8 @@ export interface SheetGridProps {
   label(field: GridField): string;
   check(changes: readonly CellChange[]): ChangeCheck[];
   commit(changes: readonly CellChange[]): Promise<ChangeResult[]>;
-  /** اللمس: ورقة الخانة السفلية (CellSheet). */
-  openSheet(day: SheetDay, field: WriteField): void;
+  /** اللمس: ورقة الخانة السفلية (CellSheet)، تكتب بـsubmit من الجدول نفسه فيدخل ما تحفظه التراجع والإعادة كالمكتوب بلوحة المفاتيح (المراجعة R13). */
+  openSheet(day: SheetDay, field: WriteField, submit: SheetSubmit): void;
   /** نافذة العلف لذلك اليوم (FeedSheet). */
   openFeed(day: SheetDay): void;
   children(view: SheetGridView): ReactNode;
@@ -519,6 +525,18 @@ export function SheetGrid(props: SheetGridProps) {
       return results;
     })();
   };
+
+  /** ورقة الخانة السفلية (اللمس) تكتب من هنا: ما تحفظه يُعرض في خانته ويدخل التراجع والإعادة كالمكتوب بلوحة المفاتيح (المراجعة R13). */
+  const sheetSubmit =
+    (target: { on: Day; field: WriteField }): SheetSubmit =>
+    async (value) => {
+      if (sameShownValue(target.field, value, valueOf(target))) return { kind: 'same' };
+      const change: CellChange = { on: target.on, field: target.field, value };
+      const [check] = propsRef.current.check([change]);
+      if (check?.kind === 'error') return { kind: 'error', error: check.error };
+      const [result] = await submit([change], { kind: 'fresh' }, 'quiet');
+      return result ?? { kind: 'same' };
+    };
 
   // ─── التعديل داخل الخانة ─────────────────────────────────────────────────────────────────────────────────────────
 
@@ -1003,7 +1021,7 @@ export function SheetGrid(props: SheetGridProps) {
     const field = cell.field;
     if (!day || !info) return;
     if (info.access === 'feed') props.openFeed(day);
-    else if (info.access === 'write' && isWrite(field)) props.openSheet(day, field);
+    else if (info.access === 'write' && isWrite(field)) props.openSheet(day, field, sheetSubmit({ on: day.on, field }));
     else say(readHint(info));
   };
 

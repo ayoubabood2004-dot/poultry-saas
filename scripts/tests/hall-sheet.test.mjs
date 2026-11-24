@@ -687,7 +687,9 @@ export default async function (t) {
     });
 
     await step('K5 خانة الهلاكات بلوحة الحاسوب وEnter يحفظ', async () => {
-      const { sent } = fresh('hall_worker', sheetSetup());
+      // مستخدم وحده: ورقة الخانة تكتب بالجدول (مراجعة 0036 R13)، و«بلا تغيير» بما تعرضه الخانة، ومخزن الرفع (roundQueueStore) يحمل من E1 أنّ هلاكات
+      // اليوم 7 لـ«u-hs» فتعرضها الخانة 7 وكتابة 7 بلا تغيير.
+      const { sent } = fresh('hall_worker', sheetSetup(), { userId: 'u-k5' });
       await mount(`/broiler/hall/${H7}`);
       await pencil();
       await tap(cellIn(TODAY, 'cell-dead'));
