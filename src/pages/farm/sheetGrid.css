@@ -1,0 +1,222 @@
+/* ورقة القاعة في وضع التعديل كإكسل (عقد 0036 الجزء S2، كلمة المالك 2026-11-24). ملف كسول تستورده SheetGrid.tsx فيدخل CSS حزمة القاعات (HallsRoutes-*.css:
+   خارج الإقلاع والتثبيت المسبق بالاسم) كـdoc.css في المبيعات: لا صنف Tailwind جديد في أيّ ملف (CSS الإقلاع بسقفه). الألوان كلّها رموز tokens.css (الفاتح
+   والداكن و«وضوح» معاً)، والتحديد إطار ولون معاً، والحالات نصّ دائماً (اللون مساعد). */
+
+/* ─── شريط القلم وشريط وضع التعديل ─────────────────────────────────────────────────────────────────────────── */
+
+.sg-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.sg-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  border: 2px solid rgb(var(--ring));
+  border-radius: 1rem;
+  background-color: rgb(var(--ring) / 0.08);
+  padding: 0.75rem 1rem;
+}
+
+.sg-bar-top {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.sg-bar-title {
+  font-weight: 600;
+  font-size: 1.125rem;
+  color: rgb(var(--ink));
+}
+
+.sg-bar-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.sg-guide {
+  font-size: 0.875rem;
+  line-height: 1.6;
+  color: rgb(var(--ink-muted));
+}
+
+.sg-guide kbd {
+  display: inline-block;
+  min-width: 1.5rem;
+  border: 1px solid rgb(var(--line-strong));
+  border-bottom-width: 2px;
+  border-radius: 0.375rem;
+  background-color: rgb(var(--surface-1));
+  padding: 0 0.3rem;
+  font-family: inherit;
+  font-size: 0.8125rem;
+  text-align: center;
+  color: rgb(var(--ink));
+  direction: ltr;
+  unicode-bidi: isolate;
+}
+
+/* مربّع الاسم كإكسل: الخانة النشطة أو مجموع النطاق، وتحته رسالة الشريط. */
+.sg-status {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.25rem 1rem;
+  font-size: 0.875rem;
+  color: rgb(var(--ink));
+}
+
+.sg-name {
+  font-weight: 600;
+}
+
+.sg-message {
+  font-weight: 600;
+  color: rgb(var(--ink));
+}
+
+/* دليل الحاسوب على شاشة بفأرة، ودليل اللمس على شاشة اللمس. */
+@media (pointer: coarse) {
+  .sg-keys {
+    display: none;
+  }
+}
+
+@media not (pointer: coarse) {
+  .sg-touch {
+    display: none;
+  }
+}
+
+/* ─── الجدول في وضع التعديل ─────────────────────────────────────────────────────────────────────────────────── */
+
+.sg-on table {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.sg-on td[data-cell] {
+  cursor: cell;
+  /* الرأس الثابت لا يغطّي الخانة حين تُمرَّر إليها. */
+  scroll-margin-top: 3.5rem;
+  scroll-margin-bottom: 0.25rem;
+}
+
+/* النطاق المحدّد: صبغة بلون العلامة. */
+.sg-on td[aria-selected='true'] {
+  background-color: rgb(var(--ring) / 0.12);
+}
+
+/* الخانة النشطة: إطار واضح بلون العلامة مكان حلقة تركيز المتصفّح (ولوحة المفاتيح أعرض). */
+.sg-on td[data-cursor],
+.sg-on td[data-cursor]:focus {
+  outline-style: solid;
+  outline-width: 2px;
+  outline-color: rgb(var(--ring));
+  outline-offset: -2px;
+  background-color: rgb(var(--surface-1));
+}
+
+.sg-on td[data-cursor]:focus-visible {
+  outline-width: 3px;
+  outline-offset: -3px;
+}
+
+/* ما نُسخ: إطار متقطّع حتى Esc أو تعديل (كإكسل). */
+.sg-on td[data-copied] {
+  outline-style: dashed;
+  outline-width: 2px;
+  outline-color: rgb(var(--ring) / 0.75);
+  outline-offset: -3px;
+}
+
+.sg-on td[data-copied][data-cursor] {
+  outline-style: solid;
+  outline-color: rgb(var(--ring));
+}
+
+/* رأس العمود المحدّد وخانتا الصفّ المحدّد (العمر والتاريخ) مظلّلة كرؤوس إكسل. */
+.sg-on th[data-sel] {
+  /* الرأس ثابت فوق الصفوف بالتمرير: الصبغة طبقة فوق لونه المعتم (لا لون شفّاف تظهر الصفوف من تحته). */
+  background-image: linear-gradient(rgb(var(--ring) / 0.22), rgb(var(--ring) / 0.22));
+  color: rgb(var(--ink));
+}
+
+.sg-on td[data-rowsel] {
+  background-color: rgb(var(--ring) / 0.16);
+  font-weight: 600;
+}
+
+/* خانة لا تُكتب (يوم لم يأتِ): أخفت. */
+.sg-on td[data-locked] {
+  color: rgb(var(--ink-subtle));
+  background-color: rgb(var(--surface-2));
+}
+
+/* ─── المحرّر داخل الخانة ───────────────────────────────────────────────────────────────────────────────────── */
+
+.sg-editor {
+  position: relative;
+  display: block;
+  min-height: 1.5em;
+}
+
+/* قيمة الخانة كما كانت، خفيّة: تحفظ للخانة عرضها وارتفاعها فلا يتحرّك الجدول والمحرّر مفتوح. */
+.sg-ghost {
+  visibility: hidden;
+}
+
+.sg-input {
+  position: absolute;
+  inset: 0;
+  box-sizing: border-box;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  border: 0;
+  border-radius: 0.25rem;
+  background-color: rgb(var(--surface-1));
+  padding: 0 0.25rem;
+  font: inherit;
+  color: rgb(var(--ink));
+  outline-style: none;
+  box-shadow: 0 0 0 2px rgb(var(--ring));
+}
+
+/* الرقم من اليسار إلى اليمين وآحاده على طرف الخانة الأيمن كعمود DataTable الرقميّ. */
+.sg-input[data-kind='number'] {
+  direction: ltr;
+  text-align: right;
+  font-variant-numeric: tabular-nums;
+}
+
+/* رسالة الخانة (خطأ ما كُتب، أو ما لم يُحفظ): تلتفّ داخل الخانة؛ ولونها من أصناف الخطر الموجودة (text-danger-700 وdark:text-danger-300). */
+.sg-error,
+.sg-issue {
+  display: block;
+  margin-top: 0.25rem;
+  font-size: 0.75rem;
+  font-weight: 600;
+  line-height: 1.4;
+  white-space: normal;
+  text-align: start;
+  direction: rtl;
+}
+
+/* ─── الطباعة: لا أشرطة تعديل ───────────────────────────────────────────────────────────────────────────────── */
+
+@media print {
+  .sg-tools,
+  .sg-bar {
+    display: none;
+  }
+}

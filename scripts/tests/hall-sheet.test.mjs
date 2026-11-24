@@ -124,6 +124,23 @@ const pressKey = async (target, value, rounds = 5) => {
   if (target) fire(target, 'keydown', { key: value });
   await settle(rounds);
 };
+/**
+ * لمسة إصبع على خانة (pointerdown من اللمس ثمّ click): الورقة مقفولة حتى القلم (عقد 0036 S2)، وفي وضع التعديل لمسة الخانة تفتح ورقتها السفلية أو نافذة العلف
+ * كما كانت لمستها تفتحها قبل القفل.
+ */
+const tap = async (node, rounds = 60) => {
+  if (node) {
+    fire(node, 'pointerdown', { pointerType: 'touch', button: 0, buttons: 1 });
+    fire(node, 'click', { button: 0, detail: 1 });
+  }
+  await settle(rounds);
+};
+/** «✎ تعديل الجدول»: وضع التعديل. */
+const pencil = async () => {
+  const button = byAction('sheet-pencil')[0] ?? null;
+  if (button) fire(button, 'click', { button: 0, detail: 1 });
+  await settle(30);
+};
 /** الرقم المعروض في لوحة الأرقام داخل النافذة. */
 const padText = (dialog) => {
   const shown = dialog ? byAction('weight-display', dialog)[0] : null;
@@ -385,7 +402,8 @@ export default async function (t) {
     await step('E1 هلاكات اليوم بثلاث لمسات', async () => {
       const { sent, calls } = fresh('hall_worker', sheetSetup());
       await mount(`/broiler/hall/${H7}`);
-      await click(cellIn(TODAY, 'cell-dead'));
+      await pencil();
+      await tap(cellIn(TODAY, 'cell-dead'));
       const dialog = dialogTitled('الهلاكات — يوم 03/12/2026');
       t.same([Boolean(dialog), textOf('cell-current', dialog ?? body())], [true, 'المسجّل الآن: 4'], 'E1 لمسة الخانة تفتح ورقة الهلاكات بلوحة الأرقام والمسجّل');
       await click(key(dialog, '7'));
@@ -401,7 +419,8 @@ export default async function (t) {
     await step('E2 المستبعد القديم يُصفَّر', async () => {
       const { sent } = fresh('hall_worker', sheetSetup());
       await mount(`/broiler/hall/${H7}`);
-      await click(cellIn('2026-11-15', 'cell-dead'));
+      await pencil();
+      await tap(cellIn('2026-11-15', 'cell-dead'));
       const dialog = dialogTitled('الهلاكات — يوم 15/11/2026');
       t.ok(textOf('cell-current', dialog ?? body())?.includes('منها 2 مستبعد قديم'), 'E2 الورقة تقول إنّ المستبعد القديم داخل الرقم');
       await click(key(dialog, '4'));
@@ -412,9 +431,15 @@ export default async function (t) {
     await step('E3 يوم قبل 20 يوماً', async () => {
       const { sent } = fresh('hall_worker', sheetSetup());
       await mount(`/broiler/hall/${H7}`);
+      await pencil();
       const old = '2026-11-13';
-      t.same([cellIn(old, 'cell-dead')?.localName, cellIn(old, 'cell-gas')?.localName, cellIn(old, 'cell-note')?.localName], ['button', 'button', 'button'], 'E3 خانات يومٍ قبل 20 يوماً تُلمس (لا حدّ أيام سبعة)');
-      await click(cellIn(old, 'cell-dead'));
+      const tdOf = (action) => ancestor(cellIn(old, action), (n) => n.localName === 'td');
+      t.same(
+        ['cell-dead', 'cell-gas', 'cell-note'].map((action) => [cellIn(old, action)?.localName, tdOf(action)?.getAttribute('role'), tdOf(action)?.getAttribute('aria-readonly')]),
+        [['span', 'gridcell', null], ['span', 'gridcell', null], ['span', 'gridcell', null]],
+        'E3 خانات يومٍ قبل 20 يوماً تُكتب في وضع التعديل (لا حدّ أيام سبعة): خانات شبكة بلا aria-readonly، ولا زرّ فيها',
+      );
+      await tap(cellIn(old, 'cell-dead'));
       await click(key(dialogTitled('الهلاكات'), '2'));
       await click(byAction('cell-done', dialogTitled('الهلاكات') ?? body())[0], 120);
       t.same(sent.map((op) => [op.day, op.payload.dead, op.baseVersion]), [[old, 2, null]], 'E3 تُحفظ بالخطوات نفسها، بنسخة null (لا صفّ بعد)');
@@ -423,15 +448,16 @@ export default async function (t) {
     await step('E4 الغاز بالطابور', async () => {
       const { sent } = fresh('hall_worker', sheetSetup(), { userId: 'u-gas' });
       await mount(`/broiler/hall/${H7}`);
+      await pencil();
       m.onlineStore.set(false);
       await settle();
       const day = '2026-11-17';
-      await click(cellIn(day, 'cell-gas'));
+      await tap(cellIn(day, 'cell-gas'));
       t.ok(textOf('cell-offline', dialogTitled('الغاز') ?? body())?.includes('بلا اتصال'), 'E4 بلا اتصال: الورقة تقول إنّه يُحفظ على الجهاز');
       await click(key(dialogTitled('الغاز'), '3'));
       await click(byAction('cell-done', dialogTitled('الغاز') ?? body())[0], 120);
       t.same([sent.length, cells(rowOn(day))[3]], [0, '3بانتظار الرفع'], 'E4 بلا نت لا إرسال، والخانة بقيمتها و«بانتظار الرفع»');
-      await click(cellIn(day, 'cell-gas'));
+      await tap(cellIn(day, 'cell-gas'));
       await click(key(dialogTitled('الغاز'), '5'));
       await click(byAction('cell-done', dialogTitled('الغاز') ?? body())[0], 120);
       const { pending } = await queue('u-gas');
@@ -440,7 +466,7 @@ export default async function (t) {
       await settle(120);
       await click(byAction('hall-reread')[0] ?? null);
       // الرفع يحدث مع الحفظ التالي أو من الجولة؛ هنا من خانة أخرى بنت.
-      await click(cellIn(day, 'cell-gas'));
+      await tap(cellIn(day, 'cell-gas'));
       await click(key(dialogTitled('الغاز'), '6'));
       await click(byAction('cell-done', dialogTitled('الغاز') ?? body())[0], 120);
       t.same(sent.map((op) => [op.fn, op.payload.cylinders]), [['set_flock_gas', 6]], 'E4 بنت: عملية غاز واحدة بآخر قيمة (set_flock_gas)');
@@ -450,7 +476,8 @@ export default async function (t) {
     await step('E5 الملاحظة', async () => {
       const { sent } = fresh('hall_worker', sheetSetup());
       await mount(`/broiler/hall/${H7}`);
-      await click(cellIn('2026-11-16', 'cell-note'));
+      await pencil();
+      await tap(cellIn('2026-11-16', 'cell-note'));
       const dialog = dialogTitled('الملاحظات');
       const area = dialog ? descendants(dialog).find((n) => n.localName === 'textarea') : null;
       t.eq(area?.value, 'تلقيح نيوكاسل', 'E5 الملاحظة بنصّها');
@@ -482,7 +509,8 @@ export default async function (t) {
     await step('E7 حدّ الحيّ', async () => {
       const { sent } = fresh('hall_worker', sheetSetup());
       await mount(`/broiler/hall/${H7}`);
-      await click(cellIn(TODAY, 'cell-dead'));
+      await pencil();
+      await tap(cellIn(TODAY, 'cell-dead'));
       const dialog = dialogTitled('الهلاكات');
       for (const digit of ['9', '9', '9', '9']) await click(key(dialog, digit), 5);
       await click(byAction('cell-done', dialog ?? body())[0], 60);
@@ -494,7 +522,8 @@ export default async function (t) {
     await step('F1 علف اليوم بثلاث لمسات', async () => {
       const { calls } = fresh('hall_worker', sheetSetup(BROILER, { send_flock_feed: (request) => feedOk(request) }));
       await mount(`/broiler/hall/${H7}`);
-      await click(cellIn(TODAY, 'cell-feed'));
+      await pencil();
+      await tap(cellIn(TODAY, 'cell-feed'));
       const dialog = dialogTitled('علف يوم 03/12/2026');
       const sentTable = dialog ? tableBy('ما أُرسل لهذا اليوم') : null;
       t.same([bodyRows(sentTable).map((tr) => cells(tr).slice(0, 4)), byAction('feed-void', dialog ?? body()).length], [[['علف نامي', '300', 'كغم', '03/12/2026']], 1], 'F1 ورقة اليوم بما أُرسل له و«ألغِ»');
@@ -521,8 +550,9 @@ export default async function (t) {
     await step('F2 علف يوم فات', async () => {
       const { calls } = fresh('hall_worker', sheetSetup(BROILER, { send_flock_feed: (request) => feedOk(request) }));
       await mount(`/broiler/hall/${H7}`);
+      await pencil();
       t.eq(byAction('sheet-feed')[0]?.textContent, 'أرسل علفاً', 'F2 ضابط');
-      await click(cellIn('2026-11-21', 'cell-feed'));
+      await tap(cellIn('2026-11-21', 'cell-feed'));
       const dialog = dialogTitled('علف يوم 21/11/2026');
       await click(descendants(dialog ?? body()).find((n) => n.getAttribute('role') === 'radio' && n.textContent === 'كغم') ?? null);
       for (const digit of ['1', '2', '0']) await click(key(dialog, digit), 5);
@@ -540,14 +570,15 @@ export default async function (t) {
         },
       }));
       await mount(`/broiler/hall/${H7}`);
-      await click(cellIn(TODAY, 'cell-feed'));
+      await pencil();
+      await tap(cellIn(TODAY, 'cell-feed'));
       await click(key(dialogTitled('علف يوم'), '1'));
       await click(byAction('feed-send')[0], 120);
       t.same([textOf('feed-pending')?.startsWith('علف يوم 03/12/2026 لم يُعرف مصيره: أعد المحاولة.'), lines(byAction('feed-retry')[0])], [true, ['أعد المحاولة', 'علف يوم 03/12/2026: 50 كغم من «علف نامي»']], 'F3 لا نعرف إن صُرف: الطلب مجمَّد بيومه و«أعد المحاولة»');
       await click(byAction('dialog-close')[0]);
       await click(byAction('dialog-discard')[0] ?? null);
       t.eq(dialogTitled('علف يوم'), null, 'F3 ضابط: الورقة أُغلقت');
-      await click(cellIn(TODAY, 'cell-feed'));
+      await tap(cellIn(TODAY, 'cell-feed'));
       t.ok(textOf('feed-retry')?.includes('علف يوم 03/12/2026: 50 كغم من «علف نامي»'), 'F3 إعادة فتح الورقة تعود مجمَّدة بالطلب نفسه (محفوظ خارج المكوّن)');
       await click(byAction('feed-retry')[0], 120);
       const [first, second] = named(calls, 'send_flock_feed').map(([r]) => r);
@@ -557,7 +588,8 @@ export default async function (t) {
     await step('F4 «ألغِ»', async () => {
       const { calls } = fresh('manager', sheetSetup(BROILER, { void_flock_issue: () => ({ status: 'void', id: 'x', doc_no: 'FI-2026-0303', voided_on: TODAY }) }));
       await mount(`/broiler/hall/${H7}`);
-      await click(cellIn('2026-11-20', 'cell-feed'));
+      await pencil();
+      await tap(cellIn('2026-11-20', 'cell-feed'));
       await click(byAction('feed-void')[0]);
       t.eq(textOf('feed-void-text'), 'يُلغى صرف 200 كغم من «علف بادئ» ليوم 20/11/2026 (المستند FI-2026-0303)، ويعود العلف إلى «رصيد العلف» بحركة عكسية بتاريخ اليوم.', 'F4 التأكيد يسمّي المادّة والكمية واليوم والمستند ونتيجته');
       t.eq(named(calls, 'void_flock_issue').length, 0, 'F4 لا إلغاء قبل التأكيد');
@@ -583,7 +615,8 @@ export default async function (t) {
     await step('K1 أرقام الحاسوب تُكتب في ورقة العلف فور فتحها، وEnter يرسل', async () => {
       const { calls } = fresh('hall_worker', sheetSetup(BROILER, { send_flock_feed: (request) => feedOk(request) }));
       await mount(`/broiler/hall/${H7}`);
-      await click(cellIn(TODAY, 'cell-feed'));
+      await pencil();
+      await tap(cellIn(TODAY, 'cell-feed'));
       const dialog = dialogTitled('علف يوم 03/12/2026');
       await click(kgRadio(dialog));
       for (const digit of ['1', String.fromCodePoint(0x662), '0']) await pressKey(dialog, digit);
@@ -601,7 +634,8 @@ export default async function (t) {
     await step('K2 الرقم المحدَّد تستبدله أوّل ضغطة', async () => {
       fresh('hall_worker', sheetSetup(BROILER, { send_flock_feed: (request) => feedOk(request) }));
       await mount(`/broiler/hall/${H7}`);
-      await click(cellIn(TODAY, 'cell-feed'));
+      await pencil();
+      await tap(cellIn(TODAY, 'cell-feed'));
       const dialog = dialogTitled('علف يوم 03/12/2026');
       await click(kgRadio(dialog));
       for (const digit of ['1', '2', '3']) await pressKey(dialog, digit);
@@ -619,7 +653,8 @@ export default async function (t) {
     await step('K3 أكثر ممّا عندك: يُقال وهو يُكتب و«أرسل» مقفول', async () => {
       const { calls } = fresh('hall_worker', sheetSetup(BROILER, { send_flock_feed: (request) => feedOk(request) }));
       await mount(`/broiler/hall/${H7}`);
-      await click(cellIn(TODAY, 'cell-feed'));
+      await pencil();
+      await tap(cellIn(TODAY, 'cell-feed'));
       const dialog = dialogTitled('علف يوم 03/12/2026');
       await click(kgRadio(dialog));
       for (const digit of ['2', '0', '0', '0']) await pressKey(dialog, digit);
@@ -636,7 +671,8 @@ export default async function (t) {
     await step('K4 Enter على زرّ آخر له فعله، والأرقام لا تُكتب تحت نافذة فوقها', async () => {
       const { calls } = fresh('manager', sheetSetup(BROILER, { send_flock_feed: (request) => feedOk(request) }));
       await mount(`/broiler/hall/${H7}`);
-      await click(cellIn('2026-11-20', 'cell-feed'));
+      await pencil();
+      await tap(cellIn('2026-11-20', 'cell-feed'));
       const dialog = dialogTitled('علف يوم 20/11/2026');
       await click(kgRadio(dialog));
       await pressKey(dialog, '3');
@@ -653,7 +689,8 @@ export default async function (t) {
     await step('K5 خانة الهلاكات بلوحة الحاسوب وEnter يحفظ', async () => {
       const { sent } = fresh('hall_worker', sheetSetup());
       await mount(`/broiler/hall/${H7}`);
-      await click(cellIn(TODAY, 'cell-dead'));
+      await pencil();
+      await tap(cellIn(TODAY, 'cell-dead'));
       const dialog = dialogTitled('الهلاكات — يوم 03/12/2026');
       await pressKey(dialog, '7');
       await pressKey(dialog, 'Enter', 120);
@@ -664,7 +701,8 @@ export default async function (t) {
     await step('Q المركون باقٍ ويُدلّ عليه', async () => {
       fresh('hall_worker', sheetSetup(), { userId: 'u-park', send: async () => ({ kind: 'parked', reason: 'period_locked' }) });
       await mount(`/broiler/hall/${H7}`);
-      await click(cellIn('2026-11-22', 'cell-gas'));
+      await pencil();
+      await tap(cellIn('2026-11-22', 'cell-gas'));
       await click(key(dialogTitled('الغاز'), '2'));
       await click(byAction('cell-done', dialogTitled('الغاز') ?? body())[0], 120);
       const { pending, review } = await queue('u-park');
@@ -694,9 +732,10 @@ export default async function (t) {
       let n = 0;
       const { sent, calls } = fresh('hall_worker', sheetSetup(BROILER, { hall_sheet: slowRereads() }), { userId: 'u-h1', send: async () => ({ kind: 'saved', version: 1 + ++n }) });
       await mount(`/broiler/hall/${H7}`);
+      await pencil();
       m.onlineStore.set(false);
       await settle();
-      await click(cellIn(TODAY, 'cell-dead'));
+      await tap(cellIn(TODAY, 'cell-dead'));
       await click(key(dialogTitled('الهلاكات'), '7'));
       await doneIn('الهلاكات');
       t.same([sent.length, cells(rowOn(TODAY))[2]], [0, '7بانتظار الرفع'], 'H1 ضابط: بلا نت على الجهاز «بانتظار الرفع»');
@@ -707,7 +746,7 @@ export default async function (t) {
         [[[7, 1]], '7', 2],
         'H1 بعد رفع الخلفية: الخانة 7 محفوظةً (لا ترجع إلى 4 ولا «بانتظار الرفع») والقراءة الجديدة لم تصل، والورقة تُقرأ من جديد',
       );
-      await click(cellIn(TODAY, 'cell-dead'));
+      await tap(cellIn(TODAY, 'cell-dead'));
       t.eq(textOf('cell-current', dialogTitled('الهلاكات') ?? body()), 'المسجّل الآن: 7', 'H1 الورقة تقول المحفوظ (7)');
       await click(key(dialogTitled('الهلاكات'), '9'));
       await doneIn('الهلاكات');
@@ -718,10 +757,11 @@ export default async function (t) {
       let n = 0;
       const { sent } = fresh('hall_worker', sheetSetup(BROILER, { hall_sheet: slowRereads() }), { userId: 'u-h2', send: async () => ({ kind: 'saved', version: 1 + ++n }) });
       await mount(`/broiler/hall/${H7}`);
-      await click(cellIn(TODAY, 'cell-dead'));
+      await pencil();
+      await tap(cellIn(TODAY, 'cell-dead'));
       await click(key(dialogTitled('الهلاكات'), '7'));
       await doneIn('الهلاكات');
-      await click(cellIn(TODAY, 'cell-note'));
+      await tap(cellIn(TODAY, 'cell-note'));
       const dialog = dialogTitled('الملاحظات');
       type(dialog ? descendants(dialog).find((n2) => n2.localName === 'textarea') : null, 'تهوية');
       await settle();
@@ -733,16 +773,17 @@ export default async function (t) {
       const versions = { set_flock_gas: 0, save_flock_day: 1 };
       const { sent } = fresh('hall_worker', sheetSetup(BROILER, { hall_sheet: slowRereads() }), { userId: 'u-h3', send: async (op) => ({ kind: 'saved', version: ++versions[op.fn] }) });
       await mount(`/broiler/hall/${H7}`);
+      await pencil();
       const day = '2026-11-17';
       m.onlineStore.set(false);
       await settle();
-      await click(cellIn(day, 'cell-gas'));
+      await tap(cellIn(day, 'cell-gas'));
       await click(key(dialogTitled('الغاز'), '3'));
       await doneIn('الغاز');
       m.onlineStore.set(true);
       await background('u-h3');
       t.eq(cells(rowOn(day))[3], '3', 'H3 الغاز المحفوظ يبقى ظاهراً بعد رفع الخلفية (لا يرجع فارغاً)');
-      await click(cellIn(day, 'cell-gas'));
+      await tap(cellIn(day, 'cell-gas'));
       await click(key(dialogTitled('الغاز'), '5'));
       await doneIn('الغاز');
       t.same(sent.map((op) => [op.payload.cylinders, op.baseVersion]), [[3, null], [5, 1]], 'H3 تعديل الغاز بعد رفعه بنسخة صفّه المحفوظ (1) لا null فيُرَدّ stale_gas');
@@ -752,8 +793,9 @@ export default async function (t) {
       const decided = [];
       fresh('hall_worker', sheetSetup(BROILER, { decide_flock_reject: (id, decision, version) => (decided.push([id, decision, version]), clone(FIX.decide_flock_reject.saved)) }), { userId: 'u-d1', send: async () => ({ kind: 'parked', reason: 'period_locked' }) });
       await mount(`/broiler/hall/${H7}`);
+      await pencil();
       // هذا الجهاز ركن غاز 21/11 (قنينتان، فترة مقفلة)، والخادم يعرض المركون نفسه.
-      await click(cellIn('2026-11-21', 'cell-gas'));
+      await tap(cellIn('2026-11-21', 'cell-gas'));
       await click(key(dialogTitled('الغاز'), '2'));
       await doneIn('الغاز');
       t.same(
@@ -798,7 +840,8 @@ export default async function (t) {
     await step('E8 امسح الغاز', async () => {
       const { sent } = fresh('hall_worker', sheetSetup());
       await mount(`/broiler/hall/${H7}`);
-      await click(cellIn('2026-11-13', 'cell-gas'));
+      await pencil();
+      await tap(cellIn('2026-11-13', 'cell-gas'));
       const dialog = dialogTitled('الغاز');
       t.same([textOf('cell-current', dialog ?? body()), textOf('cell-clear', dialog ?? body()), byAction('cell-done', dialog ?? body())[0]?.getAttribute('disabled') !== null], ['المسجّل الآن: 4', 'امسح الغاز', true], 'E8 الغاز المسجّل يُمسح بزرّ «امسح الغاز» («تم» حين يُكتب رقم)');
       await click(byAction('cell-clear', dialog ?? body())[0], 120);
@@ -808,12 +851,13 @@ export default async function (t) {
     await step('F6 الطلب المجمَّد يسمّي يومه', async () => {
       fresh('hall_worker', sheetSetup(BROILER, { send_flock_feed: () => { throw new m.UnknownOutcomeError(); } }), { userId: 'u-f6' });
       await mount(`/broiler/hall/${H7}`);
-      await click(cellIn(TODAY, 'cell-feed'));
+      await pencil();
+      await tap(cellIn(TODAY, 'cell-feed'));
       await click(key(dialogTitled('علف يوم'), '1'));
       await click(byAction('feed-send')[0], 120);
       await click(byAction('dialog-close')[0]);
       await click(byAction('dialog-discard')[0] ?? null);
-      await click(cellIn('2026-11-21', 'cell-feed'));
+      await tap(cellIn('2026-11-21', 'cell-feed'));
       const dialog = dialogTitled('علف يوم 21/11/2026');
       t.same(
         [Boolean(dialog), textOf('feed-pending', dialog ?? body())?.startsWith('علف يوم 03/12/2026 لم يُعرف مصيره'), lines(byAction('feed-retry', dialog ?? body())[0])?.[1], byAction('feed-send', dialog ?? body()).length],
@@ -825,7 +869,8 @@ export default async function (t) {
     await step('F7 زرّ الإرسال بفواصل الآلاف وبسطرين', async () => {
       fresh('hall_worker', sheetSetup());
       await mount(`/broiler/hall/${H7}`);
-      await click(cellIn(TODAY, 'cell-feed'));
+      await pencil();
+      await tap(cellIn(TODAY, 'cell-feed'));
       const dialog = dialogTitled('علف يوم 03/12/2026');
       // «علف بادئ» (عندك 1,200 كغم): 1,000 كغم في حدود ما عنده (2,500 من «علف نامي» صارت أكثر ممّا عنده، فالزرّ مقفول بسببه، K3).
       await click(byAction('feed-item', dialog ?? body()).find((n2) => n2.textContent.startsWith('علف بادئ')) ?? null);
@@ -837,8 +882,9 @@ export default async function (t) {
     await step('F8 المنقول والمرتجع', async () => {
       fresh('manager', sheetSetup());
       await mount(`/broiler/hall/${H7}`);
+      await pencil();
       t.same(byAction('cell-carry', rowOn('2026-11-13') ?? body()).map((n2) => n2.textContent), ['منقول'], 'F8 علف يوم التسكين معلَّم «منقول»');
-      await click(cellIn('2026-11-13', 'cell-feed'));
+      await tap(cellIn('2026-11-13', 'cell-feed'));
       t.eq(textOf('feed-carry'), 'منقول من الوجبة السابقة: 50 كغم، داخل علف هذا اليوم (ليس صرفاً من المخزن).', 'F8 ورقة العلف تقول المنقول من الوجبة السابقة');
     });
 
@@ -858,8 +904,9 @@ export default async function (t) {
     await step('T1 أهداف اللمس 44 نقطة', async () => {
       fresh('manager', sheetSetup());
       await mount(`/broiler/hall/${H7}`);
+      await pencil();
       const rejectButtons = [...byAction('reject-handled'), ...byAction('reject-refused')];
-      await click(cellIn(TODAY, 'cell-feed'));
+      await tap(cellIn(TODAY, 'cell-feed'));
       const dialog = dialogTitled('علف يوم 03/12/2026');
       const units = descendants(dialog ?? body()).filter((n2) => n2.getAttribute('role') === 'radio' && (n2.textContent === 'كغم' || n2.textContent === 'كيس 50 كغم'));
       t.same(
