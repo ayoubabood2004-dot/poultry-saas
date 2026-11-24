@@ -267,6 +267,12 @@ export default async function (t) {
         rules.some((rule) => printed(rule) && /\.sg-input/u.test(rule.selector) && /display:\s*none/u.test(rule.body)) && rules.some((rule) => printed(rule) && /\.sg-ghost/u.test(rule.selector) && /visibility:\s*visible/u.test(rule.body)),
         'R7 المحرّر المفتوح يُطبع بقيمة خانته المحفوظة لا بما كُتب ولم يُحفظ',
       );
+      // حلقة التركيز العامّة (:focus-visible في index.css: 2 نقطة بلون العلامة) على الخانة النشطة المركَّزة تُطبع ما لم تُرفع في الطباعة (Chromium: بعد جعل
+      // علامات الجدول للشاشة وحدها بقي إطار الخانة 2px solid).
+      t.ok(
+        rules.some((rule) => printed(rule) && rule.selector === '.sg-on td[data-cell]' && /outline:\s*none/u.test(rule.body)),
+        'R7 الطباعة ترفع حلقة التركيز العامّة عن خانة الجدول المركَّزة (لا إطار للخانة النشطة على الورق)',
+      );
       t.ok(rules.some((rule) => printed(rule) && rule.selector.includes('.sg-tools') && rule.selector.includes('.sg-bar') && /display:\s*none/u.test(rule.body)), 'M53 الطباعة بلا القلم وبلا شريط وضع التعديل');
       t.ok(rules.some((rule) => rule.selector === ".sg-on td[aria-selected='true']" && /background-color:\s*rgb\(var\(--ring\) \/ 0\.1\d\)/u.test(rule.body)), 'M54 النطاق المحدّد مصبوغ بلون العلامة');
       t.ok(rules.some((rule) => rule.selector === '.sg-on td[data-locked]' && /color:\s*rgb\(var\(--ink-subtle\)\)/u.test(rule.body) && /background-color:\s*rgb\(var\(--surface-2\)\)/u.test(rule.body)), 'M55 الخانة التي لا تُكتب أخفت (نصّ خافت على سطح ثانٍ)');
