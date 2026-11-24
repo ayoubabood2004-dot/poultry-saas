@@ -22,6 +22,8 @@ import { birdsText, signedCount } from './ticketParts';
 // بشرط النسخة التي رأتها النافذة حين فُتحت. والأعمدة كلّها بلا مال؛ وأعمدة البيض للبيّاض وحده.
 // وبالشكل الرسميّ (عقد 0036 S1): عنوان كلّ نوع شريطٌ ملوّن (h2)، والجدولان رسميّان بشريط اسميهما («أيّام الشهر» و«الأشهر من البداية») عنوانين من المستوى
 // الثالث تحته كما كانا h3 (مراجعة 0036 R3)، و«ما جرى» عنوانٌ فرعيّ.
+// و0036 (جواب المالك «عوف سالفة العلف الماكول»): عمود العلف وجملته صافي العلف المرسل (halls_history.feed_kg: لكلّ فوج يومه النازل ناقص الراجع والمنقول
+// عند الإغلاق، كورقة القاعة) وسطوره بلا وزن، لا المأكول.
 
 /** حدّ ملاحظة اليوم بعد القصّ، بالحروف كما يعدّها الخادم (private.note_text بحدّ 500، العقد). */
 export const HALLS_NOTE_MAX = 500;
@@ -102,7 +104,10 @@ export function historySentence(entry: HistoryKind): string {
   if (total.culled > 0) parts.push(t('halls.hist.s.culled', 'واستُبعد {birds}', { birds: birdsText(total.culled) }));
   if (total.sold > 0) parts.push(t('halls.hist.s.sold', 'وبيع {birds}', { birds: birdsText(total.sold) }));
   if (total.countDiff !== 0) parts.push(t('halls.hist.s.count_diff', 'وفرق العدّ {n}', { n: signedCount(total.countDiff) }));
-  if (total.feedKg > 0n) parts.push(t('halls.hist.s.feed', 'وأُكل من العلف {kg}', { kg: kgText(total.feedKg) }));
+  if (total.feedKg !== 0n || total.feedUnweighed > 0) {
+    const sent = t('halls.hist.s.feed', 'وصافي العلف المرسل إلى القاعات {kg}', { kg: kgText(total.feedKg) });
+    parts.push(total.feedUnweighed > 0 ? t('halls.hist.s.feed_unweighed', '{sent} {rest}', { sent, rest: unweighedText(total.feedUnweighed) }) : sent);
+  }
   if (total.givenKg > 0n || total.givenUnweighed > 0) {
     const given = t('halls.hist.s.given', 'ونزل إلى القاعات من العلف {kg}', { kg: kgText(total.givenKg) });
     parts.push(total.givenUnweighed > 0 ? t('halls.hist.s.given_unweighed', '{given} {rest}', { given, rest: unweighedText(total.givenUnweighed) }) : given);
@@ -163,7 +168,6 @@ export function eventsByDay(events: readonly HistoryEvent[]): { on: Day; events:
 
 const NOTE = 'block text-xs text-ink-muted';
 const count = (value: number | null): ReactNode => (value === null ? dash() : <Num>{fmtInt(value)}</Num>);
-const kgCell = (decimals: 0 | 1 | 2 | 3) => (value: Milli | null): ReactNode => (value === null ? dash() : <Num>{fmtQtyCell(value, decimals)}</Num>);
 const givenCell = (kg: Milli, unweighed: number, decimals: 0 | 1 | 2 | 3): ReactNode => (
   <>
     <Num>{fmtQtyCell(kg, decimals)}</Num>
@@ -174,6 +178,22 @@ const givenCell = (kg: Milli, unweighed: number, decimals: 0 | 1 | 2 | 3): React
     ) : null}
   </>
 );
+/** صافي العلف المرسل (0036) بكيلوه وتحته سطوره بلا وزن؛ ويومٌ بلا سطر علف «—». */
+const sentCell = (kg: Milli | null, unweighed: number, decimals: 0 | 1 | 2 | 3): ReactNode =>
+  kg === null ? (
+    dash()
+  ) : (
+    <>
+      <Num>{fmtQtyCell(kg, decimals)}</Num>
+      {unweighed > 0 ? (
+        <span className={NOTE} data-action="hist-sent-unweighed">
+          {unweighedText(unweighed)}
+        </span>
+      ) : null}
+    </>
+  );
+/** عمود العلف: صافي العلف المرسل لا المأكول (0036). */
+const SENT_HEADER = (): string => t('halls.hist.col.sent', 'صافي العلف المرسل (كغم)');
 const hdepCell = (value: bigint | null): ReactNode => (value === null ? dash() : <Num>{pct(value)}</Num>);
 /**
  * عمود النازل في السجلّ: ما نزل من المخزن وحده، والعلف المنقول من دورة سابقة في القاعة نفسها لا يُعدّ مرّة ثانية يوم تسكين الفوج الجديد (halls_history،
@@ -230,10 +250,10 @@ function dayColumns(entry: HistoryKind, monthRow: HistoryMonth | null, on: Day):
     },
     {
       key: 'feed',
-      header: t('halls.day.col.eaten', 'المأكول (كغم)'),
+      header: SENT_HEADER(),
       kind: 'number',
-      cell: (row) => kgCell(feedDecimals)(row.feedKg),
-      total: total((m) => kgCell(feedDecimals)(m.feedKg)),
+      cell: (row) => sentCell(row.feedKg, row.feedUnweighed, feedDecimals),
+      total: total((m) => sentCell(m.feedKg, m.feedUnweighed, feedDecimals)),
     },
     {
       key: 'given',
@@ -274,7 +294,13 @@ function monthColumns(entry: HistoryKind): Column<HistoryMonth>[] {
       cell: (row) => <Num>{signedCount(row.countDiff)}</Num>,
       total: <Num>{signedCount(total.countDiff)}</Num>,
     },
-    { key: 'feed', header: t('halls.day.col.eaten', 'المأكول (كغم)'), kind: 'number', cell: (row) => kgCell(feedDecimals)(row.feedKg), total: kgCell(feedDecimals)(total.feedKg) },
+    {
+      key: 'feed',
+      header: SENT_HEADER(),
+      kind: 'number',
+      cell: (row) => sentCell(row.feedKg, row.feedUnweighed, feedDecimals),
+      total: sentCell(total.feedKg, total.feedUnweighed, feedDecimals),
+    },
     {
       key: 'given',
       header: GIVEN_HEADER(),

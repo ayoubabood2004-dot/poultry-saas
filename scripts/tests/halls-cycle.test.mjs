@@ -13,6 +13,9 @@
 //   (S3b)؛ و«العلف الباقي» السالب على الموزون وحده حين نزل علف بلا وزن (F2a). كلّ فحص منها يفشل على 781f78b.
 // V2-G3 المراجعة الثالثة لـ0027 (على 8e32229): عدد السطور بلا وزن في الجملة فوق جدول الأيّام فاعلٌ مرفوع لا مفعولٌ مرفوع خطأً («لا يدخل في النازل
 //   التراكميّ ولا في الباقي في القاعة سطران بلا وزن.»)، بحالة السطرين من عيّنة قاعة 2 (S3 وRR27-S3b). يفشل على 8e32229.
+// 0036 (جواب المالك «عوف سالفة العلف الماكول»): لا مؤشّر «المأكول» ولا «الباقي في القاعة»، ولا أعمدتهما في الأيّام والأسابيع، و«النازل» في الأسابيع
+//   (مفتاحا 0036 feed_given_kg وfeed_given_unweighed يُضافان إلى عقد 0027 هنا بمجموع أيّام كلّ أسبوع، كما يحسبهما الخادم)؛ وأسباب «—» معامل التحويل
+//   والعلف لكلّ طير أسباب الخادم الجديدة (سطر علف بلا وزن، ولا علف مرسل، وحيّ بلا وزن، ولا حيّ موزون ولا مبيع)، وجملة ما لا يدخل في النازل التراكميّ.
 import { build } from 'esbuild';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -21,6 +24,16 @@ import { descendants, fire, installDom, settle } from './dom.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const F = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'halls-contract.json'), 'utf8'));
+/** الكيلو بالآلاف ← نصّ بثلاث مراتب. */
+const kg3 = (m) => `${m / 1000n}.${String(m % 1000n).padStart(3, '0')}`;
+const milli3 = (text) => BigInt(Math.round(Number(text) * 1000));
+// 0036: النازل في كلّ أسبوع وسطوره بلا وزن = مجموع أيّامه (flock_cycle_report، round-once-feed.test)، يُضافان إلى عقد 0027.
+for (const key of ['flock_cycle_report', 'flock_cycle_report_no_money', 'flock_cycle_report_layer']) {
+  for (const week of F[key].weeks) {
+    const days = F[key].days.filter((day) => day.on >= week.from_on && day.on <= week.to_on);
+    Object.assign(week, { feed_given_kg: kg3(days.reduce((a, day) => a + milli3(day.feed_given_kg), 0n)), feed_given_unweighed: days.reduce((a, day) => a + day.feed_given_unweighed, 0) });
+  }
+}
 const clone = (value) => JSON.parse(JSON.stringify(value));
 /** عزل اتّجاه العدد بإشارته (signedCount في ticketParts). */
 const LRI = '\u{2066}';
@@ -153,6 +166,14 @@ const withKpis = (over) => {
   Object.assign(report.kpis, over);
   return report;
 };
+/** والدورة نفسها بلا سطر علف بلا وزن (0036: سطر بلا وزن يسبق كلّ سبب آخر لمعامل التحويل والعلف لكلّ طير). */
+const weighed = (over) => {
+  const report = withKpis(over);
+  for (const day of report.days) Object.assign(day, { feed_given_unweighed: 0, feed_given_cum_unweighed: 0 });
+  for (const week of report.weeks) week.feed_given_unweighed = 0;
+  report.feed.unweighed = 0;
+  return report;
+};
 
 export default async function (t) {
   const restore = installDom();
@@ -219,14 +240,14 @@ export default async function (t) {
       const first = cycle.days[0];
       const last = cycle.days.at(-1);
       t.same(
-        [cycle.days.length, first.on, first.age, first.dayNo, first.round, first.liveStart, first.dead, first.culled, first.liveEnd, first.mortalityCumPct, first.feedEatenKg, first.feedEatenCumKg, first.feedGivenKg, first.feedGivenCumKg, first.leftInHallKg, first.weight, first.eggsTotal, first.hdep, first.note],
-        [11, '2026-11-01', 1, 1, true, 1000, 2, 0, 998, 20n, 100_000n, 100_000n, 1_000_000n, 1_000_000n, 900_000n, null, null, null, null],
+        [cycle.days.length, first.on, first.age, first.dayNo, first.round, first.liveStart, first.dead, first.culled, first.liveEnd, first.mortalityCumPct, first.feedGivenKg, first.feedGivenCumKg, first.weight, first.eggsTotal, first.hdep, first.note, 'feedEatenKg' in first, 'leftInHallKg' in first],
+        [11, '2026-11-01', 1, 1, true, 1000, 2, 0, 998, 20n, 1_000_000n, 1_000_000n, null, null, null, null, false, false],
         'P1 أوّل يوم بأنواعه: الكيلو بالآلاف والنسبة بمرتبتين والعدد رقماً',
       );
       t.same(
-        [last.on, last.round, last.dead, last.culled, last.feedEatenKg, last.liveStart, last.liveEnd, last.feedEatenCumKg, last.feedGivenKg],
-        ['2026-11-11', false, null, null, null, 987, 987, 1_450_500n, 0n],
-        'P1 يوم بلا جولة: نافقه ومستبعده وعلفه null لا صفر، والحيّ لا ينقص، والنازل صفر حقيقيّ («0»)',
+        [last.on, last.round, last.dead, last.culled, last.liveStart, last.liveEnd, last.feedGivenKg],
+        ['2026-11-11', false, null, null, 987, 987, 0n],
+        'P1 يوم بلا جولة: نافقه ومستبعده null لا صفر، والحيّ لا ينقص، والنازل صفر حقيقيّ («0»)؛ والمأكول والباقي لا يُقرآن (0036)',
       );
       t.same(cycle.days[3].weight, { sampleCount: 40, avgG: 1150n }, 'P1 وزن اليوم بأعشار الغرام');
       t.same(
@@ -235,31 +256,33 @@ export default async function (t) {
         'P1 سطور العلف بلا وزن في اليوم وحتى اليوم (52ca9fd): سطر القطع بلا وزن يوم 08/11 يُعدّ يومه وكلّ يوم بعده',
       );
       t.same(
-        cycle.weeks.map((week) => [week.week, week.fromAge, week.toAge, week.fromOn, week.toOn, week.days, week.roundDays, week.dead, week.culled, week.mortalityPct, week.mortalityCumPct, week.liveEnd, week.feedEatenKg, week.feedGPerBirdDay, week.weight, week.fcr]),
+        cycle.weeks.map((week) => [week.week, week.fromAge, week.toAge, week.fromOn, week.toOn, week.days, week.roundDays, week.dead, week.culled, week.mortalityPct, week.mortalityCumPct, week.liveEnd, week.feedGivenKg, week.feedGivenUnweighed, week.feedGPerBirdDay, week.weight, week.fcr]),
         [
-          [1, 1, 7, '2026-11-01', '2026-11-07', 7, 7, 8, 1, 90n, 90n, 991, 910_500n, 1307n, { on: '2026-11-07', age: 7, avgG: 1855n }, 4953n],
-          [2, 8, 11, '2026-11-08', '2026-11-11', 4, 3, 3, 1, 40n, 130n, 987, 540_000n, 1819n, { on: '2026-11-10', age: 10, avgG: 2800n }, 5249n],
+          [1, 1, 7, '2026-11-01', '2026-11-07', 7, 7, 8, 1, 90n, 90n, 991, 2_000_000n, 0, 1307n, { on: '2026-11-07', age: 7, avgG: 1855n }, 4953n],
+          [2, 8, 11, '2026-11-08', '2026-11-11', 4, 3, 3, 1, 40n, 130n, 987, 0n, 1, 1819n, { on: '2026-11-10', age: 10, avgG: 2800n }, 5249n],
         ],
-        'P1 الأسابيع بعمر الطيور (العمر 1 في الأوّل)',
+        'P1 الأسابيع بعمر الطيور (العمر 1 في الأوّل)، والنازل فيها وسطوره بلا وزن (0036)',
       );
       t.same(cycle.weights.map((w) => [w.on, w.age, w.sampleCount, w.avgG]), [['2026-11-04', 4, 40, 1150n], ['2026-11-07', 7, 40, 1855n], ['2026-11-10', 10, 50, 2800n]], 'P1 الأوزان الأقدم أوّلاً');
       t.same(
         cycle.kpis,
         {
           days: 11, ageEnd: 11, placed: 1000, dead: 11, culled: 2, live: 987, mortalityPct: 130n, livabilityPct: 9870n,
-          // «الباقي في القاعة» (مراجعة 0028 O2/M5): عقد 0027 بلا left_in_hall_kg فمن feed_left_kg، وسطوره بلا كتلة null (الشاشة تأخذ feed.unweighed).
-          feedGivenKg: 2_000_000n, feedEatenKg: 1_450_500n, leftInHallKg: 549_500n, leftInHallUnweighed: null, feedDays: 10, feedSpan: 10, feedPerBirdKg: 1451n,
+          // 0036: بلا المأكول وأيّامه ولا «الباقي في القاعة» (جواب المالك «عوف سالفة العلف الماكول»).
+          feedGivenKg: 2_000_000n, feedPerBirdKg: 1451n,
           lastWeight: { on: '2026-11-10', age: 10, avgG: 2800n }, fcr: 5249n, epef: 48n,
           // مفاتيح 0028 (المباع وفرق العدّ والعلف المنقول والخارج والنهائيّان): عقد 0027 بلاها، فـnull لا صفر.
           soldBirds: null, soldNetKg: null, soldAvgKg: null, saleAge: null, countDiff: null, feedCarryInKg: null, feedOutKg: null, feedNetKg: null, fcrFinal: null, epefFinal: null,
+          // 0036: الباقي الفعليّ عند الإغلاق للمغلقة وحدها (عقد 0027 بلاه).
+          feedCloseLeftKg: null, feedCloseLeftUnweighed: null,
         },
         'P1 المؤشّرات كلّها بأنواعها',
       );
       const layer = parse(clone(F.flock_cycle_report_layer)).cycle;
       t.same(
-        [layer.days[0].eggsTotal, layer.days[0].hdep, layer.days[4].eggsTotal, layer.days[4].hdep, layer.kpis.lastWeight, layer.kpis.fcr, layer.kpis.epef, layer.kpis.leftInHallKg, layer.weeks.map((w) => w.week)],
-        [3000, 7500n, null, null, null, null, null, -2_255_000n, [20, 21, 22]],
-        'P2 البيّاض: البيض ونسبة الإنتاج، وnull ليوم بلا جولة، والمؤشّرات الناقصة null، والباقي سالب، وأسابيعه 20 و21 و22',
+        [layer.days[0].eggsTotal, layer.days[0].hdep, layer.days[4].eggsTotal, layer.days[4].hdep, layer.kpis.lastWeight, layer.kpis.fcr, layer.kpis.epef, layer.weeks.map((w) => w.week)],
+        [3000, 7500n, null, null, null, null, null, [20, 21, 22]],
+        'P2 البيّاض: البيض ونسبة الإنتاج، وnull ليوم بلا جولة، والمؤشّرات الناقصة null، وأسابيعه 20 و21 و22',
       );
 
       const old = clone(F.flock_cycle_report);
@@ -279,8 +302,8 @@ export default async function (t) {
         [
           broken((r) => (r.days[0].dead = '2')),
           broken((r) => (r.days[0].round = 'yes')),
-          broken((r) => (r.days[0].feed_left_kg = null)),
-          broken((r) => (r.days[0].feed_eaten_kg = 'x')),
+          broken((r) => (r.weeks[0].feed_given_kg = 'x')),
+          broken((r) => (r.kpis.feed_close_left_kg = 1.5)),
           broken((r) => (r.weeks[0].live_end = null)),
           broken((r) => (r.weights[0].avg_g = null)),
           broken((r) => (r.kpis.fcr = 1.629)),
@@ -291,8 +314,20 @@ export default async function (t) {
           broken((r) => delete r.days[7].feed_given_unweighed),
           broken((r) => (r.days[9].feed_given_cum_unweighed = '1')),
         ],
-        ['dead', 'round', 'feed_left_kg', 'feed_eaten_kg', 'live_end', 'avg_g', 'fcr', 'days', 'avg_g', 'days', 'epef', 'feed_given_unweighed', 'feed_given_cum_unweighed'],
-        'P3 كلّ نوع خاطئ خطأ شكل باسم خانته (ومؤشّر الإنتاج عدد صحيح، وعدّا السطور بلا وزن إلزاميّان)',
+        ['dead', 'round', 'feed_given_kg', 'feed_close_left_kg', 'live_end', 'avg_g', 'fcr', 'days', 'avg_g', 'days', 'epef', 'feed_given_unweighed', 'feed_given_cum_unweighed'],
+        'P3 كلّ نوع خاطئ خطأ شكل باسم خانته (ومؤشّر الإنتاج عدد صحيح، وعدّا السطور بلا وزن إلزاميّان، ومفتاحا 0036)',
+      );
+
+      // 0036: مفاتيح المأكول والباقي والمستهلك لا تُقرأ: قيمها الغريبة لا تكسر شيئاً (تبقى في الخادم للواجهة المنشورة).
+      t.same(
+        [
+          broken((r) => Object.assign(r.days[0], { feed_eaten_kg: 'x', feed_eaten_cum_kg: 'x', feed_left_kg: 'x', left_in_hall_kg: 'x', left_in_hall_unweighed: 'x' })),
+          broken((r) => Object.assign(r.weeks[0], { feed_eaten_kg: 'x' })),
+          broken((r) => Object.assign(r.kpis, { feed_eaten_kg: 'x', feed_left_kg: 'x', left_in_hall_kg: 'x', feed_days: 'x', feed_span: 'x' })),
+          broken((r) => Object.assign(r.feed, { consumed_kg: 'x', remaining_kg: 'x', left_in_hall_kg: 'x', left_in_hall_unweighed: 'x' })),
+        ],
+        [null, null, null, null],
+        'P3b المأكول والباقي والمستهلك لا تُقرأ (0036)',
       );
 
       // اتّساق العيّنات بتعريفات العقد: مجاميع الأيّام = مفاتيح birds وfeed وkpis، وسلسلة الحيّ، والأسابيع من الأيّام.
@@ -336,7 +371,7 @@ export default async function (t) {
       t.same(rpcLog.map(([fn, args]) => [fn, args]), [['flock_cycle_report', { p_flock: FLOCK }]], 'K1 نداء واحد بالفوج');
       t.same(
         [tableHeaders(KPI), tableRows(KPI).map((row) => row.length), tableRows(KPI)[0]],
-        [['المؤشّر', 'القيمة'], Array(13).fill(2), ['أيّام الدورةمن 01/11/2026 حتى 11/11/2026.', '11']],
+        [['المؤشّر', 'القيمة'], Array(11).fill(2), ['أيّام الدورةمن 01/11/2026 حتى 11/11/2026.', '11']],
         'K1 جدول المؤشّرات بعمودين (يتّسع للهاتف): المؤشّر وملاحظته تحته، والقيمة',
       );
       t.same(
@@ -349,14 +384,12 @@ export default async function (t) {
           ['نسبة النفوق', '1.30%', ''],
           ['نسبة الحيوية', '98.70%', 'نسبة ما بقي حيّاً من المسكَّن.'],
           ['العلف النازل للقاعة (كغم)', '2,000', 'خارج الكيلو: سطر واحد بلا وزن.'],
-          ['العلف المأكول المسجّل (كغم)', '1,450.5', 'سُجّل العلف 10 من 10 أيام.'],
-          ['العلف الباقي في القاعة (كغم)', '549.5', ''],
           ['العلف لكلّ طير مسكَّن (كغم)', '1.451', ''],
           ['آخر وزن عيّنة (غم)', '280.0', 'يوم 10/11/2026، والعمر 10.'],
           ['معامل التحويل الغذائي', '5.249', 'كغم علف لكلّ كغم من الوزن الحيّ.'],
           ['مؤشّر الإنتاج (EPEF)', '48', 'الحيوية × الوزن بالكيلو ÷ (العمر × معامل التحويل) × 100.'],
         ],
-        'K1 كلّ مؤشّر بقيمته وملاحظته',
+        'K1 كلّ مؤشّر بقيمته وملاحظته (0036: بلا «المأكول» ولا «الباقي في القاعة»)',
       );
       const order = ['rep-kpis', 'rep-birds', 'rep-charts', 'rep-weeks', 'rep-days', 'rep-weights', 'rep-feed', 'rep-by-item', 'rep-balance', 'rep-medicines', 'rep-vaccines', 'rep-money'];
       const sections = all().filter((n) => n.localName === 'section').map((n) => n.getAttribute('data-action'));
@@ -364,60 +397,58 @@ export default async function (t) {
       t.same([byAction('kpi-reason').length, byAction('rep-no-cycle').length], [0, 0], 'K1 لا «—» حين المدخلات كاملة');
     });
 
+    // 0036: أسباب «—» معامل التحويل والعلف لكلّ طير أسباب private.report_days بترتيبها (صافي العلف المرسل): سطر علف بلا وزن (عقد 0027 فيه سطر واحد)،
+    // ثمّ لا علف مرسل، ثمّ حيّ بلا وزن، ثمّ لا حيّ موزون ولا مبيع؛ و«weighed» الدورة نفسها بلا السطر بلا وزن. ولا «سُجّل العلف n من m» ولا «أوّل جولة بعلفها».
+    const UNWEIGHED = 'فيه سطر علف بلا وزن بالكيلو (لتر بلا كثافة أو قطعة بلا وزن)، فلا يُعرف صافي العلف.';
+    const NO_FEED = 'لم يُرسل علف للقاعة بعد.';
     const REASONS = [
       [
-        'K2 علف ناقص يوماً',
-        { feed_days: 9, fcr: null, epef: null },
+        'K2 سطر علف بلا وزن',
+        withKpis({ feed_per_bird_kg: null, fcr: null, epef: null }),
         {
-          eaten: ['1,450.5', 'note', 'سُجّل العلف 9 من 10 أيام.'],
-          fcr: ['—', 'reason', 'يحتاج علف كلّ يوم من التسكين (سُجّل العلف 9 من 10 أيام).'],
+          per_bird: ['—', 'reason', UNWEIGHED],
+          fcr: ['—', 'reason', UNWEIGHED],
           epef: ['—', 'reason', 'يحتاج معامل التحويل.'],
         },
       ],
       [
         'K3 بلا وزن عيّنة',
-        { last_weight: null, fcr: null, epef: null },
+        weighed({ last_weight: null, fcr: null, epef: null }),
         {
           weight: ['—', 'reason', 'لم تُوزن عيّنة بعد.'],
-          fcr: ['—', 'reason', 'يحتاج وزن عيّنة.'],
+          fcr: ['—', 'reason', 'يحتاج وزن عيّنة للطيور الحيّة.'],
           epef: ['—', 'reason', 'يحتاج معامل التحويل.'],
         },
       ],
       [
-        'K4 علف ناقص وبلا وزن',
-        { feed_days: 9, last_weight: null, fcr: null, epef: null },
-        { fcr: ['—', 'reason', 'يحتاج علف كلّ يوم ووزن عيّنة (سُجّل العلف 9 من 10 أيام).'] },
+        'K4 لم يُرسل علف',
+        weighed({ feed_given_kg: '0.000', feed_per_bird_kg: null, last_weight: null, fcr: null, epef: null }),
+        { given: ['0', 'none', ''], per_bird: ['—', 'reason', NO_FEED], fcr: ['—', 'reason', NO_FEED] },
       ],
       [
-        'K5 علف مسجّل مجموعه صفر',
-        { feed_eaten_kg: '0.000', feed_per_bird_kg: null, fcr: null, epef: null },
+        'K5 لا حيّ ولا مبيع',
+        weighed({ live: 0, mortality_pct: '100.00', livability_pct: '0.00', fcr: null, epef: null }),
         {
-          eaten: ['0', 'note', 'سُجّل العلف 10 من 10 أيام.'],
-          per_bird: ['—', 'reason', 'لم يُسجَّل علف مأكول بعد.'],
-          fcr: ['—', 'reason', 'العلف المسجّل صفر.'],
+          live: ['0', 'note', 'النافق 11 والمستبعد 2. سُجّلت الجولة في 10 من 11 يوماً.'],
+          livability: ['0.00%', 'note', 'نسبة ما بقي حيّاً من المسكَّن.'],
+          fcr: ['—', 'reason', 'لا طيور حيّة موزونة ولا مبيع بفاتورة.'],
         },
       ],
       [
-        'K6 لا طيور حيّة',
-        { live: 0, mortality_pct: '100.00', livability_pct: '0.00', fcr: null, epef: null },
-        { live: ['0', 'note', 'النافق 11 والمستبعد 2. سُجّلت الجولة في 10 من 11 يوماً.'], livability: ['0.00%', 'note', 'نسبة ما بقي حيّاً من المسكَّن.'], fcr: ['—', 'reason', 'لا طيور حيّة.'] },
+        'K6 حيّ بلا وزن ومبيع',
+        weighed({ last_weight: null, sold_birds: 100, sold_net_kg: '240.000', fcr: null, epef: null }),
+        { fcr: ['—', 'reason', 'يحتاج وزن عيّنة للطيور الحيّة.'] },
       ],
       // مراجعة 0027 S4: حيوية قُرّبت إلى 0.00% والحيّ فوق الصفر (987) سببها التقريب لا «لا طيور حيّة.»، وهذه لحيّ صفر وحده (K7b).
-      ['K7 مؤشّر الإنتاج بحيوية قُرّبت إلى صفر والحيّ فوقه', { livability_pct: '0.00', epef: null }, { live: ['987', 'note', 'النافق 11 والمستبعد 2. سُجّلت الجولة في 10 من 11 يوماً.'], fcr: ['5.249', 'note', 'كغم علف لكلّ كغم من الوزن الحيّ.'], epef: ['—', 'reason', 'نسبة الحيوية قُرّبت إلى صفر.'] }],
-      ['K7b مؤشّر الإنتاج بلا طيور حيّة', { live: 0, mortality_pct: '100.00', livability_pct: '0.00', epef: null }, { live: ['0', 'note', 'النافق 11 والمستبعد 2. سُجّلت الجولة في 10 من 11 يوماً.'], epef: ['—', 'reason', 'لا طيور حيّة.'] }],
-      ['K8 مؤشّر الإنتاج بعمر صفر', { age_end: 0, epef: null }, { age: ['0', 'note', 'العمر عند التسكين: 1.'], epef: ['—', 'reason', 'يحتاج عمراً أكبر من صفر.'] }],
-      [
-        'K9 أوّل يوم بلا علف ولا وزن',
-        { feed_days: 0, feed_span: 0, last_weight: null, fcr: null, epef: null },
-        { eaten: ['1,450.5', 'none', ''], fcr: ['—', 'reason', 'يحتاج أوّل جولة بعلفها ووزن عيّنة.'] },
-      ],
-      ['K10 أوّل يوم بوزن وبلا علف', { feed_days: 0, feed_span: 0, fcr: null, epef: null }, { fcr: ['—', 'reason', 'يحتاج أوّل جولة بعلفها.'] }],
-      ['K11 مدخلات كاملة ولا معامل', { fcr: null, epef: null }, { fcr: ['—', 'reason', 'مدخلاته غير مكتملة.'], epef: ['—', 'reason', 'يحتاج معامل التحويل.'] }],
-      ['K12 مؤشّر إنتاج بلا سبب ظاهر', { epef: null }, { epef: ['—', 'reason', 'مدخلاته غير مكتملة.'] }],
+      ['K7 مؤشّر الإنتاج بحيوية قُرّبت إلى صفر والحيّ فوقه', withKpis({ livability_pct: '0.00', epef: null }), { live: ['987', 'note', 'النافق 11 والمستبعد 2. سُجّلت الجولة في 10 من 11 يوماً.'], fcr: ['5.249', 'note', 'كغم علف لكلّ كغم من الوزن الحيّ.'], epef: ['—', 'reason', 'نسبة الحيوية قُرّبت إلى صفر.'] }],
+      ['K7b مؤشّر الإنتاج بلا طيور حيّة', withKpis({ live: 0, mortality_pct: '100.00', livability_pct: '0.00', epef: null }), { live: ['0', 'note', 'النافق 11 والمستبعد 2. سُجّلت الجولة في 10 من 11 يوماً.'], epef: ['—', 'reason', 'لا طيور حيّة.'] }],
+      ['K8 مؤشّر الإنتاج بعمر صفر', withKpis({ age_end: 0, epef: null }), { age: ['0', 'note', 'العمر عند التسكين: 1.'], epef: ['—', 'reason', 'يحتاج عمراً أكبر من صفر.'] }],
+      ['K11 مدخلات كاملة ولا معامل', weighed({ fcr: null, epef: null }), { fcr: ['—', 'reason', 'مدخلاته غير مكتملة.'], epef: ['—', 'reason', 'يحتاج معامل التحويل.'] }],
+      ['K12 مؤشّر إنتاج بلا سبب ظاهر', withKpis({ epef: null }), { epef: ['—', 'reason', 'مدخلاته غير مكتملة.'] }],
     ];
-    for (const [label, over, expected] of REASONS) {
+    for (const [label, report, expected] of REASONS) {
       await step(label, async () => {
-        fresh(MANAGER, withKpis(over));
+        fresh(MANAGER, report);
         await mount();
         const keys = Object.keys(expected);
         t.same(keys.map(kpiOf), keys.map((key) => expected[key]), `${label}: القيمة والسبب`);
@@ -446,8 +477,6 @@ export default async function (t) {
           ['نسبة النفوق', '—', NO],
           ['نسبة الحيوية', '—', NO],
           ['العلف النازل للقاعة (كغم)', '—', NO],
-          ['العلف المأكول المسجّل (كغم)', '—', NO],
-          ['العلف الباقي في القاعة (كغم)', '—', NO],
           ['العلف لكلّ طير مسكَّن (كغم)', '—', NO],
           ['آخر وزن عيّنة (غم)', '—', 'لم تُوزن عيّنة بعد.'],
           ['معامل التحويل الغذائي', '—', NO],
@@ -457,7 +486,7 @@ export default async function (t) {
       );
       t.same(
         [tableRows('أيّام الدورة'), tableRows('الأسابيع'), ['chart-mortality', 'chart-feed', 'chart-weight'].map((name) => byPart(byAction(name)[0], 'chart-empty')[0]?.textContent ?? null), badChartAttributes()],
-        [[['لا أيّام في التقرير بعد.']], [['لا أيّام في التقرير بعد.']], ['لا أيّام في التقرير بعد.', 'لم يُسجَّل علف مأكول بعد.', 'لم تُوزن عيّنة بعد.'], []],
+        [[['لا أيّام في التقرير بعد.']], [['لا أيّام في التقرير بعد.']], ['لا أيّام في التقرير بعد.', 'لم يُرسل علف للقاعة بعد.', 'لم تُوزن عيّنة بعد.'], []],
         'K13 الجداول بجملة الفراغ، والرسوم بجملة بدل الرسم',
       );
     });
@@ -474,11 +503,9 @@ export default async function (t) {
           ['نسبة النفوق', '0.20%', ''],
           ['نسبة الحيوية', '99.80%', 'نسبة ما بقي حيّاً من المسكَّن.'],
           ['العلف النازل للقاعة (كغم)', '2,000', ''],
-          ['العلف المأكول المسجّل (كغم)', '4,255', 'سُجّل العلف 9 من 11 يوماً.'],
-          ['العلف الباقي في القاعة (كغم)', '-2,255', 'سالب: المأكول المسجّل أكثر من النازل للقاعة.'],
           ['العلف لكلّ طير مسكَّن (كغم)', '1.064', ''],
         ],
-        'K14 البيّاض بلا وزن ولا معامل تحويل ولا مؤشّر إنتاج (للّاحم)، والباقي السالب بسببه',
+        'K14 البيّاض بلا وزن ولا معامل تحويل ولا مؤشّر إنتاج (للّاحم)، ولا مأكول ولا باقٍ (0036)',
       );
     });
 
@@ -489,14 +516,14 @@ export default async function (t) {
       t.same(
         [tableHeaders('الأسابيع'), tableRows('الأسابيع'), tableFoot('الأسابيع')],
         [
-          ['الأسبوع', 'العمر (يوم)', 'من', 'إلى', 'الجولات', 'النافق', 'المستبعد', 'نفوق الأسبوع', 'النفوق التراكميّ', 'الحيّ آخر الأسبوع', 'المأكول (كغم)', 'غم لكلّ طير في اليوم', 'الوزن (غم)', 'معامل التحويل'],
+          ['الأسبوع', 'العمر (يوم)', 'من', 'إلى', 'الجولات', 'النافق', 'المستبعد', 'نفوق الأسبوع', 'النفوق التراكميّ', 'الحيّ آخر الأسبوع', 'النازل (كغم)', 'غم لكلّ طير في اليوم', 'الوزن (غم)', 'معامل التحويل'],
           [
-            ['1', '1–7', '01/11/2026', '07/11/2026', '7 من 7', '8', '1', '0.90%', '0.90%', '991', '910.5', '130.7', '185.5', '4.953'],
-            ['2', '8–11', '08/11/2026', '11/11/2026', '3 من 4', '3', '1', '0.40%', '1.30%', '987', '540.0', '181.9', '280.0', '5.249'],
+            ['1', '1–7', '01/11/2026', '07/11/2026', '7 من 7', '8', '1', '0.90%', '0.90%', '991', '2,000', '130.7', '185.5', '4.953'],
+            ['2', '8–11', '08/11/2026', '11/11/2026', '3 من 4', '3', '1', '0.40%', '1.30%', '987', '0وسطر واحد بلا وزن', '181.9', '280.0', '5.249'],
           ],
-          [['المجموع', '11', '2', '', '', '', '1,450.5', '', '', '']],
+          [['المجموع', '11', '2', '', '', '', '2,000وسطر واحد بلا وزن', '', '', '']],
         ],
-        'W1 الأسابيع بعمر الطيور بأعمدتها، والمجموع من المؤشّرات',
+        'W1 الأسابيع بعمر الطيور بأعمدتها (0036: النازل لا المأكول، وسطوره بلا وزن تحته)، والمجموع من المؤشّرات',
       );
       t.same(
         [byAction('week-rounds').map((n) => n.getAttribute('class')), textOf('rep-weeks-note')],
@@ -510,13 +537,13 @@ export default async function (t) {
       t.same(
         [tableHeaders('الأسابيع'), tableRows('الأسابيع'), tableFoot('الأسابيع')],
         [
-          ['الأسبوع', 'العمر (يوم)', 'من', 'إلى', 'الجولات', 'النافق', 'المستبعد', 'نفوق الأسبوع', 'النفوق التراكميّ', 'الحيّ آخر الأسبوع', 'المأكول (كغم)', 'غم لكلّ طير في اليوم'],
+          ['الأسبوع', 'العمر (يوم)', 'من', 'إلى', 'الجولات', 'النافق', 'المستبعد', 'نفوق الأسبوع', 'النفوق التراكميّ', 'الحيّ آخر الأسبوع', 'النازل (كغم)', 'غم لكلّ طير في اليوم'],
           [
-            ['20', '140', '01/11/2026', '01/11/2026', '1 من 1', '1', '0', '0.03%', '0.03%', '3,999', '460', '115.0'],
-            ['21', '141–147', '02/11/2026', '08/11/2026', '6 من 7', '4', '1', '0.13%', '0.15%', '3,994', '2,830', '118.0'],
-            ['22', '148–150', '09/11/2026', '11/11/2026', '3 من 3', '1', '1', '0.05%', '0.20%', '3,992', '965', '120.8'],
+            ['20', '140', '01/11/2026', '01/11/2026', '1 من 1', '1', '0', '0.03%', '0.03%', '3,999', '2,000', '115.0'],
+            ['21', '141–147', '02/11/2026', '08/11/2026', '6 من 7', '4', '1', '0.13%', '0.15%', '3,994', '0', '118.0'],
+            ['22', '148–150', '09/11/2026', '11/11/2026', '3 من 3', '1', '1', '0.05%', '0.20%', '3,992', '0', '120.8'],
           ],
-          [['المجموع', '6', '2', '', '', '', '4,255', '']],
+          [['المجموع', '6', '2', '', '', '', '2,000', '']],
         ],
         'W2 البيّاض: أسابيع 20 إلى 22 بأعمارها، بلا وزن ولا معامل تحويل',
       );
@@ -526,34 +553,34 @@ export default async function (t) {
       await mount();
       t.same(
         tableHeaders('أيّام الدورة'),
-        ['التاريخ', 'العمر', 'الحيّ أوّل اليوم', 'النافق', 'المستبعد', 'الحيّ آخر اليوم', 'النفوق التراكميّ', 'المأكول (كغم)', 'المأكول التراكميّ (كغم)', 'النازل (كغم)', 'النازل التراكميّ (كغم)', 'الباقي في القاعة (كغم)', 'الوزن (غم)', 'الملاحظة'],
-        'D1 أعمدة الأيّام',
+        ['التاريخ', 'العمر', 'الحيّ أوّل اليوم', 'النافق', 'المستبعد', 'الحيّ آخر اليوم', 'النفوق التراكميّ', 'النازل (كغم)', 'النازل التراكميّ (كغم)', 'الوزن (غم)', 'الملاحظة'],
+        'D1 أعمدة الأيّام (0036: بلا المأكول وتراكمه ولا الباقي في القاعة)',
       );
       t.same(
         tableRows('أيّام الدورة'),
         [
-          ['01/11/2026', '1', '1,000', '2', '0', '998', '0.20%', '100.0', '100.0', '1,000', '1,000', '900.0', '', ''],
-          ['02/11/2026', '2', '998', '1', '0', '997', '0.30%', '110.5', '210.5', '0', '1,000', '789.5', '', ''],
-          ['03/11/2026', '3', '997', '1', '1', '995', '0.50%', '120.0', '330.5', '0', '1,000', '669.5', '', ''],
-          ['04/11/2026', '4', '995', '2', '0', '993', '0.70%', '130.0', '460.5', '1,000', '2,000', '1,539.5', '115.0', ''],
-          ['05/11/2026', '5', '993', '0', '0', '993', '0.70%', '140.0', '600.5', '0', '2,000', '1,399.5', '', ''],
-          ['06/11/2026', '6', '993', '1', '0', '992', '0.80%', '150.0', '750.5', '0', '2,000', '1,249.5', '', 'تهوية'],
-          ['07/11/2026', '7', '992', '1', '0', '991', '0.90%', '160.0', '910.5', '0', '2,000', '1,089.5', '185.5', ''],
-          ['08/11/2026', '8', '991', '1', '1', '989', '1.10%', '170.0', '1,080.5', '0وسطر واحد بلا وزن', '2,000', '919.5', '', ''],
-          ['09/11/2026', '9', '989', '1', '0', '988', '1.20%', '180.0', '1,260.5', '0', '2,000', '739.5', '', ''],
-          ['10/11/2026', '10', '988', '1', '0', '987', '1.30%', '190.0', '1,450.5', '0', '2,000', '549.5', '280.0', 'حرارة مرتفعة'],
-          ['11/11/2026', '11', '987', '—', '—', '987', '1.30%', '—', '1,450.5', '0', '2,000', '549.5', '', 'لم تُسجَّل الجولة'],
+          ['01/11/2026', '1', '1,000', '2', '0', '998', '0.20%', '1,000', '1,000', '', ''],
+          ['02/11/2026', '2', '998', '1', '0', '997', '0.30%', '0', '1,000', '', ''],
+          ['03/11/2026', '3', '997', '1', '1', '995', '0.50%', '0', '1,000', '', ''],
+          ['04/11/2026', '4', '995', '2', '0', '993', '0.70%', '1,000', '2,000', '115.0', ''],
+          ['05/11/2026', '5', '993', '0', '0', '993', '0.70%', '0', '2,000', '', ''],
+          ['06/11/2026', '6', '993', '1', '0', '992', '0.80%', '0', '2,000', '', 'تهوية'],
+          ['07/11/2026', '7', '992', '1', '0', '991', '0.90%', '0', '2,000', '185.5', ''],
+          ['08/11/2026', '8', '991', '1', '1', '989', '1.10%', '0وسطر واحد بلا وزن', '2,000', '', ''],
+          ['09/11/2026', '9', '989', '1', '0', '988', '1.20%', '0', '2,000', '', ''],
+          ['10/11/2026', '10', '988', '1', '0', '987', '1.30%', '0', '2,000', '280.0', 'حرارة مرتفعة'],
+          ['11/11/2026', '11', '987', '—', '—', '987', '1.30%', '0', '2,000', '', 'لم تُسجَّل الجولة'],
         ],
         'D1 كلّ يوم من التسكين إلى «حتى»، واليوم بلا جولة «—» لا صفر ومكتوب «لم تُسجَّل الجولة»',
       );
-      t.same(tableFoot('أيّام الدورة'), [['المجموع', '11', '2', '', '', '1,450.5', '', '2,000وسطر واحد بلا وزن', '', '', '', '']], 'D1 المجموع من المؤشّرات: النافق والمستبعد والمأكول والنازل (وتحته سطر الدورة بلا وزن)');
+      t.same(tableFoot('أيّام الدورة'), [['المجموع', '11', '2', '', '', '2,000وسطر واحد بلا وزن', '', '', '']], 'D1 المجموع من المؤشّرات: النافق والمستبعد والنازل (وتحته سطر الدورة بلا وزن)');
       const rows = tableRows('أيّام الدورة');
       // الرقم أوّل الخلية (وتحته قد تكون ملاحظة «وسطر واحد بلا وزن»).
       const number = (text) => (text === '—' ? 0 : Number(/^-?[\d,.]+/u.exec(text)?.[0].replace(/,/gu, '') ?? NaN));
       const foot = tableFoot('أيّام الدورة')[0];
       t.same(
-        [rows.reduce((s, r) => s + number(r[3]), 0), rows.reduce((s, r) => s + number(r[4]), 0), Math.round(rows.reduce((s, r) => s + number(r[7]), 0) * 10) / 10, rows.reduce((s, r) => s + number(r[9]), 0)],
-        [number(foot[1]), number(foot[2]), number(foot[5]), number(foot[7])],
+        [rows.reduce((s, r) => s + number(r[3]), 0), rows.reduce((s, r) => s + number(r[4]), 0), rows.reduce((s, r) => s + number(r[7]), 0)],
+        [number(foot[1]), number(foot[2]), number(foot[5])],
         'D1 جمع الصفوف المعروضة = المجموع المعروض',
       );
       t.same(
@@ -574,17 +601,17 @@ export default async function (t) {
       t.same(
         [tableHeaders('أيّام الدورة'), rows[0], rows[4], rows[5], rows[8]],
         [
-          ['التاريخ', 'العمر', 'الحيّ أوّل اليوم', 'النافق', 'المستبعد', 'الحيّ آخر اليوم', 'النفوق التراكميّ', 'المأكول (كغم)', 'المأكول التراكميّ (كغم)', 'النازل (كغم)', 'النازل التراكميّ (كغم)', 'الباقي في القاعة (كغم)', 'البيض (المجموع)', 'نسبة الإنتاج', 'الملاحظة'],
-          ['01/11/2026', '140', '4,000', '1', '0', '3,999', '0.03%', '460', '460', '2,000', '2,000', '1,540', '3,000', '75.00%', ''],
-          ['05/11/2026', '144', '3,996', '—', '—', '3,996', '0.10%', '—', '1,865', '0', '2,000', '135', '—', '—', 'لم تُسجَّل الجولة'],
-          ['06/11/2026', '145', '3,996', '1', '0', '3,995', '0.13%', '475', '2,340', '0', '2,000', '-340', '3,080', '77.08%', 'إضاءة'],
-          ['09/11/2026', '148', '3,994', '0', '1', '3,993', '0.18%', '—', '3,290', '0', '2,000', '-1,290', '3,090', '77.37%', 'لم يُسجَّل العلف'],
+          ['التاريخ', 'العمر', 'الحيّ أوّل اليوم', 'النافق', 'المستبعد', 'الحيّ آخر اليوم', 'النفوق التراكميّ', 'النازل (كغم)', 'النازل التراكميّ (كغم)', 'البيض (المجموع)', 'نسبة الإنتاج', 'الملاحظة'],
+          ['01/11/2026', '140', '4,000', '1', '0', '3,999', '0.03%', '2,000', '2,000', '3,000', '75.00%', ''],
+          ['05/11/2026', '144', '3,996', '—', '—', '3,996', '0.10%', '0', '2,000', '—', '—', 'لم تُسجَّل الجولة'],
+          ['06/11/2026', '145', '3,996', '1', '0', '3,995', '0.13%', '0', '2,000', '3,080', '77.08%', 'إضاءة'],
+          ['09/11/2026', '148', '3,994', '0', '1', '3,993', '0.18%', '0', '2,000', '3,090', '77.37%', ''],
         ],
-        'D2 البيّاض: البيض ونسبة الإنتاج، ويوم بلا جولة، ويوم جولة بلا علف «لم يُسجَّل العلف»، والباقي السالب؛ بلا عمود وزن',
+        'D2 البيّاض: البيض ونسبة الإنتاج، ويوم بلا جولة؛ بلا عمود وزن، ولا مأكول ولا «لم يُسجَّل العلف» ولا باقٍ (0036)',
       );
       t.same(
         [rows.length, tableFoot('أيّام الدورة'), byAction('rep-weights').length, byAction('chart-weight').length],
-        [11, [['المجموع', '6', '2', '', '', '4,255', '', '2,000', '', '', '', '', '']], 0, 0],
+        [11, [['المجموع', '6', '2', '', '', '2,000', '', '', '', '']], 0, 0],
         'D2 البيّاض بلا أوزان: لا جدول أوزان ولا منحنى وزن',
       );
     });
@@ -606,7 +633,7 @@ export default async function (t) {
         accessible,
         [
           ['img', '0 0 352 200', 'النفوق التراكميّ (٪) بالعمر', true, 'النفوق التراكميّ من 0.20% في العمر 1 إلى 1.30% في العمر 11.'],
-          ['img', '0 0 352 200', 'العلف لكلّ طير في اليوم (غم) بالأسبوع', true, 'غرام العلف المأكول لكلّ طير في اليوم: الأسبوع 1: 130.7، الأسبوع 2: 181.9.'],
+          ['img', '0 0 352 200', 'العلف لكلّ طير في اليوم (غم) بالأسبوع', true, 'غرام صافي العلف المرسل لكلّ طير في اليوم: الأسبوع 1: 130.7، الأسبوع 2: 181.9.'],
           ['img', '0 0 352 200', 'منحنى الوزن (غم) بالعمر', true, 'معدّل وزن الطير من 115.0 غم في العمر 4 إلى 280.0 غم في العمر 10.'],
         ],
         'C1 ثلاثة رسوم، لكلّ واحد role=img وعنوان ووصف بمعرّفيهما، والعنوان نفسه فوق الرسم',
@@ -655,14 +682,13 @@ export default async function (t) {
     await step('C2 أسبوع بلا علف ويوم واحد', async () => {
       const report = clone(F.flock_cycle_report);
       report.weeks[0].feed_g_per_bird_day = null;
-      report.weeks[0].feed_eaten_kg = null;
       fresh(MANAGER, report);
       await mount();
       const feed = byAction('chart-feed')[0];
       t.same(
         [byPart(feed, 'bar').length, byPart(feed, 'bar-missing').map((n) => n.textContent), byPart(feed, 'bar-label').map((n) => n.textContent), badChartAttributes()],
         [1, ['—1'], ['181.9'], []],
-        'C2 أسبوع بلا علف مسجّل «—» عند القاعدة بلا عمود (لا صفر)',
+        'C2 أسبوع بلا قيمة «—» عند القاعدة بلا عمود (لا صفر)',
       );
       await unmount();
       const single = clone(F.flock_cycle_report);
@@ -799,8 +825,8 @@ export default async function (t) {
         return names.map((name) => foot[heads.indexOf(name) - shift]);
       };
       const feet = () => ({
-        days: footBy('أيّام الدورة', ['النافق', 'المستبعد', 'المأكول (كغم)']),
-        weeks: footBy('الأسابيع', ['النافق', 'المستبعد', 'المأكول (كغم)']),
+        days: footBy('أيّام الدورة', ['النافق', 'المستبعد']),
+        weeks: footBy('الأسابيع', ['النافق', 'المستبعد']),
       });
       const view = async (sample, read) => {
         fresh(sessionOf(sample), sample);
@@ -810,21 +836,16 @@ export default async function (t) {
         return out;
       };
 
-      await step('S1 دورة بلا جولة مسجّلة: مجموع النافق والمستبعد والمأكول «—» لا صفر، ومع أيّ جولة كما كان', async () => {
-        // جولات بلا علف مأكول مسجّل: عيّنة المغلقة بعلف أيّام جولاتها الثلاثة null.
-        const noEaten = clone(REAL.flock_cycle_report_closed);
-        for (const day of noEaten.days) Object.assign(day, { feed_eaten_kg: null, feed_eaten_cum_kg: '0.000', feed_left_kg: day.feed_given_cum_kg });
-        for (const week of noEaten.weeks) Object.assign(week, { feed_eaten_kg: null, feed_g_per_bird_day: null });
-        Object.assign(noEaten.kpis, { feed_eaten_kg: '0.000', feed_left_kg: noEaten.kpis.feed_given_kg, feed_days: 0, feed_per_bird_kg: null });
+      await step('S1 دورة بلا جولة مسجّلة: مجموع النافق والمستبعد «—» لا صفر، ومع أيّ جولة كما كان', async () => {
         t.same(
-          [await view(noRounds(), feet), await view(noEaten, feet), await view(REAL.flock_cycle_report_layer, feet), await view(REAL.flock_cycle_report_gaps, feet)],
+          [await view(noRounds(), feet), await view(REAL.flock_cycle_report_closed, feet), await view(REAL.flock_cycle_report_layer, feet), await view(REAL.flock_cycle_report_gaps, feet)],
           [
-            { days: ['—', '—', '—'], weeks: ['—', '—', '—'] },
-            { days: ['6', '1', '—'], weeks: ['6', '1', '—'] },
-            { days: ['3', '1', '1,425'], weeks: ['3', '1', '1,425'] },
-            { days: ['16', '3', '2,700'], weeks: ['16', '3', '2,700'] },
+            { days: ['—', '—'], weeks: ['—', '—'] },
+            { days: ['6', '1'], weeks: ['6', '1'] },
+            { days: ['3', '1'], weeks: ['3', '1'] },
+            { days: ['16', '3'], weeks: ['16', '3'] },
           ],
-          'S1 صفّ «المجموع» في الأيّام والأسابيع: النافق والمستبعد «—» بلا جولة واحدة، والمأكول «—» بلا علف مأكول مسجّل؛ ومع جولة واحدة أرقام المؤشّرات كما هي',
+          'S1 صفّ «المجموع» في الأيّام والأسابيع: النافق والمستبعد «—» بلا جولة واحدة؛ ومع جولة واحدة أرقام المؤشّرات كما هي (0036: لا عمود مأكول)',
         );
       });
 
@@ -869,8 +890,9 @@ export default async function (t) {
       });
 
       // V2-G3-ACCUSATIVE (مراجعة 0027 الثالثة، على 8e32229): عدد السطور في جملة فوق جدول الأيّام فاعلٌ بالرفع لا مفعول «يشملان» بالرفع خطأً: «لا يدخل في
-      // النازل التراكميّ ولا في الباقي في القاعة سطران بلا وزن.» (الفعل قبل فاعله مفرد). وحالة السطرين من عيّنة قاعة 2 بلا سطرها بلا وزن يوم 12/11.
-      const NOTE = (lines) => `لا يدخل في النازل التراكميّ ولا في الباقي في القاعة ${lines} بلا وزن.`;
+      // النازل التراكميّ سطران بلا وزن.» (الفعل قبل فاعله مفرد). وحالة السطرين من عيّنة قاعة 2 بلا سطرها بلا وزن يوم 12/11. و0036: بلا «ولا في الباقي في
+      // القاعة» (لا باقٍ محسوب).
+      const NOTE = (lines) => `لا يدخل في النازل التراكميّ ${lines} بلا وزن.`;
       /** عيّنة قاعة 2 (F2) بلا سطرها بلا وزن يوم 12/11 (FI-2026-0012، قطعتان)، ومبلغه من مال العلف: سطران بلا وزن في الدورة كلّها، كلاهما يوم 11/11. */
       const twoLines = () => {
         const report = clone(REAL.flock_cycle_report);
@@ -891,12 +913,12 @@ export default async function (t) {
         return report;
       };
 
-      await step('S3 أيّام الدورة: سطور اليوم بلا وزن تحت نازله، وجملة الباقي فوق الجدول', async () => {
+      await step('S3 أيّام الدورة: سطور اليوم بلا وزن تحت نازله، وجملة ما لا يدخل في النازل التراكميّ فوق الجدول', async () => {
         const read = () => {
           const table = tableOf('أيّام الدورة');
           const tbody = table ? descendants(table).find((n) => n.localName === 'tbody') : null;
           const rows = tbody ? tbody.children.filter((n) => n.localName === 'tr') : [];
-          return [rows.flatMap((tr) => byAction('rep-day-unweighed', tr).map((n) => [tr.children[0]?.textContent, tr.children[9]?.textContent, n.textContent])), textOf('rep-days-unweighed')];
+          return [rows.flatMap((tr) => byAction('rep-day-unweighed', tr).map((n) => [tr.children[0]?.textContent, tr.children[7]?.textContent, n.textContent])), textOf('rep-days-unweighed')];
         };
         t.same(
           [await view(REAL.flock_cycle_report_gaps, read), await view(REAL.flock_cycle_report, read), await view(twoLines(), read), await view(REAL.flock_cycle_report_layer, read), await view(F.flock_cycle_report, read)],
@@ -907,7 +929,7 @@ export default async function (t) {
             [[], null],
             [[['08/11/2026', '0وسطر واحد بلا وزن', 'وسطر واحد بلا وزن']], NOTE('سطر واحد')],
           ],
-          'S3 يوم نزلت فيه أكياس بلا وزن: الرقم كما هو وتحته سطوره، وفوق جدول الأيّام ما لا يدخل في التراكميّ والباقي بعدده فاعلاً (سطر واحد، سطران، 3 سطور)؛ ودورة بلا سطر بلا وزن بلا شيء من ذلك',
+          'S3 يوم نزلت فيه أكياس بلا وزن: الرقم كما هو وتحته سطوره، وفوق جدول الأيّام ما لا يدخل في التراكميّ بعدده فاعلاً (سطر واحد، سطران، 3 سطور)؛ ودورة بلا سطر بلا وزن بلا شيء من ذلك',
         );
       });
 
@@ -932,10 +954,10 @@ export default async function (t) {
           const foot = tableFoot('أيّام الدورة')?.[0] ?? [];
           const rows = tableRows('أيّام الدورة') ?? [];
           return [
-            foot[7] ?? null,
+            foot[5] ?? null,
             byAction('rep-total-unweighed').map((n) => n.textContent),
-            rows.filter((row) => row[9]?.includes('بلا وزن')).map((row) => [row[0], row[9]]),
-            rows.at(-1)?.[10] ?? null,
+            rows.filter((row) => row[7]?.includes('بلا وزن')).map((row) => [row[0], row[7]]),
+            rows.at(-1)?.[8] ?? null,
             textOf('rep-days-unweighed'),
           ];
         };
@@ -948,23 +970,23 @@ export default async function (t) {
             ['0وسطر واحد بلا وزن', ['وسطر واحد بلا وزن'], [['11/11/2026', '0وسطر واحد بلا وزن']], '0', NOTE('سطر واحد')],
             ['0', [], [], '0', null],
           ],
-          'RR27-S3b مجموع «النازل» تحته سطور الدورة بلا وزن من الخادم كصفوفه (قاعة 2 وسطراها والفجوات، ولا «0» وحده لدورة علفها كلّه بلا وزن)، و«النازل التراكميّ» كما هو وجملة فوق الجدول تقول إنّها لا تدخل فيه ولا في الباقي، بعددها فاعلاً؛ ودورة بلا سطر بلا وزن بلا شيء من ذلك',
+          'RR27-S3b مجموع «النازل» تحته سطور الدورة بلا وزن من الخادم كصفوفه (قاعة 2 وسطراها والفجوات، ولا «0» وحده لدورة علفها كلّه بلا وزن)، و«النازل التراكميّ» كما هو وجملة فوق الجدول تقول إنّها لا تدخل فيه، بعددها فاعلاً؛ ودورة بلا سطر بلا وزن بلا شيء من ذلك',
         );
       });
 
-      await step('RR27-F2a «العلف الباقي» السالب: على الموزون وحده حين نزل علف بلا وزن (عيّنة القاعدة)', async () => {
-        const NEG = 'سالب: المأكول المسجّل أكثر من النازل للقاعة.';
-        const NEG_W = 'سالب: المأكول المسجّل أكثر من النازل الموزون.';
-        const read = () => [kpiOf('given'), kpiOf('left')];
+      // RR27-F2a (الباقي السالب بسببه) سقط مع «الباقي في القاعة» نفسه في 0036 (جواب المالك «عوف سالفة العلف الماكول»): لا مؤشّر باقٍ، وسطور النازل بلا وزن
+      // تحت «النازل للقاعة» كما كانت.
+      await step('RR27-F2a → 0036 لا مؤشّر «الباقي في القاعة»، والنازل بسطوره بلا وزن (عيّنة القاعدة)', async () => {
+        const read = () => [kpiOf('given'), kpiOf('left'), kpiOf('eaten')];
         t.same(
           [await view(REAL.flock_cycle_report, read), await view(REAL.flock_cycle_report_gaps, read), await view(onlyUnweighed(), read), await view(REAL.flock_cycle_report_layer, read)],
           [
-            [['1,209.2', 'note', 'خارج الكيلو: 3 سطور بلا وزن.'], ['-50.8', 'note', NEG_W]],
-            [['1,500', 'note', 'خارج الكيلو: سطر واحد بلا وزن.'], ['-1,200', 'note', NEG_W]],
-            [['0', 'note', 'خارج الكيلو: سطر واحد بلا وزن.'], ['-2,700', 'note', NEG_W]],
-            [['0', 'none', ''], ['-1,425', 'note', NEG]],
+            [['1,209.2', 'note', 'خارج الكيلو: 3 سطور بلا وزن.'], null, null],
+            [['1,500', 'note', 'خارج الكيلو: سطر واحد بلا وزن.'], null, null],
+            [['0', 'note', 'خارج الكيلو: سطر واحد بلا وزن.'], null, null],
+            [['0', 'none', ''], null, null],
           ],
-          'RR27-F2a الباقي السالب ودورته نزل لها علف بلا وزن (قاعة 2 والفجوات والعلف كلّه بلا وزن): «أكثر من النازل الموزون»؛ وبلا سطر بلا وزن (البيّاض) الجملة كما كانت',
+          'RR27-F2a → 0036 النازل بسطوره بلا وزن، ولا «الباقي في القاعة» ولا «المأكول» في المؤشّرات',
         );
       });
 

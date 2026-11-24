@@ -110,24 +110,15 @@ export interface DayFlock {
   culledCum: number;
   /** بالمئات (مرتبتان)، أو null حين لا عدد مسكَّن. */
   mortalityCumPct: bigint | null;
-  /** علف الجولة المأكول، null حين لا جولة أو لم يُكتب. */
-  feedEatenKg: Milli | null;
-  feedEatenCumKg: Milli;
-  feedDays: number;
-  feedSpan: number;
-  /** النازل للقاعة هذا اليوم بالكيلو (الموزون وحده)، وfeedGivenUnweighed عدد سطوره بلا وزن. */
+  /**
+   * النازل للقاعة هذا اليوم بالكيلو (الموزون وحده)، وfeedGivenUnweighed عدد سطوره بلا وزن. و0036 (جواب المالك «عوف سالفة العلف الماكول»): المأكول
+   * وأيّامه و«الباقي في القاعة» المحسوب منه لا تُقرأ (مفاتيحها في الخادم بقيمها للواجهة المنشورة).
+   */
   feedGivenKg: Milli;
   feedGivenUnweighed: number;
   feedGivenCumKg: Milli;
   /** سطور العلف بلا وزن حتى اليوم (يومها وكلّ يوم بعده، DECISIONS 0019): خارج النازل التراكميّ. */
   feedGivenCumUnweighed: number;
-  /**
-   * «الباقي في القاعة» بتعريفه الواحد في كلّ الشاشات (مراجعة 0028 O2/M5: left_in_hall_kg): النازل والمنقول إليها − الراجع والمنقول منها والمحسوب
-   * مستهلَكاً عند الإغلاق − المأكول، وقد يكون سالباً؛ وleftInHallUnweighed سطوره بلا كتلة (خارج الكيلو). وخادم قبل 0028: feed_left_kg
-   * وfeed_given_cum_unweighed (النازل − المأكول).
-   */
-  leftInHallKg: Milli;
-  leftInHallUnweighed: number;
   /** وزن هذا اليوم، وآخر وزن حتى اليوم. */
   weight: DayWeight | null;
   lastWeight: LastWeight | null;
@@ -190,7 +181,7 @@ export interface DayHall {
   carry: readonly DayCarry[];
 }
 
-/** مجاميع الخادم: النافق والمستبعد من القاعات بجولة وحدها (rounds منها)، والمأكول من الأفواج بعلف مسجَّل وحدها (feedEatenFlocks). */
+/** مجاميع الخادم: النافق والمستبعد من القاعات بجولة وحدها (rounds منها)، والنازل (0036: المأكول لا يُقرأ). */
 export interface DayTotals {
   halls: number;
   flocks: number;
@@ -202,9 +193,6 @@ export interface DayTotals {
   dead: number | null;
   culled: number | null;
   liveEnd: number;
-  /** null حين لا علف مسجَّل في أيّ فوج (feedEatenFlocks = 0). */
-  feedEatenKg: Milli | null;
-  feedEatenFlocks: number;
   feedGivenKg: Milli;
   /** سطور العلف بلا وزن في ذلك اليوم من قاعاته (خارج feedGivenKg). */
   feedGivenUnweighed: number;
@@ -255,8 +243,6 @@ const totalsOf = (value: unknown): DayTotals => {
     dead: optInt(row, 'dead'),
     culled: optInt(row, 'culled'),
     liveEnd: int(row, 'live_end'),
-    feedEatenKg: optScaled(row, 'feed_eaten_kg', 3),
-    feedEatenFlocks: int(row, 'feed_eaten_flocks'),
     feedGivenKg: scaled(row, 'feed_given_kg', 3),
     feedGivenUnweighed: int(row, 'feed_given_unweighed'),
     sold: optInt(row, 'sold'),
@@ -288,16 +274,10 @@ const dayFlockOf = (value: unknown): DayFlock | null => {
     deadCum: int(row, 'dead_cum'),
     culledCum: int(row, 'culled_cum'),
     mortalityCumPct: optScaled(row, 'mortality_cum_pct', 2),
-    feedEatenKg: optScaled(row, 'feed_eaten_kg', 3),
-    feedEatenCumKg: scaled(row, 'feed_eaten_cum_kg', 3),
-    feedDays: int(row, 'feed_days'),
-    feedSpan: int(row, 'feed_span'),
     feedGivenKg: scaled(row, 'feed_given_kg', 3),
     feedGivenUnweighed: int(row, 'feed_given_unweighed'),
     feedGivenCumKg: scaled(row, 'feed_given_cum_kg', 3),
     feedGivenCumUnweighed: int(row, 'feed_given_cum_unweighed'),
-    leftInHallKg: scaled(row, row.left_in_hall_kg === undefined ? 'feed_left_kg' : 'left_in_hall_kg', 3),
-    leftInHallUnweighed: int(row, row.left_in_hall_unweighed === undefined ? 'feed_given_cum_unweighed' : 'left_in_hall_unweighed'),
     weight: weightOf(row.weight),
     lastWeight: lastWeightOf(row.last_weight),
     fcr: optScaled(row, 'fcr', 3),
@@ -485,8 +465,12 @@ export interface HistoryDay {
   sold: number;
   countDiff: number;
   liveEnd: number;
-  /** المأكول المسجّل في الجولات؛ null حين لا علف مسجّل في أيّ فوج. */
+  /**
+   * صافي العلف المرسل (0036، جواب المالك «عوف سالفة العلف الماكول»: لكلّ فوج يومه النازل ناقص الراجع والمنقول عند الإغلاق، كورقة القاعة)؛ null حين لا
+   * سطر علف في أيّ فوج؛ وسطوره بلا وزن (خارج الكيلو؛ 0 من خادم قبل 0036).
+   */
   feedKg: Milli | null;
+  feedUnweighed: number;
   /** النازل الموزون، وسطوره بلا وزن (خارج الكيلو). */
   givenKg: Milli;
   givenUnweighed: number;
@@ -506,7 +490,9 @@ export interface HistoryMonth {
   culled: number;
   sold: number;
   countDiff: number;
+  /** صافي العلف المرسل (0036) وسطوره بلا وزن. */
   feedKg: Milli;
+  feedUnweighed: number;
   givenKg: Milli;
   givenUnweighed: number;
   eggsTotal: number | null;
@@ -527,7 +513,9 @@ export interface HistoryTotal {
   culled: number;
   sold: number;
   countDiff: number;
+  /** صافي العلف المرسل (0036) وسطوره بلا وزن. */
   feedKg: Milli;
+  feedUnweighed: number;
   givenKg: Milli;
   givenUnweighed: number;
   eggsTotal: number | null;
@@ -608,6 +596,7 @@ const historyDayOf = (row: Row): HistoryDay => ({
   countDiff: int(row, 'count_diff'),
   liveEnd: nat(row, 'live_end'),
   feedKg: optScaled(row, 'feed_kg', 3),
+  feedUnweighed: optNat(row, 'feed_unweighed') ?? 0,
   givenKg: scaled(row, 'given_kg', 3),
   givenUnweighed: nat(row, 'given_unweighed'),
   eggsTotal: optNat(row, 'eggs_total'),
@@ -624,6 +613,7 @@ const sumsOf = (row: Row) => ({
   sold: nat(row, 'sold'),
   countDiff: int(row, 'count_diff'),
   feedKg: scaled(row, 'feed_kg', 3),
+  feedUnweighed: optNat(row, 'feed_unweighed') ?? 0,
   givenKg: scaled(row, 'given_kg', 3),
   givenUnweighed: nat(row, 'given_unweighed'),
   eggsTotal: optNat(row, 'eggs_total'),

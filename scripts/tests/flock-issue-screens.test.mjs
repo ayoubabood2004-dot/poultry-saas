@@ -144,9 +144,9 @@ export default async function (t) {
     const feedKeeper = p.parseFlockFeed(SAMPLES.flock_feed.storekeeper);
     const feedAccountant = p.parseFlockFeed(SAMPLES.flock_feed.accountant);
     t.same(
-      [feedOwner.issuedFeedKg, feedOwner.consumedFeedKg, feedOwner.leftInHallKg, feedOwner.leftInHallUnweighed, feedOwner.issues.length, feedOwner.issues.at(-1).status, feedOwner.canVoid, feedOwner.money],
-      [scaledOf(raw.issued_feed_kg, 3), scaledOf(raw.consumed_feed_kg, 3), scaledOf(raw.remaining_feed_kg, 3), raw.unweighed_feed_lines, raw.issues.length, 'void', true, { issuedValue: scaledOf(raw.money.issued_value, 2) }],
-      'P علف القاعة للمالك: المصروف والمستهلك والباقي (عيّنة 0019 بلا left_in_hall_kg: الباقي وسطوره بلا وزن من مفتاحَي 0019)، والسطور الأحدث أوّلاً والملغى بحاله، و«ألغِ» والمال',
+      [feedOwner.issuedFeedKg, feedOwner.issuedUnweighed, 'consumedFeedKg' in feedOwner, 'leftInHallKg' in feedOwner, feedOwner.issues.length, feedOwner.issues.at(-1).status, feedOwner.canVoid, feedOwner.money],
+      [scaledOf(raw.issued_feed_kg, 3), raw.unweighed_feed_lines, false, false, raw.issues.length, 'void', true, { issuedValue: scaledOf(raw.money.issued_value, 2) }],
+      'P علف القاعة للمالك: المصروف وسطوره بلا وزن (0036: لا المستهلك ولا الباقي)، والسطور الأحدث أوّلاً والملغى بحاله، و«ألغِ» والمال',
     );
     t.same([feedKeeper.money, feedKeeper.issues.every((issue) => issue.money === null), feedKeeper.canVoid, feedAccountant.money !== null, feedAccountant.canVoid], [null, true, false, true, false], 'P الأمين بلا مال (المفتاح غائب) ولا إلغاء، والمحاسب يرى المال ولا يلغي');
     // can_void على السطر: غيابه (العقد الأوّل) = لا إلغاء، وحضوره كما هو.
@@ -162,17 +162,20 @@ export default async function (t) {
       'P «ألغِ» لكلّ سطر من can_void السطر: غيابه لا إلغاء، وحضوره كما هو، وغير المنطقيّ خطأ شكل',
     );
     const noKey = clone(SAMPLES.flock_feed.owner);
-    delete noKey.remaining_feed_kg;
-    const negative = clone(SAMPLES.flock_feed.owner);
-    negative.remaining_feed_kg = '-12.500';
+    delete noKey.unweighed_feed_lines;
+    // 0036: المستهلك والباقي لا يُقرآن، فغيابهما أو قيمهما الغريبة لا تكسر شيئاً.
+    const noEaten = clone(SAMPLES.flock_feed.owner);
+    delete noEaten.consumed_feed_kg;
+    delete noEaten.remaining_feed_kg;
+    noEaten.left_in_hall_kg = 'x';
     const nullValue = clone(SAMPLES.flock_feed.owner);
     nullValue.issues[0].money.value = null;
     const badKind = clone(SAMPLES.flock_issue_options.owner);
     badKind.items[0].cost_kind = 'chicks';
     t.same(
-      [shape(() => p.parseFlockFeed(noKey)), p.parseFlockFeed(negative).leftInHallKg, p.parseFlockFeed(nullValue).issues[0].money, shape(() => p.parseIssueOptions(badKind))],
-      ['flock_shape:remaining_feed_kg', -12_500n, { value: null }, 'flock_issue_shape:cost_kind'],
-      'P الصرامة: مفتاح غائب خطأ شكل، والباقي السالب يُقرأ كما هو، وقيمة null تُقبل، ونوع كلفة مجهول يُرفض',
+      [shape(() => p.parseFlockFeed(noKey)), p.parseFlockFeed(noEaten).issuedFeedKg, p.parseFlockFeed(nullValue).issues[0].money, shape(() => p.parseIssueOptions(badKind))],
+      ['flock_shape:unweighed_feed_lines', scaledOf(raw.issued_feed_kg, 3), { value: null }, 'flock_issue_shape:cost_kind'],
+      'P الصرامة: مفتاح غائب خطأ شكل، والمستهلك والباقي لا يُقرآن (0036)، وقيمة null تُقبل، ونوع كلفة مجهول يُرفض',
     );
   }
 
@@ -200,7 +203,8 @@ export default async function (t) {
       return shown.sub ?? shown.main;
     };
     const OWNER_FEED = SAMPLES.flock_feed.owner;
-    const FEED_LINE = `المصروف للقاعة: ${kgOf(OWNER_FEED.issued_feed_kg)} — المستهلك المسجّل: ${kgOf(OWNER_FEED.consumed_feed_kg)} — الباقي في القاعة: ${kgOf(OWNER_FEED.remaining_feed_kg)}`;
+    // 0036 (جواب المالك «عوف سالفة العلف الماكول»): المصروف للقاعة وحده، بلا «المستهلك المسجّل» ولا «الباقي في القاعة».
+    const FEED_LINE = `المصروف للقاعة: ${kgOf(OWNER_FEED.issued_feed_kg)}`;
     const UNWEIGHED = OWNER_FEED.unweighed_feed_lines > 0 ? `سطور علف لا يُعرف وزنها (سائل بلا كثافة أو كيس بلا وزن) فلم تُحسب بالكيلو: ${m.fmtInt(OWNER_FEED.unweighed_feed_lines)}.` : '';
     const ws = (role, over = {}) => ({
       userId: 'u-1', orgId: 'org-1', orgName: 'مزرعة', memberId: 'mm-1', displayName: 'علي', phone: null, role, scopes: [], divisions: ['broiler', 'feed_mill', 'general'],

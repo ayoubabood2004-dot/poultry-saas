@@ -154,7 +154,7 @@ export interface FlockSummary {
   feedSpanDays: number;
   /** avgG بالأعشار (18500 = 1,850.0 غرام). */
   lastWeight: { onDate: Day; sampleCount: number; avgG: bigint } | null;
-  /** بالآلاف (1523 = 1.523)؛ null ما لم يُسجَّل علف كل يوم من التسكين لحد أمس (واليوم ويّاها إذا انسجّل علفه)، ووزن، وحيّ. */
+  /** بالآلاف (1523 = 1.523)؛ من صافي العلف المرسل (0036)، وnull بسطر علف بلا كتلة، أو بلا صافٍ موجب، أو بطيور حيّة لم تُوزن، أو بلا حيّ موزون ولا مبيع. */
   fcr: bigint | null;
   today: DayRow | null;
   eggsToday: number | null;
@@ -173,12 +173,16 @@ export interface FlockSummary {
   lastFeedItemId: string | null;
 }
 
-/** سطر «أُرسل اليوم» لمادّة: الكمية بوحدة أساسها بالآلاف. */
+/**
+ * سطر «أُرسل اليوم» لمادّة: الكمية بوحدة أساسها بالآلاف؛ وcarry: منقول إليها من الوجبة السابقة يوم تسكينها (لا صرف من المخزن)، وسطوره أوّلاً، ومجموع اليوم
+ * (feedTodayKg) يعدّه مرّة واحدة.
+ */
 export interface FeedTodayLine {
   itemId: string;
   itemName: string;
   qty: Milli;
   unit: BaseUnit;
+  carry: boolean;
 }
 
 const STATUSES = ['preparing', 'active', 'closed'] as const;
@@ -198,7 +202,7 @@ function roundKeys(row: Row): Pick<FlockSummary, 'gasToday' | 'gasTodayVersion' 
       list(r[f], f).map((line) => {
         const qty = wireRequired(line, 'qty', 3);
         if (qty <= 0n) throw new FlockShapeError('qty');
-        return { itemId: str(line, 'item_id'), itemName: str(line, 'item_name'), qty, unit: unitOf(line, 'unit') };
+        return { itemId: str(line, 'item_id'), itemName: str(line, 'item_name'), qty, unit: unitOf(line, 'unit'), carry: line.carry === undefined ? false : flag(line, 'carry') };
       }),
     ) ?? [];
   return { gasToday, gasTodayVersion, feedTodayKg, feedToday, lastFeedItemId: since0036(row, 'last_feed_item_id', optStr) ?? null };
@@ -375,7 +379,8 @@ export function parseDetail(value: unknown): FlockDetail {
 }
 
 // ─── علف القاعة وسجلّ صرفها (0019) ─────────────────────────────────────────────────────────────────────────────
-// flock_feed: المصروف للقاعة من المخزن والمستهلك المسجّل في الجولات والباقي، وسطر لكلّ صرف. تقرؤه شاشة الفوج (محفوظة) وصفحة الصرف (المخزن)،
+// flock_feed: المصروف للقاعة من المخزن وسطر لكلّ صرف (0036، جواب المالك «عوف سالفة العلف الماكول»: المستهلك المسجّل والباقي المحسوب منه لا يُقرآن،
+// ومفتاحاهما في الخادم بقيمهما للواجهة المنشورة). تقرؤه شاشة الفوج (محفوظة) وصفحة الصرف (المخزن)،
 // فهنا بأدوات هذا الملف لا في flockIssues (ما يُصرف والصرف وإلغاؤه، لحزمة المخزون وحدها). والمال يغيب مفتاحه لغير أدوار الكلفة، وخاناته قد
 // تأتي null (درس WP7).
 
@@ -418,15 +423,8 @@ export interface FlockFeed {
   today: Day;
   /** مجموع العلف المصروف بالكيلوغرام بالآلاف (اللتر بلقطة كثافته، والقطعة خارجه). */
   issuedFeedKg: bigint;
-  /** مجموع العلف المسجّل في الجولات اليومية. */
-  consumedFeedKg: bigint;
-  /**
-   * «الباقي في القاعة» بتعريفه الواحد في كلّ الشاشات (مراجعة 0028 O2/M5: left_in_hall_kg): النازل والمنقول إليها − الراجع والمنقول منها والمحسوب مستهلَكاً
-   * عند الإغلاق − المأكول، فالقاعة المغلقة صفر والفوج التالي يعدّ منقوله؛ وقد يكون سالباً (يُعرض كما هو). وخادم قبل 0028: remaining_feed_kg.
-   */
-  leftInHallKg: bigint;
-  /** سطور علفه بلا كتلة (سائل بلا كثافة، أو قطعة بلا وزن قطعة) خارج الكيلو؛ وخادم قبل 0028: unweighed_feed_lines. */
-  leftInHallUnweighed: number;
+  /** سطور العلف المصروف بلا كتلة (سائل بلا كثافة، أو قطعة بلا وزن قطعة) خارج الكيلو. */
+  issuedUnweighed: number;
   /** الأحدث أوّلاً. */
   issues: FeedIssue[];
   more: boolean;
@@ -439,8 +437,7 @@ export interface FlockFeed {
 export function parseFlockFeed(value: unknown): FlockFeed {
   const json = record(value, 'flock_feed');
   const box = moneyOf(json);
-  const old = json.left_in_hall_kg === undefined;
-  const unweighed = int(json, old ? 'unweighed_feed_lines' : 'left_in_hall_unweighed');
+  const unweighed = int(json, 'unweighed_feed_lines');
   if (unweighed < 0) throw new FlockShapeError('unweighed_feed_lines');
   return {
     flockId: str(json, 'flock_id'),
@@ -448,9 +445,7 @@ export function parseFlockFeed(value: unknown): FlockFeed {
     hallName: str(json, 'hall_name'),
     today: str(json, 'today'),
     issuedFeedKg: qty3(json, 'issued_feed_kg'),
-    consumedFeedKg: qty3(json, 'consumed_feed_kg'),
-    leftInHallKg: qty3(json, old ? 'remaining_feed_kg' : 'left_in_hall_kg'),
-    leftInHallUnweighed: unweighed,
+    issuedUnweighed: unweighed,
     issues: list(json.issues, 'issues').map((row) => {
       const money = moneyOf(row);
       return {

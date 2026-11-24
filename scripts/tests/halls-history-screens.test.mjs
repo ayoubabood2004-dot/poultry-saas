@@ -92,7 +92,10 @@ const oct = (d) => `2026-10-${pad(d)}`;
 const SITE = 'حقل الأمير';
 const EGG_SITE = 'حقل البيض';
 
-/** يوم لاحم: ثلاثة أفواج، ويوم 3 بلا جولة (النافق والمستبعد والمأكول null)، ويوم 17 بجولة من ثلاث، وبيع يوم 10 وفرق عدّ يوم 12، ونازل بلا وزن يوم 5. */
+/**
+ * يوم لاحم: ثلاثة أفواج، ويوم 3 بلا جولة (النافق والمستبعد null، وبلا علف)، ويوم 17 بجولة من ثلاث، وبيع يوم 10 وفرق عدّ يوم 12، ونازل بلا وزن يوم 5.
+ * 0036: feed_kg صافي العلف المرسل (لا المأكول)، وسطوره بلا وزن feed_unweighed (يوم 5).
+ */
 function broilerDay(on, d) {
   const noRound = on === nov(3);
   return {
@@ -108,6 +111,7 @@ function broilerDay(on, d) {
     count_diff: on === nov(12) ? -30 : 0,
     live_end: 12997 - d * 3,
     feed_kg: noRound ? null : `${100 + d}.500`,
+    feed_unweighed: on === nov(5) ? 2 : 0,
     given_kg: on === nov(5) ? '500.000' : '0.000',
     given_unweighed: on === nov(5) ? 2 : 0,
     eggs_total: null,
@@ -131,6 +135,7 @@ function layerDay(on, d) {
     count_diff: 0,
     live_end: 4999 - (d - 5),
     feed_kg: '550.000',
+    feed_unweighed: 0,
     given_kg: '0.000',
     given_unweighed: 0,
     eggs_total: first ? null : 4100,
@@ -140,11 +145,11 @@ function layerDay(on, d) {
 }
 // سطور الأشهر وtotal كما يقولها الخادم: أرقام الشهر غير مجموع أيّامه عمداً، فصفّ المجموع منها يثبت أنّ الشاشة لا تجمع.
 const BROILER_MONTHS = [
-  { month: '2026-10-01', days: 12, placed: 12000, dead: 30, culled: 5, sold: 0, count_diff: 0, feed_kg: '3000.000', given_kg: '3500.000', given_unweighed: 0, eggs_total: null, eggs_broken: null, hdep: null, live_end: 11965, opened: 2, closed: 0 },
-  { month: '2026-11-01', days: 17, placed: 1000, dead: 777, culled: 11, sold: 900, count_diff: -30, feed_kg: '9999.500', given_kg: '4500.000', given_unweighed: 2, eggs_total: null, eggs_broken: null, hdep: null, live_end: 12949, opened: 1, closed: 1 },
+  { month: '2026-10-01', days: 12, placed: 12000, dead: 30, culled: 5, sold: 0, count_diff: 0, feed_kg: '3000.000', feed_unweighed: 0, given_kg: '3500.000', given_unweighed: 0, eggs_total: null, eggs_broken: null, hdep: null, live_end: 11965, opened: 2, closed: 0 },
+  { month: '2026-11-01', days: 17, placed: 1000, dead: 777, culled: 11, sold: 900, count_diff: -30, feed_kg: '9999.500', feed_unweighed: 2, given_kg: '4500.000', given_unweighed: 2, eggs_total: null, eggs_broken: null, hdep: null, live_end: 12949, opened: 1, closed: 1 },
 ];
-const BROILER_TOTAL = { days: 29, placed: 13000, dead: 807, culled: 16, sold: 900, count_diff: -30, feed_kg: '12999.500', given_kg: '8000.000', given_unweighed: 2, eggs_total: null, eggs_broken: null, hdep: null, live_now: 12949, opened: 3, closed: 1, halls: 3 };
-const LAYER_MONTHS = [{ month: '2026-11-01', days: 13, placed: 5000, dead: 13, culled: 0, sold: 0, count_diff: 0, feed_kg: '7150.000', given_kg: '0.000', given_unweighed: 0, eggs_total: 49200, eggs_broken: 144, hdep: '83.10', live_end: 4987, opened: 1, closed: 0 }];
+const BROILER_TOTAL = { days: 29, placed: 13000, dead: 807, culled: 16, sold: 900, count_diff: -30, feed_kg: '12999.500', feed_unweighed: 2, given_kg: '8000.000', given_unweighed: 2, eggs_total: null, eggs_broken: null, hdep: null, live_now: 12949, opened: 3, closed: 1, halls: 3 };
+const LAYER_MONTHS = [{ month: '2026-11-01', days: 13, placed: 5000, dead: 13, culled: 0, sold: 0, count_diff: 0, feed_kg: '7150.000', feed_unweighed: 0, given_kg: '0.000', given_unweighed: 0, eggs_total: 49200, eggs_broken: 144, hdep: '83.10', live_end: 4987, opened: 1, closed: 0 }];
 const LAYER_TOTAL = { ...LAYER_MONTHS[0], live_now: 4987, halls: 1 };
 delete LAYER_TOTAL.month;
 delete LAYER_TOTAL.live_end;
@@ -360,7 +365,7 @@ export default async function (t) {
           [500000n, 2, 105500n, 0],
           [-30, 900],
         ],
-        'P1 اليوم: الغائب null لا صفر (بلا جولة: النافق والمستبعد والمأكول، وبيض اللاحم)، والكيلو بالآلاف، وفرق العدّ بإشارته',
+        'P1 اليوم: الغائب null لا صفر (بلا جولة: النافق والمستبعد، وبلا علف: صافي العلف المرسل، وبيض اللاحم)، والكيلو بالآلاف، وفرق العدّ بإشارته',
       );
       t.same(
         [layer.days[0].eggsTotal, layer.days[0].hdep, layer.days[1].eggsTotal, layer.days[1].eggsBroken, layer.days[1].hdep, layer.months[0].hdep, layer.total.hdep, layer.total.liveNow, layer.total.halls],
@@ -492,8 +497,8 @@ export default async function (t) {
       const brDays = daysCaption(BR, NOV_NAME);
       t.same(
         tableHeaders(brDays),
-        ['التاريخ', 'الأفواج', 'المسكَّن', 'النافق', 'المستبعد', 'المبيع', 'فرق العدّ', 'المأكول (كغم)', 'النازل من المخزن (كغم)', 'الحيّ آخر اليوم'],
-        'T2 أيّام الشهر للّاحم بأعمدة العقد (بلا أعمدة البيض)، والنازل «من المخزن» (المنقول من دورة سابقة لا يُعدّ ثانيةً؛ مراجعة 0031 M1)',
+        ['التاريخ', 'الأفواج', 'المسكَّن', 'النافق', 'المستبعد', 'المبيع', 'فرق العدّ', 'صافي العلف المرسل (كغم)', 'النازل من المخزن (كغم)', 'الحيّ آخر اليوم'],
+        'T2 أيّام الشهر للّاحم بأعمدة العقد (بلا أعمدة البيض)، وصافي العلف المرسل لا المأكول (0036)، والنازل «من المخزن» (المنقول من دورة سابقة لا يُعدّ ثانيةً؛ مراجعة 0031 M1)',
       );
       const rows = tableRows(brDays);
       t.same(
@@ -502,15 +507,15 @@ export default async function (t) {
           17,
           [fmt(nov(1)), '3', '1,000', '1', '0', '0', '0', '101.5', '0', '12,994'],
           [fmt(nov(3)), '3الجولات 0 من 3', '0', '—', '—', '0', '0', '—', '0', '12,988'],
-          [fmt(nov(5)), '3', '0', '0', '0', '0', '0', '105.5', '500وسطران بلا وزن', '12,982'],
+          [fmt(nov(5)), '3', '0', '0', '0', '0', '0', '105.5وسطران بلا وزن', '500وسطران بلا وزن', '12,982'],
           [fmt(nov(10)), '3', '0', '0', '1', '900', '0', '110.5', '0', '12,967'],
           [fmt(nov(12)), '3', '0', '2', '1', '0', signed(-30), '112.5', '0', '12,961'],
         ],
-        'T2 الصفوف يوماً بيوم: «—» للغائب لا صفر، والجولات الناقصة تحت الأفواج، وسطور النازل بلا وزن، وفرق العدّ بإشارته معزولاً، والكيلو بمراتب العمود',
+        'T2 الصفوف يوماً بيوم: «—» للغائب لا صفر، والجولات الناقصة تحت الأفواج، وسطور الصافي والنازل بلا وزن، وفرق العدّ بإشارته معزولاً، والكيلو بمراتب العمود',
       );
       t.same(
         tableFoot(brDays),
-        [['مجموع الشهر', '1,000', '777', '11', '900', signed(-30), '9,999.5', '4,500وسطران بلا وزن', '12,949']],
+        [['مجموع الشهر', '1,000', '777', '11', '900', signed(-30), '9,999.5وسطران بلا وزن', '4,500وسطران بلا وزن', '12,949']],
         'T2 صفّ المجموع سطرُ الشهر من الخادم حرفاً (النافق 777 لا مجموع الصفوف)، والحيّ آخر الشهر',
       );
       const marked = rowsOf(brDays).filter((tr) => tr.getAttribute('data-tone') === 'mark');
@@ -530,12 +535,12 @@ export default async function (t) {
       t.same(
         [tableHeaders(brMonths), tableRows(brMonths), tableFoot(brMonths)],
         [
-          ['الشهر', 'الأيّام', 'المسكَّن', 'النافق', 'المستبعد', 'المبيع', 'فرق العدّ', 'المأكول (كغم)', 'النازل من المخزن (كغم)', 'الحيّ آخر الشهر'],
+          ['الشهر', 'الأيّام', 'المسكَّن', 'النافق', 'المستبعد', 'المبيع', 'فرق العدّ', 'صافي العلف المرسل (كغم)', 'النازل من المخزن (كغم)', 'الحيّ آخر الشهر'],
           [
             [OCT_NAME, '12', '12,000', '30', '5', '0', '0', '3,000.0', '3,500', '11,965'],
-            [NOV_NAME, '17', '1,000', '777', '11', '900', signed(-30), '9,999.5', '4,500وسطران بلا وزن', '12,949'],
+            [NOV_NAME, '17', '1,000', '777', '11', '900', signed(-30), '9,999.5وسطران بلا وزن', '4,500وسطران بلا وزن', '12,949'],
           ],
-          [['منذ البداية', '29', '13,000', '807', '16', '900', signed(-30), '12,999.5', '8,000وسطران بلا وزن', '12,949']],
+          [['منذ البداية', '29', '13,000', '807', '16', '900', signed(-30), '12,999.5وسطران بلا وزن', '8,000وسطران بلا وزن', '12,949']],
         ],
         'T3 الأشهر من البداية بأعمدة العقد وفرق العدّ (يُكمل حساب الحيّ في سطر الشهر؛ مراجعة 0031 L2)، وصفّ «منذ البداية» من total (والحيّ فيه حيّ اليوم)',
       );
@@ -559,8 +564,8 @@ export default async function (t) {
       t.same(
         [within(brWhat, 'hist-sentence')[0]?.textContent, within(lyWhat, 'hist-sentence')[0]?.textContent],
         [
-          `منذ ${fmt(oct(20))}: سُكّن 13,000 طير في 3 أفواج، ونفق 807 طيور، واستُبعد 16 طيراً، وبيع 900 طير، وفرق العدّ ${signed(-30)}، وأُكل من العلف 12,999.5 كغم، ونزل إلى القاعات من العلف 8,000 كغم وسطران بلا وزن، وأُغلق فوج واحد، واستُعملت 3 قاعات، والحيّ الآن 12,949 طيراً.`,
-          `منذ ${fmt(nov(5))}: سُكّن 5,000 طير في فوج واحد، ونفق 13 طيراً، وأُكل من العلف 7,150 كغم، وجُمع 49,200 بيضة بنسبة إنتاج 83.10%، واستُعملت قاعة واحدة، والحيّ الآن 4,987 طيراً.`,
+          `منذ ${fmt(oct(20))}: سُكّن 13,000 طير في 3 أفواج، ونفق 807 طيور، واستُبعد 16 طيراً، وبيع 900 طير، وفرق العدّ ${signed(-30)}، وصافي العلف المرسل إلى القاعات 12,999.5 كغم وسطران بلا وزن، ونزل إلى القاعات من العلف 8,000 كغم وسطران بلا وزن، وأُغلق فوج واحد، واستُعملت 3 قاعات، والحيّ الآن 12,949 طيراً.`,
+          `منذ ${fmt(nov(5))}: سُكّن 5,000 طير في فوج واحد، ونفق 13 طيراً، وصافي العلف المرسل إلى القاعات 7,150 كغم، وجُمع 49,200 بيضة بنسبة إنتاج 83.10%، واستُعملت قاعة واحدة، والحيّ الآن 4,987 طيراً.`,
         ],
         'W1 الجملة من total بالعدد الفصيح (807 طيور، 16 طيراً، 900 طير، فوج واحد، 3 قاعات)، وما كان صفراً لا يُذكر',
       );

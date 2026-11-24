@@ -227,7 +227,10 @@ export function MortalityChart({ days }: { days: readonly CycleDay[] }) {
   );
 }
 
-/** غرام العلف لكلّ طير في اليوم لكلّ أسبوع: عمود لكلّ أسبوع، والأسبوع بلا علف مسجّل «—» عند القاعدة (لا صفر). */
+/**
+ * غرام العلف لكلّ طير في اليوم لكلّ أسبوع من صافي العلف المرسل فيه (0036، جواب المالك «عوف سالفة العلف الماكول»): عمود لكلّ أسبوع، والأسبوع بلا قيمة
+ * (بلا صافٍ موجب، أو بسطر بلا وزن، أو بلا طير حيّ) «—» عند القاعدة (لا صفر).
+ */
 export function FeedChart({ weeks }: { weeks: readonly CycleWeek[] }) {
   const values = weeks.flatMap((week) => (week.feedGPerBirdDay === null ? [] : [week.feedGPerBirdDay]));
   const s = scaleOf(values, 1, 100n);
@@ -258,18 +261,18 @@ export function FeedChart({ weeks }: { weeks: readonly CycleWeek[] }) {
     weekTicks.add(final);
   }
   const title = t('halls.rep.chart.feed', 'العلف لكلّ طير في اليوم (غم) بالأسبوع');
-  const desc = t('halls.rep.chart.feed_desc', 'غرام العلف المأكول لكلّ طير في اليوم: {weeks}.', {
+  const desc = t('halls.rep.chart.feed_desc', 'غرام صافي العلف المرسل لكلّ طير في اليوم: {weeks}.', {
     weeks: weeks
       .map((week) =>
         t('halls.rep.chart.feed_week', 'الأسبوع {week}: {value}', {
           week: week.week,
-          value: week.feedGPerBirdDay === null ? t('halls.rep.chart.no_feed_week', 'بلا علف مسجّل') : fmtScaledCell(week.feedGPerBirdDay, 1, decimals),
+          value: week.feedGPerBirdDay === null ? t('halls.rep.chart.no_feed_week', 'بلا قيمة') : fmtScaledCell(week.feedGPerBirdDay, 1, decimals),
         }),
       )
       .join(t('halls.rep.chart.sep', '، ')),
   });
   return (
-    <Figure action="chart-feed" title={title} desc={desc} empty={values.length === 0 ? t('halls.rep.chart.no_feed', 'لم يُسجَّل علف مأكول بعد.') : null}>
+    <Figure action="chart-feed" title={title} desc={desc} empty={values.length === 0 ? t('halls.rep.chart.no_feed', 'لم يُرسل علف للقاعة بعد.') : null}>
       <YAxis s={s} unit={t('halls.rep.chart.g', 'غم')} />
       <XTitle text={t('halls.rep.chart.week_axis', 'الأسبوع')} />
       {weeks.map((week, index) => {

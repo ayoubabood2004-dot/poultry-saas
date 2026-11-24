@@ -492,8 +492,13 @@ function RoundCard({ row, kind, today, entry, onChange, error, status, online, s
               </p>
               {row.sent.lines.length > 0 ? (
                 <ul className="flex flex-col gap-0.5 text-sm text-ink-muted" data-action="round-feed-lines">
+                  {/* المنقول من الوجبة السابقة يوم التسكين سطرٌ بعلامته (لا صرف من المخزن)، ومجموع اليوم فوقها من الخادم يعدّه مرّة. */}
                   {row.sent.lines.map((line) => (
-                    <li key={line.itemId}>{t('round.feed.line', '«{item}»: {amount}', { item: line.itemName, amount: feedAmount(line.qty, line.unit) })}</li>
+                    <li key={`${line.carry ? 'carry' : 'sent'}|${line.itemId}`} data-carry={line.carry ? '1' : undefined}>
+                      {line.carry
+                        ? t('round.feed.line_carry', '«{item}»: {amount} (منقول من الوجبة السابقة)', { item: line.itemName, amount: feedAmount(line.qty, line.unit) })
+                        : t('round.feed.line', '«{item}»: {amount}', { item: line.itemName, amount: feedAmount(line.qty, line.unit) })}
+                    </li>
                   ))}
                 </ul>
               ) : null}

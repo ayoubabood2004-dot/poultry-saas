@@ -86,9 +86,10 @@ export function withSaved(json: unknown, key: string, read: number, runs: readon
     const flock = of(sent.key, sent.flockId, sent.day);
     if (!flock || sent.mark < read) continue;
     const lines = (flock.feed_today ?? []) as Json[];
-    const line = lines.find((entry) => entry.item_id === sent.itemId);
+    // سطر المرسل للمادّة لا سطر المنقول إليها (0036: المنقول بعلامته carry)؛ ومجموع اليوم من جواب الإرسال (خانة الورقة ومعها المنقول).
+    const line = lines.find((entry) => entry.item_id === sent.itemId && entry.carry !== true);
     if (line) line.qty = decimalText(milli(line.qty) + sent.qty, 3);
-    else lines.push({ item_id: sent.itemId, item_name: sent.itemName, qty: decimalText(sent.qty, 3), unit: sent.unit });
+    else lines.push({ item_id: sent.itemId, item_name: sent.itemName, qty: decimalText(sent.qty, 3), unit: sent.unit, carry: false });
     Object.assign(flock, { feed_today: lines, feed_today_kg: sent.dayKg === null ? null : decimalText(sent.dayKg, 3), last_feed_item_id: sent.itemId });
     for (const item of items) if (item.item_id === sent.itemId) item.on_hand = decimalText(milli(item.on_hand) - sent.qty, 3);
   }

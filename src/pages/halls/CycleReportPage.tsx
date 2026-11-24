@@ -15,19 +15,21 @@ import { useLoad } from '../../lib/useLoad';
 import { FeedChart, MortalityChart, WeightChart } from './charts';
 import { CarryInNote, CloseSection, SalesSection } from './CloseSections';
 import { signedCount } from './ticketParts';
-import { BackLink, backLabel, backTarget, daysText, flockPath, kindLabel, leftNegativeText, linesText, ofDaysText, outsideKgText, printAs, STATE_INK, stateLabel, unitWord, VaccineName } from './parts';
+import { BackLink, backLabel, backTarget, daysText, flockPath, kindLabel, linesText, ofDaysText, outsideKgText, printAs, STATE_INK, stateLabel, unitWord, VaccineName } from './parts';
 
 // التقرير المفصّل للدورة (0026، كلمة المالك 2026-11-11: «بنهاية الدورة تقرير كامل بشنو انطوا علف»): /halls/cycle/:flockId بقراءة flock_cycle_report واحدة.
 // ومنذ «القاعة كالورقة» (0035، طلب المالك 2026-11-21: تقارير مبسّطة بجداول أرقام) صار «تقرير الوجبة» في /halls/report/:flockId جدول الورقة وخلاصته
 // (ReportPage)، وهذا التقرير المفصّل رابطٌ منه لمن يريد العلف بمستنداته والأدوية واللقاحات والكلفة، وفيه قسم الإغلاق و«أعد فتح الدورة» (?act=reopen).
 // أقسامه جداول كلاسيكية (DataTable): الطيور (المسكَّن والنافق والمستبعد والحيّ ونسبة النفوق)، والعلف بكلّ نزول بتاريخه ومستنده وكيلوه وتراكمه (والقيمة
-// لأدوار الكلفة وحدها)، ومجموعه لكلّ مادّة، والمصروف للقاعة والمستهلك المسجّل والباقي (وعدد سطور العلف بلا وزن)، والأدوية من المخزن وبلا مخزن،
-// واللقاحات المخطّطة والمنفَّذة بحالتها، وخلاصة المال لأدوار الكلفة. المال يغيب مفتاحه كلّه لغيرهم (repo/halls يقرأ الغياب null)، فلا عمود ولا قسم.
-// و«اطبع التقرير» على A4 طولاً بعنوان التقرير، وبقيّة الصفحة لا تُطبع.
+// لأدوار الكلفة وحدها)، ومجموعه لكلّ مادّة، وخلاصة علف القاعة (المنقول إليها والمصروف، وللمغلقة الراجع والمنقول عند الإغلاق والباقي الفعليّ الذي كُتب
+// عنده، وعدد سطور العلف بلا وزن)، والأدوية من المخزن وبلا مخزن، واللقاحات المخطّطة والمنفَّذة بحالتها، وخلاصة المال لأدوار الكلفة. المال يغيب مفتاحه
+// كلّه لغيرهم (repo/halls يقرأ الغياب null)، فلا عمود ولا قسم. و«اطبع التقرير» على A4 طولاً بعنوان التقرير، وبقيّة الصفحة لا تُطبع.
 // و(0027، كلمة المالك 2026-11-12 «تقرير كامل بنهاية الدورة»، docs/HALLS_REPORTS_PLAN.md التسليم ١) أوّله مؤشّرات الدورة بجدول: كلّ مؤشّر ناقص المدخلات
-// «—» وبجانبه سببه بجملة قصيرة (معامل التحويل يحتاج علف كلّ يوم ووزن عيّنة)، ثمّ ثلاثة رسوم صغيرة (charts.tsx) لا تحلّ محلّ الجداول، وجدول الأسابيع
-// بعمر الطيور، وجدول الأيّام كلّها (يوم بلا جولة مكتوب «لم تُسجَّل الجولة» ولا يُعدّ صفراً)، وجدول الأوزان؛ وجدول الأيّام يُطبع على A4 عرضاً (صفحة
-// باسمها). مجاميع الأيّام والأسابيع من مؤشّرات الخادم (kpis) لا من جمع الصفوف. وخادم قبل 0027 لا يرسل هذه المفاتيح: الأقسام القديمة وحدها بجملة.
+// «—» وبجانبه سببه بجملة قصيرة، ثمّ ثلاثة رسوم صغيرة (charts.tsx) لا تحلّ محلّ الجداول، وجدول الأسابيع بعمر الطيور، وجدول الأيّام كلّها (يوم بلا جولة
+// مكتوب «لم تُسجَّل الجولة» ولا يُعدّ صفراً)، وجدول الأوزان؛ وجدول الأيّام يُطبع على A4 عرضاً (صفحة باسمها). مجاميع الأيّام والأسابيع من مؤشّرات الخادم
+// (kpis) لا من جمع الصفوف. وخادم قبل 0027 لا يرسل هذه المفاتيح: الأقسام القديمة وحدها بجملة.
+// و0036 (جواب المالك «عوف سالفة العلف الماكول»): لا علف مأكول ولا «باقٍ في القاعة» محسوب منه في أيّ قسم؛ كلّ رقم علف من العلف المرسل، ومعامل التحويل
+// ومؤشّر الإنتاج والعلف لكلّ طير من صافيه (المرسل والمنقول إليها − الراجع والمنقول عند الإغلاق)، وأسباب «—» أسباب الخادم نفسها.
 
 type Birds = CycleReport['birds'];
 type FeedLine = CycleReport['feed']['lines'][number];
@@ -35,7 +37,8 @@ type ByItem = CycleReport['feed']['byItem'][number];
 type Medicine = CycleReport['medicines'][number];
 type Vaccine = CycleReport['vaccines'][number];
 type WeightRow = CycleDetail['weights'][number];
-type Balance = { carryIn: bigint | null; delivered: bigint; given: bigint | null; consumed: bigint; left: bigint };
+/** خلاصة علف القاعة بما وقع وحده (0036): المنقول إليها، والمصروف، والنازل كلّه، وللمغلقة الراجع والمنقول عند الإغلاق والباقي الفعليّ الذي كُتب عنده. */
+type Balance = { carryIn: bigint | null; delivered: bigint; given: bigint | null; out: bigint | null; leftAtClose: bigint | null };
 type CountDiff = NonNullable<CycleReport['countDiffs']>[number];
 type MoneyRow = { key: string; label: string; amount: Fils };
 /** صفّ مؤشّر: القيمة نصّ منسّق، أو null فتُعرض «—» وnote سببها. */
@@ -69,24 +72,29 @@ const dayIndex = (day: Day): number => Date.UTC(Number(day.slice(0, 4)), Number(
 const dash = () => t('halls.rep.dash', '—');
 const WARN_INK = 'font-semibold text-warn-800 dark:text-warn-200';
 
-/** «سُجّل العلف 9 من 11 يوماً.»: أيّام الجولة بعلفها من الأيّام التي يحتاجها معامل التحويل (من التسكين حتى أمس «حتى»، ومعها «حتى» إن سُجّل). */
-function feedDaysText(n: number | null, m: number | null): string | null {
-  if (n === null || m === null || m === 0) return null;
-  return t('halls.rep.kpi.feed_days', 'سُجّل العلف {n} من {days}.', { n, days: ofDaysText(m) });
+/**
+ * لماذا لا رقم من صافي العلف المرسل (0036، جواب المالك «عوف سالفة العلف الماكول»: معامل التحويل والعلف لكلّ طير)، بشروط private.report_days بترتيبها:
+ * لا أيّام، ثمّ سطر علف بلا وزن بالكيلو (لتر بلا كثافة أو قطعة بلا وزن: لا يُعرف الصافي)، ثمّ صافٍ ليس فوق الصفر. unweighed: سطور العلف النازل بلا كتلة
+ * حتى «حتى» (الخارج عند الإغلاق بلا كتلة مادّته نزلت بلا كتلة). null حين لا سبب من العلف.
+ */
+function feedReason(k: CycleKpis, unweighed: number): string | null {
+  if (k.days === 0) return t('halls.rep.kpi.no_days', 'لا أيّام في التقرير بعد.');
+  if (unweighed > 0) return t('halls.rep.kpi.unweighed', 'فيه سطر علف بلا وزن بالكيلو (لتر بلا كثافة أو قطعة بلا وزن)، فلا يُعرف صافي العلف.');
+  const net = k.feedNetKg ?? k.feedGivenKg;
+  if (net === null || net <= 0n) return t('halls.rep.kpi.no_feed', 'لم يُرسل علف للقاعة بعد.');
+  return null;
 }
 
-/** لماذا لا معامل تحويل: شروط flock_summary (0012) نفسها بترتيبها، والناقص منها كلّه في جملة واحدة. */
-function fcrReason(k: CycleKpis): string {
-  if (k.days === 0 || k.feedDays === null || k.feedSpan === null) return t('halls.rep.kpi.no_days', 'لا أيّام في التقرير بعد.');
-  const needWeight = k.lastWeight === null;
-  if (k.feedSpan === 0) return needWeight ? t('halls.rep.kpi.fcr.first_both', 'يحتاج أوّل جولة بعلفها ووزن عيّنة.') : t('halls.rep.kpi.fcr.first', 'يحتاج أوّل جولة بعلفها.');
-  const recorded = { n: k.feedDays, days: ofDaysText(k.feedSpan) };
-  const needFeed = k.feedDays < k.feedSpan;
-  if (needFeed && needWeight) return t('halls.rep.kpi.fcr.need_both', 'يحتاج علف كلّ يوم ووزن عيّنة (سُجّل العلف {n} من {days}).', recorded);
-  if (needFeed) return t('halls.rep.kpi.fcr.need_feed', 'يحتاج علف كلّ يوم من التسكين (سُجّل العلف {n} من {days}).', recorded);
-  if (needWeight) return t('halls.rep.kpi.fcr.need_weight', 'يحتاج وزن عيّنة.');
-  if (k.live !== null && k.live <= 0) return t('halls.rep.kpi.no_live', 'لا طيور حيّة.');
-  if (k.feedEatenKg !== null && k.feedEatenKg <= 0n) return t('halls.rep.kpi.fcr.zero_feed', 'العلف المسجّل صفر.');
+/**
+ * لماذا لا معامل تحويل: أسباب العلف (feedReason)، ثمّ طيور حيّة لم تُوزن (من بقي حيّاً بلا وزن لا معامل له، قاعدة 0028)، ثمّ لا حيّ موزون ولا مبيع
+ * (المقام صفر).
+ */
+function fcrReason(k: CycleKpis, unweighed: number): string {
+  const feed = feedReason(k, unweighed);
+  if (feed !== null) return feed;
+  const live = k.live ?? 0;
+  if (live > 0 && k.lastWeight === null) return t('halls.rep.kpi.fcr.need_weight_live', 'يحتاج وزن عيّنة للطيور الحيّة.');
+  if (live <= 0 && (k.soldNetKg ?? 0n) <= 0n) return t('halls.rep.kpi.fcr.nothing', 'لا طيور حيّة موزونة ولا مبيع بفاتورة.');
   return t('halls.rep.kpi.incomplete', 'مدخلاته غير مكتملة.');
 }
 
@@ -127,6 +135,8 @@ function kpiRows(report: CycleReport, cycle: CycleDetail): Kpi[] {
   };
   // اكتمال الجولات تحت «الحيّ»: الحيّ والنفوق والحيوية من الجولات المسجّلة وحدها، فيقال كم يوماً منها سُجّل؛ وبلا جولة أصلاً لا نافق ولا مستبعد يُذكر.
   const rounds = roundsOf(cycle.days);
+  // سطور العلف النازل بلا كتلة حتى «حتى» (آخر يوم في التقرير)، وخادم بلا أيّام: سطور الصرف.
+  const unweighed = cycle.days.at(-1)?.feedGivenCumUnweighed ?? report.feed.unweighed;
   const counted = k.dead !== null && k.culled !== null ? t('halls.rep.kpi.live_note', 'النافق {dead} والمستبعد {culled}.', { dead: k.dead, culled: k.culled }) : null;
   const liveNote =
     rounds.recorded === 0
@@ -146,16 +156,8 @@ function kpiRows(report: CycleReport, cycle: CycleDetail): Kpi[] {
     kg(k.feedGivenKg),
     report.feed.unweighed > 0 ? outsideKgText(report.feed.unweighed) : null,
   );
-  add('eaten', t('halls.rep.kpi.eaten', 'العلف المأكول المسجّل (كغم)'), kg(k.feedEatenKg), feedDaysText(k.feedDays, k.feedSpan));
-  // «الباقي في القاعة» بتعريفه الواحد (مراجعة 0028 O2/M5): القيمة نفسها في قسم العلف وآخر يوم من جدول الأيّام والتقرير اليوميّ وعلف القاعة.
-  add('left', t('halls.rep.kpi.left', 'العلف الباقي في القاعة (كغم)'), kg(k.leftInHallKg), k.leftInHallKg !== null && k.leftInHallKg < 0n ? leftNegativeText(k.leftInHallUnweighed ?? report.feed.unweighed) : null);
-  add(
-    'per_bird',
-    t('halls.rep.kpi.per_bird', 'العلف لكلّ طير مسكَّن (كغم)'),
-    kg(k.feedPerBirdKg),
-    null,
-    k.days === 0 ? noDays : t('halls.rep.kpi.per_bird_none', 'لم يُسجَّل علف مأكول بعد.'),
-  );
+  // 0036: لا «العلف المأكول» ولا «الباقي في القاعة» المحسوب منه (جواب المالك)؛ والعلف لكلّ طير من صافي العلف المرسل بسبب «—» نفسه.
+  add('per_bird', t('halls.rep.kpi.per_bird', 'العلف لكلّ طير مسكَّن (كغم)'), kg(k.feedPerBirdKg), null, feedReason(k, unweighed) ?? noDays);
   if (flock.kind === 'broiler' || k.lastWeight !== null) {
     add(
       'weight',
@@ -166,7 +168,7 @@ function kpiRows(report: CycleReport, cycle: CycleDetail): Kpi[] {
     );
   }
   if (flock.kind === 'broiler') {
-    add('fcr', t('halls.rep.kpi.fcr', 'معامل التحويل الغذائي'), k.fcr === null ? null : fmtScaledCell(k.fcr, 3, 3), t('halls.rep.kpi.fcr_note', 'كغم علف لكلّ كغم من الوزن الحيّ.'), fcrReason(k));
+    add('fcr', t('halls.rep.kpi.fcr', 'معامل التحويل الغذائي'), k.fcr === null ? null : fmtScaledCell(k.fcr, 3, 3), t('halls.rep.kpi.fcr_note', 'كغم علف لكلّ كغم من الوزن الحيّ.'), fcrReason(k, unweighed));
     add(
       'epef',
       t('halls.rep.kpi.epef', 'مؤشّر الإنتاج (EPEF)'),
@@ -286,14 +288,26 @@ function CycleSections({ report, cycle }: { report: CycleReport; cycle: CycleDet
   const grams = (tenths: bigint) => <Num>{fmtScaledCell(tenths, 1, 1)}</Num>;
   const rounds = roundsOf(days);
   const missing = rounds.all - rounds.recorded;
-  const leftUnweighed = kpis.leftInHallUnweighed ?? report.feed.unweighed;
-  // المجموع من المؤشّرات (kpis) كما هو، إلّا حين لا يُجمع شيء: دورة بلا جولة مسجّلة نافقها ومستبعدها «—» لا صفر، وبلا علف مأكول مسجّل مأكولها «—»
-  // (كصفوفها وكالأسبوع بلا جولة؛ مراجعة 0027 S1).
+  // المجموع من المؤشّرات (kpis) كما هو، إلّا حين لا يُجمع شيء: دورة بلا جولة مسجّلة نافقها ومستبعدها «—» لا صفر (كصفوفها وكالأسبوع بلا جولة؛ مراجعة
+  // 0027 S1).
   const anyRound = days.some((day) => day.round);
   const deadTotal = (value: number | null) => (anyRound ? intCell(value) : dash());
-  const eatenAny = days.some((day) => day.feedEatenKg !== null);
+  // مجموع «النازل» من المؤشّرات وتحته سطور الدورة بلا وزن من الخادم (feed.unweighed، لا جمع هنا)، فلا «0» وحده لدورة نزل علفها بلا وزن (مراجعة 0027
+  // RR27-S3b)؛ للأيّام وللأسابيع (0036) سواءً.
+  const givenTotal = (decimals: 0 | 1 | 2 | 3, action: string) =>
+    report.feed.unweighed > 0 ? (
+      <>
+        {kgCell(kpis.feedGivenKg, decimals)}
+        <span className="block text-xs font-normal text-ink-muted" data-action={action}>
+          {t('halls.rep.item_unweighed', 'و{lines} بلا وزن', { lines: linesText(report.feed.unweighed) })}
+        </span>
+      </>
+    ) : (
+      kgCell(kpis.feedGivenKg, decimals)
+    );
 
-  const weekKg = decimalsOf([...weeks.map((week) => week.feedEatenKg), kpis.feedEatenKg]);
+  // 0036 (جواب المالك «عوف سالفة العلف الماكول»): النازل في كلّ أسبوع بدل المأكول، وسطوره بلا وزن تحت كيلوه (خادم قبل 0036 بلاه: «—»).
+  const weekKg = decimalsOf([...weeks.map((week) => week.feedGivenKg), kpis.feedGivenKg]);
   const weekColumns: Column<CycleWeek>[] = [
     { key: 'week', header: t('halls.rep.col.week', 'الأسبوع'), cell: (week) => <Num>{fmtInt(week.week)}</Num> },
     {
@@ -318,7 +332,23 @@ function CycleSections({ report, cycle }: { report: CycleReport; cycle: CycleDet
     { key: 'mortality', header: t('halls.rep.col.week_mortality', 'نفوق الأسبوع'), kind: 'number', cell: (week) => pctCell(week.mortalityPct) },
     { key: 'cum', header: t('halls.rep.col.mortality_cum', 'النفوق التراكميّ'), kind: 'number', cell: (week) => pctCell(week.mortalityCumPct) },
     { key: 'live', header: t('halls.rep.col.live_week_end', 'الحيّ آخر الأسبوع'), kind: 'number', cell: (week) => <Num>{fmtInt(week.liveEnd)}</Num> },
-    { key: 'eaten', header: t('halls.rep.col.eaten', 'المأكول (كغم)'), kind: 'number', cell: (week) => kgCell(week.feedEatenKg, weekKg), total: eatenAny ? kgCell(kpis.feedEatenKg, weekKg) : dash() },
+    {
+      key: 'given',
+      header: t('halls.rep.col.given', 'النازل (كغم)'),
+      kind: 'number',
+      cell: (week) =>
+        week.feedGivenUnweighed !== null && week.feedGivenUnweighed > 0 ? (
+          <>
+            {kgCell(week.feedGivenKg, weekKg)}
+            <span className="block text-xs text-ink-muted" data-action="rep-week-unweighed">
+              {t('halls.rep.item_unweighed', 'و{lines} بلا وزن', { lines: linesText(week.feedGivenUnweighed) })}
+            </span>
+          </>
+        ) : (
+          kgCell(week.feedGivenKg, weekKg)
+        ),
+      total: givenTotal(weekKg, 'rep-week-total-unweighed'),
+    },
     {
       key: 'per_bird',
       header: t('halls.rep.col.g_per_bird', 'غم لكلّ طير في اليوم'),
@@ -333,11 +363,8 @@ function CycleSections({ report, cycle }: { report: CycleReport; cycle: CycleDet
       : []),
   ];
 
-  const eatenKg = decimalsOf([...days.map((day) => day.feedEatenKg), kpis.feedEatenKg]);
-  const eatenCumKg = decimalsOf(days.map((day) => day.feedEatenCumKg));
   const givenKg = decimalsOf([...days.map((day) => day.feedGivenKg), kpis.feedGivenKg]);
   const givenCumKg = decimalsOf(days.map((day) => day.feedGivenCumKg));
-  const leftKg = decimalsOf(days.map((day) => day.leftInHallKg));
   const dayColumns: Column<CycleDay>[] = [
     { key: 'on', header: t('halls.rep.col.date', 'التاريخ'), sticky: true, cell: (day) => <Num>{fmtDay(day.on)}</Num> },
     { key: 'age', header: t('halls.rep.col.age_short', 'العمر'), kind: 'number', cell: (day) => <Num>{fmtInt(day.age)}</Num> },
@@ -353,8 +380,7 @@ function CycleSections({ report, cycle }: { report: CycleReport; cycle: CycleDet
       : []),
     { key: 'end', header: t('halls.rep.col.live_end', 'الحيّ آخر اليوم'), kind: 'number', cell: (day) => <Num>{fmtInt(day.liveEnd)}</Num> },
     { key: 'cum', header: t('halls.rep.col.mortality_cum', 'النفوق التراكميّ'), kind: 'number', cell: (day) => pctCell(day.mortalityCumPct) },
-    { key: 'eaten', header: t('halls.rep.col.eaten', 'المأكول (كغم)'), kind: 'number', cell: (day) => kgCell(day.feedEatenKg, eatenKg), total: eatenAny ? kgCell(kpis.feedEatenKg, eatenKg) : dash() },
-    { key: 'eaten_cum', header: t('halls.rep.col.eaten_cum', 'المأكول التراكميّ (كغم)'), kind: 'number', cell: (day) => kgCell(day.feedEatenCumKg, eatenCumKg) },
+    // 0036 (جواب المالك «عوف سالفة العلف الماكول»): لا «المأكول» ولا «المأكول التراكميّ» ولا «الباقي في القاعة» المحسوب منه؛ العلف المرسل وحده.
     {
       key: 'given',
       header: t('halls.rep.col.given', 'النازل (كغم)'),
@@ -371,21 +397,10 @@ function CycleSections({ report, cycle }: { report: CycleReport; cycle: CycleDet
         ) : (
           kgCell(day.feedGivenKg, givenKg)
         ),
-      // والمجموع كصفوفه: سطور الدورة بلا وزن من الخادم (feed.unweighed، لا جمع هنا) تحت كيلوه، فلا «0» وحده لدورة نزل علفها بلا وزن (مراجعة 0027 RR27-S3b).
-      total:
-        report.feed.unweighed > 0 ? (
-          <>
-            {kgCell(kpis.feedGivenKg, givenKg)}
-            <span className="block text-xs font-normal text-ink-muted" data-action="rep-total-unweighed">
-              {t('halls.rep.item_unweighed', 'و{lines} بلا وزن', { lines: linesText(report.feed.unweighed) })}
-            </span>
-          </>
-        ) : (
-          kgCell(kpis.feedGivenKg, givenKg)
-        ),
+      // والمجموع كصفوفه: سطور الدورة بلا وزن من الخادم (feed.unweighed، لا جمع هنا) تحت كيلوه (مراجعة 0027 RR27-S3b).
+      total: givenTotal(givenKg, 'rep-total-unweighed'),
     },
     { key: 'given_cum', header: t('halls.rep.col.given_cum', 'النازل التراكميّ (كغم)'), kind: 'number', cell: (day) => kgCell(day.feedGivenCumKg, givenCumKg) },
-    { key: 'left', header: t('halls.rep.col.left', 'الباقي في القاعة (كغم)'), kind: 'number', cell: (day) => kgCell(day.leftInHallKg, leftKg) },
     ...(showWeight
       ? [{ key: 'weight', header: t('halls.rep.col.weight', 'الوزن (غم)'), kind: 'number' as const, cell: (day: CycleDay) => (day.weight === null ? null : grams(day.weight.avgG)) }]
       : []),
@@ -408,10 +423,6 @@ function CycleSections({ report, cycle }: { report: CycleReport; cycle: CycleDet
           ) : !day.round ? (
             <span className="block text-ink-muted" data-action="rep-no-live">
               {t('halls.rep.no_live', 'لا طيور حيّة أوّل اليوم')}
-            </span>
-          ) : day.feedEatenKg === null ? (
-            <span className="block text-ink-muted" data-action="rep-no-feed">
-              {t('halls.rep.no_feed', 'لم يُسجَّل العلف')}
             </span>
           ) : null}
           {day.note !== null ? <span className="block">{day.note}</span> : null}
@@ -451,22 +462,17 @@ function CycleSections({ report, cycle }: { report: CycleReport; cycle: CycleDet
         title={t('halls.rep.sec.days', 'أيّام الدورة')}
         action="rep-days"
         note={
-          missing > 0 || report.feed.unweighed > 0 || leftUnweighed > 0 ? (
+          missing > 0 || report.feed.unweighed > 0 ? (
             <>
               {missing > 0 ? (
                 <p className={`text-sm ${WARN_INK}`} data-action="rep-days-missing">
                   {t('halls.rep.days_missing', '{days} بلا جولة مسجّلة.', { days: daysText(missing) })}
                 </p>
               ) : null}
-              {report.feed.unweighed > 0 || leftUnweighed > 0 ? (
+              {report.feed.unweighed > 0 ? (
                 <p className="text-sm text-ink-muted" data-action="rep-days-unweighed">
-                  {/* العدد فاعل لا مفعول (linesText بالرفع، مراجعة 0027 V2-G3-ACCUSATIVE): «لا يدخل … سطران بلا وزن»، والفعل قبل فاعله مفرد. وسطور الباقي في
-                      القاعة بلا كتلة قد تزيد على سطور النازل (المنقول والخارج عند الإغلاق، مراجعة 0028 O2/M5) فتُعدّ وحدها حينئذٍ. */}
-                  {leftUnweighed === report.feed.unweighed
-                    ? t('halls.rep.days_unweighed_cum', 'لا يدخل في النازل التراكميّ ولا في الباقي في القاعة {lines} بلا وزن.', { lines: linesText(report.feed.unweighed) })
-                    : report.feed.unweighed === 0
-                      ? t('halls.rep.days_unweighed_left', 'لا يدخل في الباقي في القاعة {lines} بلا وزن.', { lines: linesText(leftUnweighed) })
-                      : t('halls.rep.days_unweighed_split', 'لا يدخل في النازل التراكميّ {given} بلا وزن، ولا في الباقي في القاعة {left} بلا وزن.', { given: linesText(report.feed.unweighed), left: linesText(leftUnweighed) })}
+                  {/* العدد فاعل لا مفعول (linesText بالرفع، مراجعة 0027 V2-G3-ACCUSATIVE): «لا يدخل … سطران بلا وزن»، والفعل قبل فاعله مفرد. */}
+                  {t('halls.rep.days_unweighed_cum', 'لا يدخل في النازل التراكميّ {lines} بلا وزن.', { lines: linesText(report.feed.unweighed) })}
                 </p>
               ) : null}
             </>
@@ -519,12 +525,17 @@ function ReportBody({ report, here, reopenFirst, onChanged }: { report: CycleRep
   // (مراجعة 0028: كان «المصروف للقاعة» 0 والمؤشّر 250 في صفحة واحدة).
   const carryInKg = cycle && cycle.kpis.feedCarryInKg !== null && cycle.kpis.feedCarryInKg > 0n ? cycle.kpis.feedCarryInKg : null;
   const givenKg = carryInKg !== null ? cycle?.kpis.feedGivenKg ?? null : null;
-  const balance: Balance = { carryIn: carryInKg, delivered: feed.deliveredKg, given: givenKg, consumed: feed.consumedKg, left: feed.leftInHallKg };
-  const balanceDecimals = decimalsOf([feed.deliveredKg, feed.consumedKg, feed.leftInHallKg, carryInKg, givenKg]);
+  // 0036 (جواب المالك «عوف سالفة العلف الماكول»): ما وقع وحده — لا «المستهلك المسجّل» ولا «الباقي في القاعة» المحسوب منه؛ وللمغلقة الراجع والمنقول عند
+  // الإغلاق (المؤشّرات) والباقي الفعليّ الذي كُتب عنده لكلّ مادّة علف (feed_close_left_kg، والخادم قبل 0036 بلاه: «—»).
+  const closed = report.flock.status === 'closed' && cycle !== null;
+  const outKg = closed ? cycle.kpis.feedOutKg : null;
+  const leftAtCloseKg = closed ? cycle.kpis.feedCloseLeftKg : null;
+  const balance: Balance = { carryIn: carryInKg, delivered: feed.deliveredKg, given: givenKg, out: outKg, leftAtClose: leftAtCloseKg };
+  const balanceDecimals = decimalsOf([feed.deliveredKg, carryInKg, givenKg, outKg, leftAtCloseKg]);
+  // سطور العلف بلا كتلة خارج الكيلو في الخلاصة: النازل كلّه حتى «حتى» (الصرف والمنقول إليها)، وما كُتب بلا كتلة عند الإغلاق.
+  const balanceUnweighed = (cycle?.days.at(-1)?.feedGivenCumUnweighed ?? feed.unweighed) + (closed ? (cycle.kpis.feedCloseLeftUnweighed ?? 0) : 0);
   const medQty = decimalsOf(medicines.map((row) => row.qty));
   const kgCell = (kg: bigint | null, decimals: 0 | 1 | 2 | 3) => (kg === null ? dash() : <Num>{fmtQtyCell(kg, decimals)}</Num>);
-  // المصروف − المستهلك لا يساوي الباقي في القاعة حين نُقل إليها علف أو أُغلقت الدورة (مراجعة 0028 O2/M5): جملة تقول لماذا.
-  const moved = report.carryIn.length > 0 || report.close?.status === 'closed';
 
   const birdColumns: Column<Birds>[] = [
     { key: 'placed', header: t('halls.rep.col.placed', 'المسكَّن'), kind: 'number', cell: (row) => <Num>{fmtInt(row.placed)}</Num> },
@@ -589,8 +600,12 @@ function ReportBody({ report, here, reopenFirst, onChanged }: { report: CycleRep
       : []),
     { key: 'delivered', header: t('halls.rep.col.delivered', 'المصروف للقاعة (كغم)'), kind: 'number', cell: (row) => <Num>{fmtQtyCell(row.delivered, balanceDecimals)}</Num> },
     ...(carryInKg !== null ? [{ key: 'given', header: t('halls.rep.col.given_hall', 'النازل للقاعة (كغم)'), kind: 'number' as const, cell: (row: Balance) => kgCell(row.given, balanceDecimals) }] : []),
-    { key: 'consumed', header: t('halls.rep.col.consumed', 'المستهلك المسجّل (كغم)'), kind: 'number', cell: (row) => <Num>{fmtQtyCell(row.consumed, balanceDecimals)}</Num> },
-    { key: 'left', header: t('halls.rep.col.left', 'الباقي في القاعة (كغم)'), kind: 'number', cell: (row) => <Num>{fmtQtyCell(row.left, balanceDecimals)}</Num> },
+    ...(closed
+      ? [
+          { key: 'out', header: t('halls.rep.col.out_at_close', 'الراجع والمنقول عند الإغلاق (كغم)'), kind: 'number' as const, cell: (row: Balance) => kgCell(row.out, balanceDecimals) },
+          { key: 'left_at_close', header: t('halls.rep.col.left_at_close', 'الباقي الفعليّ عند الإغلاق (كغم)'), kind: 'number' as const, cell: (row: Balance) => kgCell(row.leftAtClose, balanceDecimals) },
+        ]
+      : []),
   ];
 
   const medicineColumns: Column<Medicine>[] = [
@@ -670,20 +685,20 @@ function ReportBody({ report, here, reopenFirst, onChanged }: { report: CycleRep
         <DataTable caption={t('halls.rep.sec.by_item', 'العلف حسب المادّة')} columns={itemColumns} rows={feed.byItem} rowKey={(row) => row.itemId} empty={t('halls.rep.feed_empty', 'لم ينزل علف لهذه القاعة بعد.')} totalLabel={t('halls.rep.total', 'المجموع')} />
       </Section>
       <Section
-        title={t('halls.rep.sec.balance', 'المصروف والمستهلك والباقي')}
+        title={t('halls.rep.sec.balance', 'خلاصة علف القاعة')}
         action="rep-balance"
         note={
-          feed.leftInHallUnweighed > 0 || moved ? (
+          balanceUnweighed > 0 || closed ? (
             <>
-              {feed.leftInHallUnweighed > 0 ? (
+              {balanceUnweighed > 0 ? (
                 <p className="text-sm text-ink-muted" data-action="rep-unweighed">
                   {/* الفعل قبل فاعله العدد فهو مفرد مذكّر لكلّ عدد: «لم يُحسب … سطر واحد» و«… سطران» و«… 3 سطور» (مراجعة 0027 V3-H2-BALANCE-VERB). */}
-                  {t('halls.rep.unweighed', 'لم يُحسب في الكيلو {lines} بلا وزن (لتر بلا كثافة أو قطعة بلا وزن).', { lines: linesText(feed.leftInHallUnweighed) })}
+                  {t('halls.rep.unweighed', 'لم يُحسب في الكيلو {lines} بلا وزن (لتر بلا كثافة أو قطعة بلا وزن).', { lines: linesText(balanceUnweighed) })}
                 </p>
               ) : null}
-              {moved ? (
-                <p className="text-sm text-ink-muted" data-action="rep-left-note">
-                  {t('halls.rep.left_note', 'الباقي في القاعة يعدّ العلف المنقول إليها من الدورة السابقة، ويُنقص ما رجع منها أو نُقل أو حُسب مستهلَكاً عند الإغلاق.')}
+              {closed ? (
+                <p className="text-sm text-ink-muted" data-action="rep-close-note">
+                  {t('halls.rep.close_left_note', 'الباقي الفعليّ ما كُتب عند الإغلاق لكلّ مادّة علف: منه ما رجع إلى المخزن أو نُقل للدورة التالية، والباقي حُسب مستهلَكاً.')}
                 </p>
               ) : null}
             </>
@@ -691,7 +706,7 @@ function ReportBody({ report, here, reopenFirst, onChanged }: { report: CycleRep
         }
       >
         <DataTable
-          caption={t('halls.rep.sec.balance', 'المصروف والمستهلك والباقي')}
+          caption={t('halls.rep.sec.balance', 'خلاصة علف القاعة')}
           columns={balanceColumns}
           rows={[balance]}
           rowKey={() => 'balance'}

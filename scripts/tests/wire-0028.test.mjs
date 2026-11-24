@@ -333,9 +333,10 @@ export default async function (t) {
       );
     });
 
-    // ── W4 (O2/M5): «الباقي في القاعة» بتعريفه الواحد ────────────────────────────────────────────────────────────────────
+    // ── W4 (O2/M5): «الباقي في القاعة» بتعريفه الواحد — وفي 0036 (جواب المالك «عوف سالفة العلف الماكول») لا «باقٍ في القاعة» محسوب ولا «مستهلك مسجّل» في
+    // أيّ شاشة: المؤشّر وعمود الأيّام وجدول الخلاصة وسطر علف القاعة ونموذج الإغلاق بما وقع وحده، بعيّنات 0028 نفسها ─────────────────────────────────────
     const DAYS = 'أيّام الدورة';
-    const BALANCE = 'المصروف والمستهلك والباقي';
+    const BALANCE = 'خلاصة علف القاعة';
     await step('W4 التقرير المغلق', async () => {
       const report = B.flock_cycle_report_left_in_hall;
       fresh(MANAGER, { flock_cycle_report: () => clone(report), flock_sales: () => clone(B.flock_sales_reopen_blocked) });
@@ -350,15 +351,22 @@ export default async function (t) {
         'W4 العيّنة: القاعة المغلقة باقيها في القاعة صفر بالتعريف الواحد (والقديمان 150 و500)',
       );
       t.same(
-        [kpi('left')?.[0], lastDay[heads.indexOf('الباقي في القاعة (كغم)')] ?? null, balanceHeads.at(-1), balance.at(-1) ?? null, textOf('rep-left-note')],
-        ['0', '0', 'الباقي في القاعة (كغم)', '0', 'الباقي في القاعة يعدّ العلف المنقول إليها من الدورة السابقة، ويُنقص ما رجع منها أو نُقل أو حُسب مستهلَكاً عند الإغلاق.'],
-        'W4 تقرير الدورة المغلقة: المؤشّر وآخر يوم وجدول الباقي «0» كلّها من left_in_hall_kg (كانت 150 و150 و500)، وجملة تقول لماذا لا يساوي المصروف − المستهلك',
+        [kpi('left'), heads.includes('الباقي في القاعة (كغم)'), lastDay.length > 0, balanceHeads, balance, textOf('rep-left-note'), textOf('rep-close-note')],
+        [
+          null, false, true,
+          ['المصروف للقاعة (كغم)', 'الراجع والمنقول عند الإغلاق (كغم)', 'الباقي الفعليّ عند الإغلاق (كغم)'],
+          // الباقي الفعليّ عند الإغلاق مفتاح 0036 (feed_close_left_kg) يغيب في عيّنة 0028: «—».
+          ['4,000', '350', '—'],
+          null,
+          'الباقي الفعليّ ما كُتب عند الإغلاق لكلّ مادّة علف: منه ما رجع إلى المخزن أو نُقل للدورة التالية، والباقي حُسب مستهلَكاً.',
+        ],
+        'W4 → 0036 تقرير الدورة المغلقة: لا مؤشّر «الباقي في القاعة» ولا عموده في الأيّام، والخلاصة بالمصروف والراجع والمنقول عند الإغلاق والباقي الفعليّ الذي كُتب عنده',
       );
     });
     {
-      // تقرير بلا يوم (المؤشّرات null): «الباقي في القاعة» في قسم العلف null من الخادم، فالمحلّل لا يرمي ويأخذ المصروف − المستهلك كخادم قبل 0028.
+      // تقرير بلا يوم (المؤشّرات null): «الباقي في القاعة» في قسم العلف null من الخادم؛ و0036: المحلّل لا يقرأ الباقي ولا المستهلك أصلاً، فلا يرمي بغيابهما.
       const report = clone(B.flock_cycle_report_left_in_hall);
-      Object.assign(report.feed, { left_in_hall_kg: null, left_in_hall_unweighed: null });
+      Object.assign(report.feed, { left_in_hall_kg: null, left_in_hall_unweighed: null, consumed_kg: null, remaining_kg: null });
       let parsed = null;
       try {
         parsed = m.halls.parseCycleReport(report);
@@ -367,9 +375,9 @@ export default async function (t) {
       }
       const full = m.halls.parseCycleReport(clone(B.flock_cycle_report_left_in_hall));
       t.same(
-        [parsed?.feed?.leftInHallKg ?? parsed?.error ?? null, parsed?.feed?.leftInHallUnweighed ?? null, full.feed.leftInHallKg, full.cycle.kpis.leftInHallKg, full.cycle.days.at(-1).leftInHallKg],
-        [500_000n, 0, 0n, 0n, 0n],
-        'W4 المحلّل: قسم العلف والمؤشّرات وآخر يوم من left_in_hall_kg (صفر للقاعة المغلقة)، وقسم العلف بلا يوم (null) يأخذ المصروف − المستهلك ولا يرمي',
+        [parsed?.feed?.deliveredKg ?? parsed?.error ?? null, 'leftInHallKg' in full.feed, 'consumedKg' in full.feed, 'leftInHallKg' in full.cycle.kpis, 'leftInHallKg' in full.cycle.days.at(-1)],
+        [4_000_000n, false, false, false, false],
+        'W4 → 0036 المحلّل: لا «الباقي في القاعة» ولا «المستهلك» في قسم العلف ولا المؤشّرات ولا الأيّام، وغيابهما في قسم العلف لا يرمي',
       );
     }
     await step('W4 القاعة التالية: علفها ويومها', async () => {
@@ -390,9 +398,9 @@ export default async function (t) {
         'W4 العيّنة: الفوج التالي في «قاعة الباقي» نُقل إليه 250 كغم وأكل 100 (والباقي القديم المصروف − المستهلك −100)',
       );
       t.same(
-        [line?.includes('الباقي في القاعة: 150 كغم') ?? false, daily],
-        [true, false],
-        'W4 علف القاعة (سطر FeedLine) يعدّ المنقول: «الباقي في القاعة: 150 كغم» (كان «الباقي بالقاعة: −100 كغم»)؛ والتقرير اليوميّ بلا عمود الباقي (0035)',
+        [line, daily],
+        ['المصروف للقاعة: 0 كغم', false],
+        'W4 → 0036 علف القاعة (سطر FeedLine) بالمصروف وحده: لا «المستهلك المسجّل» ولا «الباقي في القاعة»؛ والتقرير اليوميّ بلا عمود الباقي (0035)',
       );
     });
     await step('W4 نموذج الإغلاق', async () => {
@@ -400,9 +408,9 @@ export default async function (t) {
       fresh(MANAGER, { flock_close_form: () => clone(form) });
       await mount(`/halls/close/${form.flock.id}`);
       t.same(
-        [form.flock.status, form.feed.estimate_left_kg, form.feed.left_in_hall_kg, textOf('close-estimate')?.split('.')[0] ?? null],
-        ['closed', '37500.000', '0.000', 'النازل للقاعة 40,500 كغم، والمأكول المسجّل 3,000 كغم، والباقي في القاعة 0 كغم'],
-        'W4 نموذج الإغلاق: «الباقي في القاعة» من left_in_hall_kg لا من التقدير القديم (37,500)، وبعد الإغلاق صفر (كلّ باقٍ أخذ مصيره، إعادة المراجعة F2b؛ كان 35,412 = المأكول غير المسجّل) وبلا «فالمتوقّع» (ما خرج عنده لا يُطرح في الجملة)',
+        [form.flock.status, form.feed.estimate_left_kg, form.feed.left_in_hall_kg, textOf('close-estimate')],
+        ['closed', '37500.000', '0.000', 'النازل للقاعة 40,500 كغم.'],
+        'W4 → 0036 نموذج الإغلاق: النازل للقاعة وحده، لا المأكول ولا «الباقي في القاعة» ولا التقدير القديم (مفاتيحها في العيّنة كما هي)',
       );
     });
 
