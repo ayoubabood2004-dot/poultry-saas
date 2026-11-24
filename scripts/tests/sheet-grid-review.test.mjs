@@ -142,6 +142,7 @@ const byAction = (name, root = body()) => descendants(root).filter((n) => n.getA
 const textOf = (name, root = body()) => byAction(name, root)[0]?.textContent ?? null;
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const dialogs = () => all().filter((n) => n.getAttribute('role') === 'dialog');
+const dialogTitled = (start) => all().find((n) => n.getAttribute('role') === 'dialog' && descendants(n).some((c) => c.localName === 'h2' && c.textContent.startsWith(start))) ?? null;
 const tableBy = (caption) => all().find((n) => n.localName === 'table' && n.children.some((c) => c.localName === 'caption' && c.textContent === caption)) ?? null;
 const section = (table, name) => table?.children.find((c) => c.localName === name) ?? null;
 const bodyRows = (table) => (section(table, 'tbody')?.children ?? []).filter((c) => c.localName === 'tr');
@@ -171,6 +172,10 @@ const tap = async (node, rounds = 60) => {
     fire(node, 'pointerdown', { pointerType: 'touch', button: 0, buttons: 1 });
     fire(node, 'click', { button: 0, detail: 1 });
   }
+  await settle(rounds);
+};
+const mouseDown = async (node, rounds = 20) => {
+  if (node) fire(node, 'pointerdown', { pointerType: 'mouse', button: 0, buttons: 1 });
   await settle(rounds);
 };
 /** الفأرة تنزل على عنصر كالمتصفّح: ينقل التركيز إليه ما لم يُمنع mousedown (فيطلق focusout على المركَّز قبله). يرجّع: هل مُنع. */
@@ -232,6 +237,19 @@ export default async function (t) {
         ['fill', 'fill', [[19, 2, 18, 2], [19, 3, 18, 3], [20, 2, 18, 2], [20, 3, 18, 3]], [[19, 3, 18, 3]], [], 'fill'],
         'R9 Ctrl+D (وبلوحة عربية) ملء، ومن صفّ النطاق الأوّل في كلّ عمود، والخانة وحدها من التي فوقها، ولا شيء فوق أوّل يوم؛ وCtrl+Enter في المحرّر والمحدّد نطاق ملء',
       );
+      t.same(
+        [L.gridKey(s(1, 1), { key: 'Z', code: 'KeyZ', ctrlKey: true, shiftKey: true }, shape).kind, L.gridKey(s(1, 1), { key: 'z', code: 'KeyZ', ctrlKey: true }, shape).kind],
+        ['redo', 'undo'],
+        'M11 Ctrl+Shift+Z إعادة (كإكسل والمتصفّحات) وCtrl+Z تراجع',
+      );
+      const upward = { cursor: { row: 20, col: 2 }, anchor: { row: 20, col: 2 }, end: { row: 19, col: 3 }, tabStart: null };
+      t.same(
+        L.pasteTargets([['a', 'b'], ['c', 'd']], upward, { rows: 46, cols: 6 }).targets.map((x) => [x.pos.row, x.pos.col, x.raw]),
+        [[19, 2, 'a'], [19, 3, 'b'], [20, 2, 'c'], [20, 3, 'd']],
+        'M62 الكتلة الملصوقة من أعلى النطاق وأوّل أعمدته، لا من الخانة النشطة (نطاق مُدّ إلى الأعلى)',
+      );
+      const shiftEnter = L.editKey(s(20, 2), { key: 'Enter', shiftKey: true }, 'enter', shape);
+      t.same([shiftEnter.kind, shiftEnter.then?.cursor], ['commit', { row: 19, col: 2 }], 'M63 Shift+Enter في المحرّر يحفظ ويصعد (كإكسل)');
     }
 
     // ── الأنماط (sheetGrid.css) ──────────────────────────────────────────────────────────────────────────────────────
@@ -778,6 +796,199 @@ export default async function (t) {
       await click(byAction('grid-undo')[0], 160);
       t.same(afterB, [['set_flock_gas', dayOf(19), 3], ['save_flock_day', TODAY, 7]], 'R13 ضابط: A (غاز 02/12 إلى 3) بلوحة المفاتيح، ثمّ B (هلاكات 03/12 إلى 7) بالورقة السفلية');
       t.same(ops(sent).slice(2).map(([fn, day, payload]) => [fn, day, payload.cylinders ?? payload.dead]), [['save_flock_day', TODAY, 4]], 'R13 «تراجع» بعد تعديل الورقة السفلية B يتراجع عن B (الهلاكات إلى 4)، لا عن تعديل لوحة المفاتيح قبله');
+    });
+
+    // ── M: فحوص تقتل الطفرات التي عبرت المراجعة ──────────────────────────────────────────────────────────────────────
+    await step('M21', async () => {
+      await open();
+      const cell = (bodyRows(tableBy('هلاكات قاعة (7)'))[20]?.children ?? [])[2] ?? null;
+      const events = ['ArrowDown', 'PageDown', 'End', ' ', '7'].map((key) => fire(cell ?? body(), 'keydown', { key }));
+      await settle(30);
+      t.same([cell !== null, events.map((event) => event.defaultPrevented), input()?.value ?? null], [true, Array(5).fill(false), null], 'M21 الورقة مقفولة: المفاتيح للصفحة (تمرير الإطار بالأسهم) لا للجدول، ولا محرّر');
+    });
+
+    await step('M24 M25', async () => {
+      const { sent } = await open();
+      await pencil();
+      await press('F2');
+      await typeIn('12');
+      await press('ArrowLeft', {}, 60);
+      const f2 = [input()?.value ?? null, cursorAt(), sent.length];
+      await press('Escape');
+      fire(td(19, 2), 'pointerdown', { pointerType: 'mouse', button: 0, buttons: 1 });
+      fire(td(19, 2), 'dblclick', { button: 0, detail: 2 });
+      await settle(20);
+      await typeIn('15');
+      await press('ArrowLeft', {}, 60);
+      t.same([f2, [input()?.value ?? null, cursorAt(), sent.length]], [['12', '20:2', 0], ['15', '19:2', 0]], 'M24 M25 F2 والنقرتان تفتحان المحرّر للتعديل داخل النصّ: السهم يحرّك المؤشّر فيه، لا يحفظ ولا ينتقل');
+    });
+
+    await step('M26', async () => {
+      const { sent } = await open(BROILER, {}, { send: async () => ({ kind: 'parked', reason: 'period_locked' }) });
+      await pencil();
+      await moveTo(19, 2);
+      await press('9');
+      await press('Enter', {}, 160);
+      await press('ArrowUp');
+      await press('z', { ctrl: true }, 160);
+      t.same([sent.length, textOf('grid-message'), byAction('grid-undo')[0]?.getAttribute('disabled') ?? null], [1, 'لا تعديل للتراجع عنه.', ''], 'M26 ما رُدّ لا يدخل التراجع');
+    });
+
+    await step('M29', async () => {
+      // يصل الردّ ثمّ لا يُقرأ الجهاز (IndexedDB ممنوع بعده) ولا الورقة (القراءة في الطريق): لا شيء يبدّل قراءة الخانة، فما تعرضه من الجدول وحده.
+      const factory = globalThis.indexedDB;
+      try {
+        const { sent } = await open(BROILER, { hall_sheet: slowRereads() }, {
+          send: async () => {
+            factory.open = () => {
+              throw new Error('idb_blocked');
+            };
+            return { kind: 'parked', reason: 'period_locked' };
+          },
+        });
+        await pencil();
+        await moveTo(19, 2);
+        await press('9');
+        await press('Enter', {}, 160);
+        const text = td(19, 2)?.textContent ?? '';
+        t.ok(sent.length === 1 && text.startsWith('1') && text.includes('لم يُحفظ'), `M29 القيمة المردودة لا تبقى في خانتها: القراءة 1 وسبب الردّ تحتها (${text})`);
+      } finally {
+        delete factory.open;
+      }
+    });
+
+    await step('M39', async () => {
+      const { sent } = await open();
+      await pencil();
+      await press('8');
+      await click(byAction('sheet-edit-done')[0], 160);
+      t.same([ops(sent), byAction('sheet-edit-title').length], [[['save_flock_day', TODAY, { dead: 8, culled: null }, 1]], 0], 'M39 «انتهيت» والخانة تُكتب يحفظ ما كُتب ثمّ يقفل الورقة (كإكسل)');
+    });
+
+    await step('M27', async () => {
+      let version = 1;
+      await open(BROILER, { hall_sheet: slowRereads() }, { send: async () => ({ kind: 'saved', version: ++version }) });
+      await pencil();
+      await press('7');
+      await press('Enter', {}, 160);
+      const before = byAction('grid-undo')[0]?.getAttribute('disabled') ?? null;
+      await click(byAction('sheet-edit-done')[0]);
+      await pencil();
+      t.same([before, byAction('grid-undo')[0]?.getAttribute('disabled') ?? null], [null, ''], 'M27 «انتهيت» ثمّ القلم من جديد: تراجعٌ جديد (لا يُتراجع من هنا عن تعديل جلسة سبقت)');
+    });
+
+    await step('M28', async () => {
+      let version = 1;
+      const { sent } = await open(BROILER, { hall_sheet: slowRereads() }, { send: async () => ({ kind: 'saved', version: ++version }) });
+      await pencil();
+      await press('7');
+      await press('Enter', {}, 160);
+      await press('ArrowUp');
+      await press('z', { ctrl: true }, 160);
+      const redo = byAction('grid-redo')[0]?.getAttribute('disabled') ?? null;
+      await moveTo(19, 3);
+      await press('5');
+      await press('Enter', {}, 160);
+      await press('y', { ctrl: true }, 160);
+      t.same([redo, byAction('grid-redo')[0]?.getAttribute('disabled') ?? null, textOf('grid-message'), sent.length], [null, '', 'لا تعديل لإعادته.', 3], 'M28 تعديلٌ جديد بعد التراجع يُفرغ الإعادة (كإكسل)');
+    });
+
+    await step('M30 M31', async () => {
+      const { sent } = await open();
+      await pencil();
+      await press('7');
+      await mouseDown(td(19, 3));
+      await settle(160);
+      const mouse = [ops(sent).length, cursorAt(), input()?.value ?? null];
+      await moveTo(20, 2);
+      await press('5');
+      await tap(td(19, 3), 160);
+      t.same(
+        [mouse, ops(sent).map(([, , payload]) => payload.dead), dialogTitled('الغاز — يوم 02/12/2026') !== null],
+        [[1, '19:3', null], [7, 5], true],
+        'M30 M31 نقرة الفأرة ولمسة الإصبع على خانة أخرى تحفظان ما كُتب أوّلاً (ثمّ تحدّدان الخانة أو تفتحان ورقتها)',
+      );
+    });
+
+    await step('M32', async () => {
+      const saved = globalThis.window.matchMedia;
+      globalThis.window.matchMedia = (query) => ({ matches: query === '(pointer: coarse)', addEventListener() {}, removeEventListener() {} });
+      try {
+        await open();
+        await pencil();
+        fire(td(19, 5), 'dblclick', { button: 0, detail: 2 });
+        await settle(20);
+        t.eq(input(), null, 'M32 شاشة لمس (pointer: coarse): النقرتان لا تفتحان المحرّر في الخانة (اللمسة تفتح ورقتها)');
+      } finally {
+        globalThis.window.matchMedia = saved;
+      }
+    });
+
+    await step('M33', async () => {
+      await open();
+      await pencil();
+      fire(focused(), 'keydown', { key: 'ArrowDown', isComposing: true });
+      await settle(20);
+      t.eq(cursorAt(), '20:2', 'M33 مفتاح أثناء التركيب (IME) لا يعمل في الجدول');
+    });
+
+    await step('M35 M36 M37', async () => {
+      await open();
+      await pencil();
+      const done = byAction('sheet-edit-done')[0];
+      globalThis.document.activeElement = done;
+      fire(body(), 'paste', { clipboardData: { getData: () => '9' } });
+      await settle(30);
+      const outside = dialogs().length;
+      td(20, 2)?.focus();
+      await press('7');
+      let set = 0;
+      const copy = fire(input(), 'copy', { clipboardData: { setData: () => (set += 1) } });
+      const pasted = fire(input(), 'paste', { clipboardData: { getData: () => '5\t6' } });
+      await settle(30);
+      t.same(
+        [outside, set, copy.defaultPrevented, pasted.defaultPrevented, dialogs().length, input()?.value ?? null],
+        [0, 0, false, false, 0, '7'],
+        'M35 M36 M37 اللصق والتركيز خارج الجدول ليس للجدول، والنسخ واللصق في المحرّر لنصّه (لا الخانات)',
+      );
+    });
+
+    await step('M47', async () => {
+      const { sent } = await open();
+      await pencil();
+      await moveTo(17, 2);
+      await press('0');
+      await press('Enter', {}, 160);
+      t.same(ops(sent), [['save_flock_day', dayOf(17), { dead: 0, culled: null }, null]], 'M47 صفرٌ مكتوب في يوم بلا تسجيل يُسجَّل (الفارغة ليست صفراً)');
+    });
+
+    await step('M60', async () => {
+      let version = 1;
+      const { sent } = await open(BROILER, { hall_sheet: slowRereads() }, { send: async () => ({ kind: 'saved', version: ++version }) });
+      await pencil();
+      await moveTo(20, 3);
+      await press('3');
+      await press('Enter', {}, 160);
+      await press('ArrowUp');
+      await press('z', { ctrl: true }, 160);
+      t.same(ops(sent).map(([fn, day, payload]) => [fn, day, payload]), [['set_flock_gas', TODAY, { cylinders: 3 }], ['set_flock_gas', TODAY, { cylinders: null }]], 'M60 التراجع عن غازٍ كُتب في خانة فارغة يعيدها فارغة (بلا قنانٍ لا صفر)');
+      t.eq(cursorAt(), '20:3', 'X07 التراجع ينقل الخانة النشطة إلى الخانة التي أُعيدت (بيومها)');
+    });
+
+    await step('M61', async () => {
+      await open();
+      await pencil();
+      await tap(td(21, 2));
+      t.same([dialogs().length, textOf('grid-message')], [0, 'لا يُكتب ليوم لم يأتِ بعد.'], 'M61 لمسة خانة يوم لم يأتِ لا تفتح ورقتها، والشريط يقول لماذا');
+    });
+
+    await step('M66', async () => {
+      const { sent } = await open();
+      await pencil();
+      await moveTo(18, 2);
+      await press('ArrowDown', { shift: true });
+      await press('Delete', {}, 60);
+      t.same([dialogTitled('امسح الخانات المحدّدة') !== null, sent.length], [true, 0], 'M66 Delete على نطاق يسأل أوّلاً بتأكيد يسمّي كلّ يوم، ولا شيء يُمسح قبله');
     });
   } finally {
     if (savedRect) Object.defineProperty(Element.prototype, 'getBoundingClientRect', savedRect);
