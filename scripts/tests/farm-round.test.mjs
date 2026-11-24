@@ -715,12 +715,13 @@ export default async function (t) {
       await settle();
       t.eq(byAction('round-save')[0]?.textContent, 'احفظ الجولة لـ3 قاعات', 'N12 «احفظ الجولة لـ3 قاعات»');
       // الزرّ الثابت فوق الشريط السفليّ للهاتف (كان bottom-4 فيختفي تحت BottomBar الثابت)، وبالحاسوب على بُعد 1rem: أنماط round.css الكسولة.
-      let css = '';
-      try {
-        css = readFileSync(path.join(ROOT, 'src', 'pages', 'farm', 'round.css'), 'utf8').replace(/\s+/gu, ' ');
-      } catch {
-        css = '';
-      }
+      const css = (() => {
+        try {
+          return readFileSync(path.join(ROOT, 'src', 'pages', 'farm', 'round.css'), 'utf8').replace(/\s+/gu, ' ');
+        } catch {
+          return '';
+        }
+      })();
       const bar = byAction('round-save')[0]?.parentNode;
       t.same(
         [bar?.getAttribute('class')?.split(' ').includes('round-save'), bar?.getAttribute('class')?.split(' ').includes('bottom-4'), css.includes('.round-save { bottom: calc(4.5rem + env(safe-area-inset-bottom)); }'), /@media \(min-width: 768px\) \{ \.round-save \{ bottom: 1rem; \} \}/u.test(css)],
