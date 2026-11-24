@@ -1,6 +1,7 @@
 -- rollback_0036 — تراجع «الجولة: الهلاكات مرّة والغاز يُضاف» (0036_round_once؛ مشغّل التراجع بالحزمة FOUNDATION ٨٢٠، ٨٧٦): يرجّع private.flock_day_json
 --   وpublic.flocks_overview كما في 0012، وprivate.flock_day_rebuild كما في 0032، وprivate.flock_summary كما في 0029، وpublic.save_flock_visit
---   وpublic.save_flock_day وprivate.report_days وpublic.flock_cycle_report كما في 0035، حرفاً بحرف (md5 نفسه بالكتالوج)، وقيد أسباب الركن
+--   وpublic.save_flock_day وprivate.report_days وpublic.flock_cycle_report وpublic.halls_history وpublic.flock_month كما في 0035، حرفاً بحرف (md5 نفسه
+--   بالكتالوج)، وقيد أسباب الركن
 --   flock_day_rejects_reason_check كما في 0012؛ ويُسقط set_flock_dead وadd_flock_gas وverify_round_once، ثمّ عمودي flock_visits.dead_entry
 --   وflock_daily.dead_entered (بعد الأجسام التي تقرؤهما).
 -- **طريق رفض (الكتلة الأولى أدناه):** ما لا يحمله النموذج القديم يوقف التراجع بصوت بلا أن يغيّر شيئاً، بفرع لكلّ حقيقة مستقلّة: يوم معلَّم بلا هلاكات
@@ -850,6 +851,246 @@ begin
         from public.flock_counts c
         where c.org_id = f.org_id and c.flock_id = f.id and c.kind = 'count_adjust' and c.reverses_id is null
           and not exists (select 1 from public.flock_counts q where q.org_id = c.org_id and q.reverses_id = c.id)), '[]'::jsonb)));
+end
+$$;
+
+-- public.halls_history كما في 0035_hall_sheet.sql.
+create or replace function public.halls_history(p_month date) returns jsonb
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare
+  v_org uuid := public.auth_org();
+  v_today date := public.app_today();
+  v_this date := v_today - extract(day from v_today)::int + 1;
+  v_month date;
+  v_end date;
+  v_kinds jsonb;
+  v_prev boolean;
+begin
+  perform private.require('read');
+  if p_month is not null and not isfinite(p_month) then
+    raise exception 'date_required' using hint = 'اختر شهراً من التقويم.';
+  end if;
+  v_month := coalesce(p_month, v_today) - extract(day from coalesce(p_month, v_today))::int + 1;
+  if v_month > v_this then
+    raise exception 'future_month' using hint = format('شهر %s لم يأتِ بعد؛ التقرير حتى شهر اليوم %s.', to_char(v_month, 'MM/YYYY'), to_char(v_today, 'MM/YYYY'));
+  end if;
+  v_end := least((v_month + interval '1 month')::date - 1, v_today);
+  with fl as materialized (
+    select x.id, x.hall_id, x.placed_on, x.placed_count, x.closed_on, d.kind, h.name as hall_name, t.name as site_name, x as f,
+      least(v_today, x.closed_on) as through
+    from public.flocks x
+    join public.halls h on h.org_id = x.org_id and h.id = x.hall_id
+    join public.sites t on t.org_id = h.org_id and t.id = h.site_id
+    join public.divisions d on d.org_id = h.org_id and d.id = h.division_id
+    where x.org_id = v_org and x.placed_on is not null and x.placed_on <= v_today and public.in_scope_site(h.site_id)
+  ), z as materialized (
+    -- فوج كلّ (قاعة، يوم) كـhalls_day: المسكَّن فيه أو قبله ولم يُغلق قبله، الأحدث تسكيناً ثمّ المعرّف.
+    select distinct on (fl.hall_id, q.on_date) fl.id, fl.hall_id, fl.kind, fl.placed_on, fl.placed_count, fl.hall_name, fl.site_name, q.*
+    from fl
+    cross join lateral (
+      select r.on_date, r.has_round, r.live_start, r.dead, r.culled, r.live_end, r.feed_kg, r.given_kg, r.given_unweighed, r.weight_avg_g,
+        r.eggs_total, r.eggs_broken, e.sold, e.sold_kg, e.adjust, e.carry_in_kg, e.carry_in_unweighed, gs.cylinders as gas
+      from private.report_days(fl.f, fl.through) as r
+      join private.report_days_extra(fl.f, fl.through) as e on e.on_date = r.on_date
+      -- 0035: قناني الغاز في اليوم.
+      left join public.flock_day_gas gs on gs.org_id = v_org and gs.flock_id = fl.id and gs.on_date = r.on_date
+    ) as q
+    order by fl.hall_id, q.on_date, fl.placed_on desc, fl.id
+  ), ks as materialized (
+    select fl.kind, min(fl.placed_on) as start, count(distinct fl.hall_id)::int as halls from fl group by fl.kind
+  ), dd as materialized (
+    -- يوم النوع = مجاميع halls_day لقاعاته (private.halls_day_totals): الحيّ والمباع وفرق العدّ لكلّ فوج، والنافق والمستبعد لما فيه جولة (null
+    -- بلا جولة)، والمأكول لما سجّله (null بلا تسجيل)؛ والبيض للبيّاض بحيّ أوّل اليوم للأفواج التي سجّلته. والنازل من المخزن وحده: halls_day يعدّ العلف
+    -- المنقول من الدورة السابقة نازلاً للفوج الجديد يوم تسكينه (0029)، وهو في السجلّ نقلٌ داخل القاعة نُزّل يوم صُرف للدورة السابقة، فجمعه في الشهر وفي
+    -- «منذ البداية» يعدّه مرّتين (مراجعة 0031 M1). فالنازل هنا = نازل halls_day − المنقول إليها (carry_in_kg)، وسطوره بلا وزن كذلك.
+    select ks.kind, c.d, c.d - extract(day from c.d)::int + 1 as m,
+      count(z.id)::int as flocks,
+      (count(*) filter (where z.has_round))::int as rounds,
+      (count(*) filter (where z.live_start > 0))::int as rounds_expected,
+      coalesce(sum(z.placed_count) filter (where z.placed_on = c.d), 0)::bigint as placed,
+      coalesce(sum(z.live_start), 0)::bigint as live_start,
+      sum(z.dead)::bigint as dead,
+      sum(z.culled)::bigint as culled,
+      sum(z.gas)::bigint as gas,
+      coalesce(sum(z.sold), 0)::bigint as sold,
+      coalesce(sum(z.adjust), 0)::bigint as count_diff,
+      coalesce(sum(z.live_end), 0)::bigint as live_end,
+      round(sum(round(z.feed_kg, 3)), 3) as feed_kg,
+      round(coalesce(sum(z.given_kg - z.carry_in_kg), 0), 3) as given_kg,
+      coalesce(sum(z.given_unweighed - z.carry_in_unweighed), 0)::bigint as given_unweighed,
+      case when ks.kind = 'layer' then sum(z.eggs_total) end::bigint as eggs_total,
+      case when ks.kind = 'layer' then sum(z.eggs_broken) end::bigint as eggs_broken,
+      case when ks.kind = 'layer' then sum(z.live_start) filter (where z.eggs_total is not null) end::bigint as egg_live
+    from ks
+    cross join lateral generate_series(0, v_today - ks.start) as s(n)
+    cross join lateral (select ks.start + s.n as d) as c
+    left join z on z.kind = ks.kind and z.on_date = c.d
+    group by ks.kind, ks.start, c.d
+  ), mm as materialized (
+    -- الشهر = مجموع أيّامه داخل [البداية، اليوم] (null يُعدّ صفراً)، والحيّ آخر آخر يوم منها، والأفواج المسكَّنة والمغلقة فيه.
+    select dd.kind, dd.m, count(*)::int as days, sum(dd.placed)::bigint as placed, coalesce(sum(dd.dead), 0)::bigint as dead,
+      coalesce(sum(dd.culled), 0)::bigint as culled, coalesce(sum(dd.gas), 0)::bigint as gas, sum(dd.sold)::bigint as sold, sum(dd.count_diff)::bigint as count_diff,
+      round(coalesce(sum(dd.feed_kg), 0), 3) as feed_kg, round(sum(dd.given_kg), 3) as given_kg, sum(dd.given_unweighed)::bigint as given_unweighed,
+      case when dd.kind = 'layer' then coalesce(sum(dd.eggs_total), 0) end::bigint as eggs_total,
+      case when dd.kind = 'layer' then coalesce(sum(dd.eggs_broken), 0) end::bigint as eggs_broken,
+      case when dd.kind = 'layer' then sum(dd.egg_live) end::bigint as egg_live,
+      (array_agg(dd.live_end order by dd.d desc))[1] as live_end,
+      (select count(*) from fl where fl.kind = dd.kind and fl.placed_on - extract(day from fl.placed_on)::int + 1 = dd.m)::int as opened,
+      (select count(*) from fl where fl.kind = dd.kind and fl.closed_on <= v_today
+        and fl.closed_on - extract(day from fl.closed_on)::int + 1 = dd.m)::int as closed
+    from dd
+    group by dd.kind, dd.m
+  )
+  select coalesce(jsonb_agg(jsonb_build_object(
+      'kind', ks.kind,
+      'start', ks.start,
+      'days', coalesce((select jsonb_agg(jsonb_build_object('on', dd.d, 'flocks', dd.flocks, 'rounds', dd.rounds, 'rounds_expected', dd.rounds_expected,
+          'placed', dd.placed, 'live_start', dd.live_start, 'dead', dd.dead, 'culled', dd.culled, 'gas', dd.gas, 'sold', dd.sold, 'count_diff', dd.count_diff,
+          'live_end', dd.live_end, 'feed_kg', dd.feed_kg::text, 'given_kg', dd.given_kg::text, 'given_unweighed', dd.given_unweighed,
+          'eggs_total', dd.eggs_total, 'eggs_broken', dd.eggs_broken, 'hdep', private.flock_pct(dd.eggs_total, dd.egg_live)) order by dd.d)
+        from dd where dd.kind = ks.kind and dd.d between v_month and v_end), '[]'::jsonb),
+      'months', (select jsonb_agg(jsonb_build_object('month', mm.m, 'days', mm.days, 'placed', mm.placed, 'dead', mm.dead, 'culled', mm.culled, 'gas', mm.gas,
+          'sold', mm.sold, 'count_diff', mm.count_diff, 'feed_kg', mm.feed_kg::text, 'given_kg', mm.given_kg::text, 'given_unweighed', mm.given_unweighed,
+          'eggs_total', mm.eggs_total, 'eggs_broken', mm.eggs_broken, 'hdep', private.flock_pct(mm.eggs_total, mm.egg_live), 'live_end', mm.live_end,
+          'opened', mm.opened, 'closed', mm.closed) order by mm.m)
+        from mm where mm.kind = ks.kind),
+      'total', (select jsonb_build_object('days', sum(mm.days)::int, 'placed', sum(mm.placed)::bigint, 'dead', sum(mm.dead)::bigint,
+          'culled', sum(mm.culled)::bigint, 'gas', sum(mm.gas)::bigint, 'sold', sum(mm.sold)::bigint, 'count_diff', sum(mm.count_diff)::bigint, 'feed_kg', sum(mm.feed_kg)::text,
+          'given_kg', sum(mm.given_kg)::text, 'given_unweighed', sum(mm.given_unweighed)::bigint,
+          'eggs_total', sum(mm.eggs_total)::bigint, 'eggs_broken', sum(mm.eggs_broken)::bigint, 'hdep', private.flock_pct(sum(mm.eggs_total), sum(mm.egg_live)),
+          'live_now', (array_agg(mm.live_end order by mm.m desc))[1], 'opened', sum(mm.opened)::int, 'closed', sum(mm.closed)::int, 'halls', ks.halls)
+        from mm where mm.kind = ks.kind),
+      'events', coalesce((select jsonb_agg(ev.j order by ev.on_date, ev.pos, ev.hall_name collate "C", ev.site_name collate "C", ev.k collate "C") from (
+          select fl.placed_on as on_date, 1 as pos, fl.hall_name, fl.site_name, fl.id::text as k,
+            jsonb_build_object('on', fl.placed_on, 'type', 'placed', 'hall', fl.hall_name, 'site', fl.site_name, 'birds', fl.placed_count) as j
+          from fl where fl.kind = ks.kind and fl.placed_on between v_month and v_end
+          union all
+          select z.on_date, 2, z.hall_name, z.site_name, z.id::text,
+            jsonb_build_object('on', z.on_date, 'type', 'sold', 'hall', z.hall_name, 'site', z.site_name, 'birds', z.sold, 'kg', round(z.sold_kg, 3)::text)
+          from z where z.kind = ks.kind and z.on_date between v_month and v_end and z.sold <> 0
+          union all
+          select z.on_date, 3, z.hall_name, z.site_name, z.id::text,
+            jsonb_build_object('on', z.on_date, 'type', 'count_diff', 'hall', z.hall_name, 'site', z.site_name, 'birds', z.adjust)
+          from z where z.kind = ks.kind and z.on_date between v_month and v_end and z.adjust <> 0
+          union all
+          select m.done_on, 4, fl.hall_name, fl.site_name, x.name_key || ':' || m.id::text,
+            jsonb_build_object('on', m.done_on, 'type', 'vaccine', 'hall', fl.hall_name, 'site', fl.site_name, 'name', x.name)
+          from public.flock_vaccinations m
+          join fl on fl.id = m.flock_id
+          join public.vaccines x on x.org_id = m.org_id and x.id = m.vaccine_id
+          where m.org_id = v_org and m.status = 'done' and fl.kind = ks.kind and m.done_on between v_month and v_end
+          union all
+          select z.on_date, 5, z.hall_name, z.site_name, z.id::text,
+            jsonb_build_object('on', z.on_date, 'type', 'weight', 'hall', z.hall_name, 'site', z.site_name, 'avg_g', round(z.weight_avg_g, 1)::text)
+          from z where z.kind = ks.kind and z.on_date between v_month and v_end and z.weight_avg_g is not null
+          union all
+          select fl.closed_on, 6, fl.hall_name, fl.site_name, fl.id::text,
+            jsonb_build_object('on', fl.closed_on, 'type', 'closed', 'hall', fl.hall_name, 'site', fl.site_name)
+          from fl where fl.kind = ks.kind and fl.closed_on between v_month and v_end
+        ) as ev), '[]'::jsonb))
+      order by ks.kind = 'layer', ks.kind), '[]'::jsonb),
+    exists (select 1 from fl where fl.placed_on < v_month)
+  into v_kinds, v_prev
+  from ks;
+  return jsonb_build_object(
+    'today', v_today,
+    'month', v_month,
+    'prev', coalesce(v_prev, false),
+    'next', v_month < v_this,
+    'kinds', v_kinds,
+    'notes', coalesce((select jsonb_agg(jsonb_build_object('on', n.on_date, 'text', n.note, 'version', n.version) order by n.on_date)
+      from public.halls_day_notes n where n.org_id = v_org and n.on_date between v_month and v_end and n.note <> ''), '[]'::jsonb));
+end
+$$;
+
+-- public.flock_month كما في 0035_hall_sheet.sql.
+create or replace function public.flock_month(p_flock uuid, p_month date) returns jsonb
+language plpgsql stable security definer set search_path = public, pg_temp as $$
+declare
+  v_org uuid := public.auth_org();
+  v_today date := public.app_today();
+  f public.flocks;
+  v_head jsonb;
+  v_first date;
+  v_last date;
+  v_end date;
+  v_active boolean;
+begin
+  perform private.require('read');
+  if p_month is null then
+    raise exception 'month_required' using hint = 'اختر الشهر.';
+  end if;
+  f := private.flock_for(p_flock, false);
+  if f.placed_on is null then
+    raise exception 'flock_not_placed' using hint = 'هذا الفوج لم يُسكَّن بعد، فلا تقويم له.';
+  end if;
+  v_head := private.hall_flock_json(f);
+  v_first := p_month - (extract(day from p_month)::int - 1);
+  v_last := (v_first + interval '1 month')::date - 1;
+  -- آخر يوم في حياة الفوج للتنقّل: الإغلاق، وإلّا الأبعد من اليوم ونهاية الدورة.
+  v_end := coalesce(f.closed_on, greatest(v_today, (v_head ->> 'end_on')::date));
+  v_active := f.status = 'active';
+  return jsonb_build_object(
+    'flock', v_head,
+    'today', v_today,
+    'month', v_first,
+    'prev', v_first > f.placed_on,
+    'next', v_last < v_end,
+    'can', jsonb_build_object('give', v_active and (public.can('issue.post') or public.can('flock_day.save')), 'log', v_active and public.can('flock_day.save'),
+      'vaccinate', v_active and public.can('flock_day.save'), 'undo_issue', v_active and public.can('void')),
+    'days', (select jsonb_agg(jsonb_build_object(
+        'on', g.d,
+        'age', case when g.d < f.placed_on or (f.closed_on is not null and g.d > f.closed_on) then null else f.age_days_at_placement + (g.d - f.placed_on) end,
+        'dead', y.dead, 'culled', y.culled, 'feed_kg', y.feed_kg::text, 'note', y.note,
+        -- 0035: قناني الغاز في اليوم (فارغ بلا تسجيل).
+        'gas', gs.cylinders,
+        'sold', coalesce((select k.sold from private.flock_count_days(f.id) as k where k.on_date = g.d), 0),
+        'count_diff', coalesce((select k.adjust from private.flock_count_days(f.id) as k where k.on_date = g.d), 0),
+        'out', case when g.d = f.closed_on then coalesce((select jsonb_agg(jsonb_build_object('kind', l.action, 'doc_no', r.doc_no, 'name', i.name,
+            'qty', l.qty_base::text, 'base_unit', l.base_unit, 'kg', private.issue_mass_kg(l.qty_base, l.base_unit, l.density_kg_per_l, l.piece_mass_kg)::text)
+            order by l.line_no)
+          from public.flock_closes c join public.flock_close_lines l on l.org_id = c.org_id and l.close_id = c.id
+          join public.items i on i.org_id = l.org_id and i.id = l.item_id
+          left join public.flock_returns r on r.org_id = l.org_id and r.close_line_id = l.id and r.source = 'close'
+          where c.org_id = f.org_id and c.flock_id = f.id and c.status = 'closed'), '[]'::jsonb) else '[]'::jsonb end,
+        'carry_in', case when g.d = f.placed_on then coalesce((select jsonb_agg(jsonb_build_object('line_id', l.id, 'name', i.name, 'qty', l.qty_base::text,
+            'base_unit', l.base_unit, 'kg', private.issue_mass_kg(l.qty_base, l.base_unit, l.density_kg_per_l, l.piece_mass_kg)::text) order by l.line_no)
+          from public.flock_close_lines l join public.items i on i.org_id = l.org_id and i.id = l.item_id
+          where l.org_id = f.org_id and l.to_flock_id = f.id and l.carry_status = 'applied'), '[]'::jsonb) else '[]'::jsonb end,
+        'issues', coalesce((select jsonb_agg(jsonb_build_object('issue_id', x.id, 'doc_no', x.doc_no, 'issued_on', x.issued_on, 'item_id', l.item_id, 'name', i.name, 'cost_kind', l.cost_kind,
+            'qty', l.qty_base::text, 'base_unit', l.base_unit, 'kg', private.issue_mass_kg(l.qty_base, l.base_unit, l.density_kg_per_l, l.piece_mass_kg)::text)
+            order by x.posted_at, x.doc_no collate "C", l.line_no)
+          from public.flock_issues x
+          join public.flock_issue_lines l on l.org_id = x.org_id and l.issue_id = x.id
+          join public.items i on i.org_id = l.org_id and i.id = l.item_id
+          where x.org_id = f.org_id and x.flock_id = f.id and private.issue_day(x) = g.d and x.status = 'posted'
+            and not exists (select 1 from public.flock_vaccinations m where m.org_id = x.org_id and m.issue_id = x.id and m.status = 'done')), '[]'::jsonb),
+        'logs', coalesce((select jsonb_agg(jsonb_build_object('id', o.id, 'name', o.name, 'dose', o.dose) order by o.created_at, o.id)
+          from public.flock_logs o where o.org_id = f.org_id and o.flock_id = f.id and o.on_date = g.d), '[]'::jsonb),
+        'vaccines', coalesce((select jsonb_agg(v.j order by v.age_day, v.name_key collate "C", v.vaccine_id) from (
+            select m.age_day, x.name_key, x.id as vaccine_id, jsonb_build_object('vaccine_id', x.id, 'name', x.name, 'color', x.color, 'age_day', m.age_day,
+              'state', 'done', 'vaccination_id', m.id, 'issue_id', m.issue_id,
+              'doc_no', (select y.doc_no from public.flock_issues y where y.org_id = m.org_id and y.id = m.issue_id)) as j
+            from public.flock_vaccinations m join public.vaccines x on x.org_id = m.org_id and x.id = m.vaccine_id
+            where m.org_id = f.org_id and m.flock_id = f.id and m.status = 'done' and m.done_on = g.d
+            union all
+            select z.age_day, x.name_key, x.id, jsonb_build_object('vaccine_id', x.id, 'name', x.name, 'color', x.color, 'age_day', z.age_day,
+              'state', case when z.due_on = v_today then 'today' when z.due_on < v_today then 'missed' else 'planned' end,
+              'vaccination_id', null, 'issue_id', null, 'doc_no', null)
+            from private.flock_slots(f.id) as z join public.vaccines x on x.org_id = f.org_id and x.id = z.vaccine_id
+            where z.due_on = g.d and not exists (select 1 from public.flock_vaccinations m where m.org_id = f.org_id and m.flock_id = f.id
+              and m.vaccine_id = z.vaccine_id and m.age_day = z.age_day and m.status = 'done')) as v), '[]'::jsonb))
+        order by g.d)
+      from (select v_first + n as d from generate_series(0, v_last - v_first) as n) as g
+      left join public.flock_daily y on y.org_id = f.org_id and y.flock_id = f.id and y.on_date = g.d
+      left join public.flock_day_gas gs on gs.org_id = f.org_id and gs.flock_id = f.id and gs.on_date = g.d),
+    'totals', jsonb_build_object(
+      'feed_kg', (select coalesce(sum(private.issue_mass_kg(l.qty_base, l.base_unit, l.density_kg_per_l, l.piece_mass_kg)), 0)::text
+        from public.flock_issues x join public.flock_issue_lines l on l.org_id = x.org_id and l.issue_id = x.id
+        where x.org_id = f.org_id and x.flock_id = f.id and x.status = 'posted' and l.cost_kind = 'feed' and private.issue_day(x) between v_first and v_last),
+      'dead', (select coalesce(sum(y.dead), 0)::int from public.flock_daily y where y.org_id = f.org_id and y.flock_id = f.id and y.on_date between v_first and v_last),
+      'culled', (select coalesce(sum(y.culled), 0)::int from public.flock_daily y where y.org_id = f.org_id and y.flock_id = f.id and y.on_date between v_first and v_last),
+      'gas', (select coalesce(sum(g.cylinders), 0)::int from public.flock_day_gas g where g.org_id = f.org_id and g.flock_id = f.id and g.on_date between v_first and v_last)));
 end
 $$;
 
