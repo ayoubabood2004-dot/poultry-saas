@@ -5,7 +5,7 @@ import type { BaseUnit } from '../../domain/units';
 import { countForm, fmtInt, fmtMilli, fmtQty } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import type { OutboxOp } from '../../lib/outbox';
-import { flockDayTransport, type DayValues } from '../../lib/repo/flocks';
+import { flockDayTransport, type DayValues, type FlockSummary } from '../../lib/repo/flocks';
 
 // نصوص الجولة المشتركة بين الجولة اليومية (محفوظة للفتح بلا نت) وزيارة يوم من صفحة القاعة (حزمة القاعات، كلمة المالك 2026-11-16):
 // ملف صغير بينهما، حتى لا تجرّ صفحة القاعة الجولة كلّها إلى حزمتها.
@@ -92,6 +92,8 @@ export interface GasSoFar {
   cylinders: number | null;
   /** على هذا الجهاز عملية غاز لم تُرفع. */
   pending: boolean;
+  /** قناني إضافات في الطريق أو مجهولة النتيجة: لا تُعدّ في cylinders (ربّما صارت في المحفوظ)، وتُقال وحدها (مراجعة 0036 R8). */
+  unsure: number;
 }
 
 /**
@@ -99,18 +101,25 @@ export interface GasSoFar {
  * فلا تُضاف (كالزيارة الجديدة)، والتصحيح يُطبَّق في كلّ حالاته (تطبيقه مرّتين القيمة نفسها).
  */
 export function gasSoFar(saved: number | null, ops: readonly OutboxOp[]): GasSoFar {
-  const total: GasSoFar = { cylinders: saved, pending: false };
+  const total: GasSoFar = { cylinders: saved, pending: false, unsure: 0 };
   for (const op of [...ops].sort((a, b) => a.createdAt - b.createdAt)) {
     if (op.fn === 'set_flock_gas') {
       total.cylinders = op.payload.cylinders;
       total.pending = true;
     } else if (op.fn === 'add_flock_gas') {
       total.pending = true;
-      if (op.state !== 'sending' && op.state !== 'unknown') total.cylinders = (total.cylinders ?? 0) + op.payload.add;
+      if (op.state === 'sending' || op.state === 'unknown') total.unsure += op.payload.add;
+      else total.cylinders = (total.cylinders ?? 0) + op.payload.add;
     }
   }
   return total;
 }
+
+/**
+ * «جولة اليوم سُجّلت» لقاعة (مراجعة 0036 R6، الرئيسية وجدول الحقل): هلاكات يوم القراءة سُجّلت في الخادم (dead_entered، أو خادم قبل 0036: فيه هلاكات)،
+ * أو على هذا الجهاز عملية لم تُرفع تحملها — كما تقفلها الجولة؛ لا صفّ اليوم وحده (بيض البيّاض وحده كان يعدّها).
+ */
+export const deathsIn = (flock: FlockSummary, day: string, pending: readonly OutboxOp[]): boolean => soFar(flock.today, pending.filter((op) => op.flockId === flock.id && op.day === day)).deadEntered;
 
 /**
  * كمية العلف بوحدة أساسه بالفصحى وبفواصل الآلاف: «2,500 كغم» (الكيلو اختصار ثابت ولو تجاوز الطنّ، كعمود الورقة)، و«لتران»، و«5 لترات». هنا (محفوظ للفتح

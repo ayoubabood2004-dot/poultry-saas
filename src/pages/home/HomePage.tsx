@@ -15,6 +15,7 @@ import { describeError, NotConnectedError } from '../../lib/errors';
 import { countForm, fmtDay, fmtInt, fmtMoney, fmtPercent } from '../../lib/format';
 import { t, Trans } from '../../lib/i18n';
 import { SaleIcon, STORE_ROLES } from '../../lib/nav';
+import type { OutboxOp } from '../../lib/outbox';
 import type { FlocksOverview } from '../../lib/repo/flocks';
 import * as home from '../../lib/repo/home';
 import type { HomeSummary } from '../../lib/repo/home';
@@ -22,6 +23,7 @@ import { roundQueueStore } from '../../lib/roundUploads';
 import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { useLoad } from '../../lib/useLoad';
+import { deathsIn } from '../farm/roundText';
 import { HallReminders, loadOverviewKept } from '../farm/shared';
 import { readSaleDraftSummary, type SaleDraftSummary } from '../sales/saleDraft';
 
@@ -93,14 +95,15 @@ export interface FarmTasks {
   rejects: { broiler: number; layer: number };
 }
 
-export function farmTasks(overview: FlocksOverview): FarmTasks {
+/** «لم تُكمل جولتها»: هلاكات اليوم لم تُسجَّل في الخادم ولا على هذا الجهاز (pending)؛ بيض البيّاض وحده لا يكملها (مراجعة 0036 R6). */
+export function farmTasks(overview: FlocksOverview, pending: readonly OutboxOp[] = []): FarmTasks {
   const tasks: FarmTasks = { left: { broiler: 0, layer: 0 }, rejects: { broiler: 0, layer: 0 } };
   for (const site of overview.sites) {
     for (const hall of site.halls) {
       const flock = hall.flock;
       if (!flock) continue;
       tasks.rejects[flock.kind] += flock.rejectsPending;
-      if (flock.status === 'active' && flock.placedOn !== null && flock.placedOn <= overview.today && flock.today === null) tasks.left[flock.kind] += 1;
+      if (flock.status === 'active' && flock.placedOn !== null && flock.placedOn <= overview.today && !deathsIn(flock, overview.today, pending)) tasks.left[flock.kind] += 1;
     }
   }
   return tasks;
@@ -555,7 +558,8 @@ export default function HomePage() {
     if (!wantsFarms) return null;
     const state = await loadOverviewKept(userId && orgId ? { userId, orgId, displayName } : null);
     const live = state.savedAt === null;
-    return { cards: live ? farmCards(state.overview) : null, tasks: live ? farmTasks(state.overview) : null, kinds: flockKinds(state.overview) };
+    // المهامّ تُعدّ عند الرسم مع عمليات الجهاز (هلاكات لم تُرفع تكمل جولة القاعة)، لا هنا.
+    return { cards: live ? farmCards(state.overview) : null, overview: live ? state.overview : null, kinds: flockKinds(state.overview) };
   }, [wantsFarms, userId, orgId, displayName]);
   const farms = useLoad(loadFarms);
 
@@ -573,7 +577,7 @@ export default function HomePage() {
     if (!wantsPending || !userId || !orgId) return null;
     const outbox = await import('../../lib/outbox');
     const ops = await outbox.pendingOps(await outbox.openOutbox(), { userId, orgId, displayName });
-    return { n: ops.length, flockId: ops[0]?.flockId ?? null };
+    return { n: ops.length, flockId: ops[0]?.flockId ?? null, ops };
   }, [wantsPending, userId, orgId, displayName]);
   const pending = useLoad(loadPending, `${queue.seq}:${queue.mine}`);
 
@@ -584,7 +588,7 @@ export default function HomePage() {
   const rows = todayRows({
     rounds: { broiler: savesBroiler, layer: savesLayer },
     manage,
-    farms: farms.data?.tasks ?? null,
+    farms: farms.data?.overview ? farmTasks(farms.data.overview, pending.data?.ops) : null,
     pending: pending.data ? { n: pending.data.n, kind: kindOf(pending.data.flockId) } : null,
   });
   const needFarms = wantsFarms && (savesBroiler || savesLayer || manage);
