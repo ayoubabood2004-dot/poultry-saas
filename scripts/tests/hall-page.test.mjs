@@ -281,13 +281,13 @@ export default async function (t) {
       const { calls } = fresh('manager', hallsHandlers());
       await mount('/broiler/hall/h-2');
       t.same(named(calls, 'hall_sheet'), [['f-2']], 'H2 /broiler/hall/h-2 يقرأ ورقة فوج هذه القاعة وحده (f-2)');
-      t.eq(heading(), 'هلاكات قاعة (2)', 'H2 عنوان الصفحة «هلاكات قاعة (2)» (0035: كالورقة)');
+      t.eq(heading(), 'قاعة 2', 'H2 عنوان الصفحة اسم القاعة «قاعة 2» (0036: «هلاكات قاعة (2)» شريط الجدول الملوّن، لا عنواناً ثانياً)');
       t.same([navOf('hall-prev'), navOf('hall-next'), hrefOf('hall-back')], [['قاعة 1', '/broiler/hall/h-1'], ['قاعة 3', '/broiler/hall/h-3'], '/broiler'], 'H2 السابقة والتالية بترتيب الأرقام («1» ثمّ «قاعة 2» ثمّ «قاعة 3»)، والرجوع إلى الحقل');
     });
     await step('H2 القاعة «1»', async () => {
       const { calls } = fresh('manager', hallsHandlers());
       await mount('/broiler/hall/h-1');
-      t.same([named(calls, 'hall_sheet'), heading(), byAction('hall-prev').length, navOf('hall-next')], [[['f-1']], 'هلاكات قاعة (1)', 0, ['قاعة 2', '/broiler/hall/h-2']], 'H2 القاعة «1»: عنوانها «هلاكات قاعة (1)»، وهي الأولى (لا سابقة)، والتالية «قاعة 2»');
+      t.same([named(calls, 'hall_sheet'), heading(), byAction('hall-prev').length, navOf('hall-next')], [[['f-1']], 'قاعة 1', 0, ['قاعة 2', '/broiler/hall/h-2']], 'H2 القاعة «1»: عنوانها «قاعة 1»، وهي الأولى (لا سابقة)، والتالية «قاعة 2»');
     });
     await step('H2 قاعة فارغة للمدير', async () => {
       const { calls } = fresh('manager', hallsHandlers());
