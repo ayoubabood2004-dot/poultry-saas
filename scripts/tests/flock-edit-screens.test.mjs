@@ -637,6 +637,23 @@ export default async function (t) {
       t.same([byAction('flock-edit-offline').length, Boolean(editDialog()), byAction('flock-edit-save').length, byAction('flock-delete').length], [1, true, 0, 0],
         'O بلا حزمة القاعات: نافذة «تعديل فوج» تقول إنّ التعديل يحتاج اتصالاً، بلا حفظ ولا حذف');
     });
+
+    // ── 0036 (سقف التثبيت المسبق): «أضف قاعة» و«عدّل القاعة» و«افتح فوجاً» في جدول الحقل من حزمة القاعات كـ«عدّل الفوج» — تفشل على 64e6b2a ─────────
+    await step('O نوافذ القاعة بلا حزمة القاعات', async () => {
+      fresh('manager', { loadOverviewJson: () => overview() });
+      globalThis.__fe.hallsFail = true;
+      await mount('/broiler');
+      const dialogs = () => all().filter((n) => n.getAttribute('role') === 'dialog');
+      await click(byAction('hall-add')[0] ?? null);
+      const addOffline = [byAction('dialog-offline').length, dialogs().length, byAction('hall-save').length];
+      t.same(addOffline, [1, 1, 0], 'O «أضف قاعة» بلا حزمة القاعات: نافذة تقول إنّها تحتاج اتصالاً، بلا نموذج حفظ (كانت النافذة من التثبيت المسبق)');
+    });
+    await step('O نوافذ القاعة من حزمة القاعات', async () => {
+      fresh('manager', { loadOverviewJson: () => overview() });
+      await mount('/broiler');
+      await click(byAction('hall-add')[0] ?? null);
+      t.same([byAction('dialog-offline').length, byAction('hall-save').length > 0], [0, true], 'O ضابط: بحزمة القاعات «أضف قاعة» تفتح نموذج القاعة نفسه');
+    });
   } finally {
     delete globalThis.__fe;
     restore();

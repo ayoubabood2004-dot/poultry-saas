@@ -25,6 +25,7 @@ import { onlineStore } from '../../lib/online';
 import { openOutbox, pendingOps, removeReview, reviewEntries, saveRound, visitDayVersion, type EnqueueInput, type FlockDayPayload, type FlockGasPayload, type OutboxOp, type ReviewEntry, type SendResult } from '../../lib/outbox';
 import type { FlockSummary, HallView, SiteView } from '../../lib/repo/flocks';
 import { parseDayRow, parseGas, recordFlockWeight } from '../../lib/repo/flocks';
+import { listenOtherWindows } from '../../lib/roundWindows';
 import { decideFlockReject, loadHallSheet, sendFlockFeed, toBaseQty, voidSheetFeed, type FeedSend, type HallSheet, type RejectDecision, type SheetDay, type SheetFeedItem, type SheetFeedLine, type SheetReject, type SheetUnit } from '../../lib/repo/hallSheet';
 import { refreshRoundQueue, roundQueueStore, stampKey, uploadRounds, type RoundRun } from '../../lib/roundUploads';
 import { useStore } from '../../lib/store';
@@ -1281,6 +1282,8 @@ function gridLabel(field: GridField): string {
 function SheetScreen({ kind, flockId, nav, site, summary, onGone }: { kind: FlockKind; flockId: string; nav?: Nav; site?: SiteView; summary?: FlockSummary; onGone?: () => void }) {
   // الورقة جدولٌ رسميّ بعرض أكبر في الشاشات الكبيرة (عقد 0036 S1).
   useWidePage();
+  // رفعُ نافذة أخرى على الجهاز يصل الورقة (مراجعة 0036 R8؛ الاستماع هنا في حزمة القاعات لا في الرافع المحفوظ).
+  useEffect(listenOtherWindows, []);
   const navigate = useNavigate();
   const online = useStore(onlineStore);
   const load = useCallback(() => loadHallSheet(flockId), [flockId]);

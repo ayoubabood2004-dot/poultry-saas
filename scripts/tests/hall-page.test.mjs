@@ -31,8 +31,9 @@ const STUBS = {
     export const loadHallSheet = async (id) => __sheet(await globalThis.__hp.call('hall_sheet', [id]));`,
   FlockCard: 'export default function FlockCard() { return null; }',
   hallsChunk: `import FlockPage, { HallPage } from './src/pages/farm/FlockPage.tsx';
+    import { HallDialog, OpenFlockDialog } from './src/pages/farm/hallDialogs.tsx';
     const nothing = () => null;
-    export const loadHalls = () => (globalThis.__hp.hallsOffline ? Promise.reject(new Error('offline')) : Promise.resolve({ HallPage, FlockPage, FlockCard: nothing, Reminders: nothing, FlockEditDialog: nothing }));`,
+    export const loadHalls = () => (globalThis.__hp.hallsOffline ? Promise.reject(new Error('offline')) : Promise.resolve({ HallPage, FlockPage, FlockCard: nothing, Reminders: nothing, FlockEditDialog: nothing, HallDialog, OpenFlockDialog }));`,
 };
 
 async function screens() {

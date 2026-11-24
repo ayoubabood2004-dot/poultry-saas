@@ -38,3 +38,35 @@ export function FlockEditDialogLazy(props: FlockEditDialogProps) {
     </Suspense>
   );
 }
+
+/** نافذة القاعة أو الفوج الجديد بلا حزمة القاعات (بلا نت): تقول السبب، وإغلاقها وحده. */
+function DialogOffline({ onClose }: { onClose: () => void }) {
+  return (
+    <Dialog open onClose={onClose} title={t('farm.dialog.offline_title', 'يحتاج اتصالاً')}>
+      <div data-action="dialog-offline">
+        <Notice tone="info" title={t('farm.dialog.offline', 'هذه النافذة تحتاج اتصالاً بالخادم: أغلقها وافتحها حين يعود الاتصال.')} />
+      </div>
+    </Dialog>
+  );
+}
+
+/**
+ * «أضف قاعة» و«عدّل القاعة» و«افتح فوجاً» في جدول الحقل من حزمة القاعات خارج التثبيت المسبق كـ«عدّل الفوج» (سقف التثبيت المسبق، 0036): كلّها تحتاج
+ * الخادم، فلا يُحفظ للفتح بلا نت ما لا يعمل بلا نت؛ وبلا نت نافذة تقول السبب. استيراد واحد لكلّ نافذة تُفتح.
+ */
+function fromHalls<P extends { onClose: () => void }>(pick: (halls: Awaited<ReturnType<typeof loadHalls>>) => ComponentType<P> | undefined) {
+  return function FromHalls(props: P) {
+    // lazy يلفّ المكوّن بخصائص ref، فيُعاد إلى ComponentType<P> نفسه (الخصائص كما هي).
+    const [Lazy] = useState(
+      () => lazy(() => quietly(loadHalls).then((halls) => ({ default: pick(halls) ?? DialogOffline }), () => ({ default: DialogOffline as ComponentType<P> }))) as unknown as ComponentType<P>,
+    );
+    return (
+      <Suspense fallback={null}>
+        <Lazy {...props} />
+      </Suspense>
+    );
+  };
+}
+
+export const HallDialogLazy = fromHalls((halls) => halls.HallDialog);
+export const OpenFlockDialogLazy = fromHalls((halls) => halls.OpenFlockDialog);

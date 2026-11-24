@@ -3,5 +3,6 @@ export { flush, openOutbox, OutboxError, pendingOps, removeReview, reviewEntries
 export type { EnqueueInput, FlushReport, FlushStop, QueueSummary } from './queue';
 export { saveRound, saveRounds } from './round';
 export { refreshQueue, uploadQueue } from './uploader';
+export { roundChannel } from './windows';
 export { QUEUEABLE_FUNCTIONS } from './types';
 export type { DayOp, DeadOp, FlockDayPayload, FlockDeadPayload, FlockGasAddPayload, FlockGasPayload, FlockVisitPayload, GasAddOp, GasOp, OpState, OutboxOp, ReviewEntry, SendResult, Stamp, Transport, VisitOp } from './types';

@@ -23,6 +23,8 @@ export { default as FlockCard } from './FlockCard';
 export { default as RoundFeed } from '../farm/RoundFeed';
 // نافذة «عدّل الفوج» (0028) هنا لتُحمَّل من حزمة القاعات خارج التثبيت المسبق (pages/farm/flockEditLazy): التعديل يحتاج الخادم كلّه.
 export { FlockEditDialog } from '../farm/FlockEditDialog';
+// «أضف قاعة» و«عدّل القاعة» و«افتح فوجاً» لجدول الحقل (0036، سقف التثبيت المسبق): تحتاج الخادم، فتُحمَّل من هنا (pages/farm/flockEditLazy).
+export { HallDialog, OpenFlockDialog } from '../farm/hallDialogs';
 // صفحة القاعة (كلمة المالك 2026-11-16) هنا أيضاً: كلّها من الخادم (الفوج وأيامه والجولة لأيّ يوم والوزن)، فلا تُثقل التثبيت المسبق؛ ومسارها
 // /broiler/hall/:id في حزمة الحقول يحمّلها كسولةً (pages/farm/FarmRoutes).
 export { default as FlockPage, HallPage } from '../farm/FlockPage';

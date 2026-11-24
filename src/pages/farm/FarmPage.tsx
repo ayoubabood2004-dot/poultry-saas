@@ -21,8 +21,7 @@ import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { useQueue } from './deviceQueue';
 import { BUTTON_LINK_CLASS, givePath, LINK_CLASS } from './feed';
-import { FlockEditDialogLazy as FlockEditDialog } from './flockEditLazy';
-import { HallDialog, OpenFlockDialog } from './hallDialogs';
+import { FlockEditDialogLazy as FlockEditDialog, HallDialogLazy as HallDialog, OpenFlockDialogLazy as OpenFlockDialog } from './flockEditLazy';
 import { deathsIn } from './roundText';
 import { farmPath, farmTitle, fmtPct, hallLabel, hallPath, TodayChip, useOverview, useStamp } from './shared';
 
