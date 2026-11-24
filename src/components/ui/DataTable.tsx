@@ -1,4 +1,4 @@
-import { Fragment, type ReactNode } from 'react';
+import { Fragment, type ReactNode, type TableHTMLAttributes, type TdHTMLAttributes, type ThHTMLAttributes } from 'react';
 
 // الجدول الوحيد بالنظام (قانون المالك للجداول، docs/DECISIONS.md 2026-10-24): شبكة كلاسيكية مثل إكسل،
 // خطوط لكل خلية، رأس ثابت بالتمرير، صفّ مجاميع بخطّ مزدوج فوكه، والأرقام محاذية على خانة الآحاد.
@@ -48,6 +48,19 @@ const MARK = 'bg-surface-3';
 const STICKY_MARK = 'sticky start-0 z-[1] bg-surface-3';
 const BORDER = 'border-b border-e border-line last:border-e-0';
 const TOTAL_TOP = 'border-t-[3px] border-double border-t-line-strong';
+
+/** سمات data-* على خلية الشبكة (موضعها وتحديدها). */
+type DataAttrs = Partial<Record<`data-${string}`, string>>;
+
+/**
+ * جدول يُعمل فيه كإكسل (ورقة القاعة في وضع التعديل، عقد 0036 S2): سمات الجدول (role="grid") وكلّ خلية (gridcell وaria-selected وaria-readonly وموضعها)
+ * ورأس كلّ عمود. الصنف لا يُمرَّر (شكل الجدول من هنا وحده)، والأحداث تلتقطها الشاشة على غلاف الجدول. وبلا grid الجدول كما هو حرفاً.
+ */
+export interface DataGrid<Row> {
+  table: Omit<TableHTMLAttributes<HTMLTableElement>, 'className' | 'children'>;
+  cell: (row: Row, index: number, column: Column<Row>) => Omit<TdHTMLAttributes<HTMLTableCellElement>, 'className' | 'children'> & DataAttrs;
+  head?: (column: Column<Row>) => Omit<ThHTMLAttributes<HTMLTableCellElement>, 'className' | 'children' | 'scope'> & DataAttrs;
+}
 
 /** رقم داخل خلية: LTR معزول، والإشارة السالبة ويّا رقمها. */
 export function Num({ children }: { children: ReactNode }) {
@@ -111,6 +124,7 @@ export function DataTable<Row>({
   size = 'md',
   onRowClick,
   rowTone,
+  grid,
 }: {
   /** وصف الجدول لقارئ الشاشة. */
   caption: string;
@@ -139,6 +153,8 @@ export function DataTable<Row>({
    * أعمق ومع كلمة في خليته أيضاً (الخلفية لا تُطبع).
    */
   rowTone?: (row: Row) => 'warn' | 'mark' | null;
+  /** شبكة كإكسل: سمات الجدول والخلايا والرؤوس (DataGrid)؛ بلاها لا يتغيّر شيء. */
+  grid?: DataGrid<Row>;
 }) {
   const sized = SIZES[size];
   const firstTotal = columns.findIndex(hasTotal);
@@ -158,7 +174,7 @@ export function DataTable<Row>({
   return (
     // بالطباعة كل الصفوف بلا تمرير (FOUNDATION ٧٨٨): print.css بشاشات الحسابات يشيل حدّ الارتفاع من overflow-auto.
     <div className="max-h-[70dvh] overflow-auto rounded-lg border border-line bg-surface-1">
-      <table className={`w-full border-separate border-spacing-0 ${sized.table} ${edges}`}>
+      <table className={`w-full border-separate border-spacing-0 ${sized.table} ${edges}`} {...grid?.table}>
         <caption className="sr-only">{caption}</caption>
         <thead>
           <tr>
@@ -167,6 +183,7 @@ export function DataTable<Row>({
                 key={column.key}
                 scope="col"
                 className={`sticky top-0 ${column.sticky ? 'start-0 z-[2]' : 'z-[1]'} ${BORDER} bg-surface-2 ${sized.head} font-semibold ${headClass(column, size)}`}
+                {...grid?.head?.(column)}
               >
                 {column.header}
               </th>
@@ -199,7 +216,7 @@ export function DataTable<Row>({
                     }
                   >
                     {columns.map((column) => (
-                      <td key={column.key} className={`${BORDER} ${sized.cell} ${stickyOf(column, tone)} ${cellClass(column, size)}`}>
+                      <td key={column.key} className={`${BORDER} ${sized.cell} ${stickyOf(column, tone)} ${cellClass(column, size)}`} {...grid?.cell(row, index, column)}>
                         {column.cell(row, index)}
                       </td>
                     ))}
