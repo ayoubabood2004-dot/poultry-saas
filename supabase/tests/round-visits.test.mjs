@@ -209,8 +209,9 @@ async function scenario(t, db) {
     'زيارة أولى: نسختها 1 وملاحظتها بلا فراغ، وصفّ اليوم 3 نافق و50 كغم بنسخة 1');
     const second = await visit(U.manager, { id: V.v2, flock: F.a1, at: ago(200), dead: 2, culled: 1, feed: '30.5', note: 'العصر' });
     samples.save_flock_visit_saved = second.value;
+    // 0036: صفّ اليوم يحمل علامة «سُجّلت هلاكات اليوم» (dead_entered).
     same(second.value?.day, { on_date: TODAY, version: 2, dead: 5, culled: 1, feed_kg: '80.5', water_l: null, temp_min: null, temp_max: null, eggs_total: null,
-      eggs_cracked: null, eggs_broken: null, note: `الصباح${DOT}العصر` }, 'جهاز ثانٍ يضيف زيارة لليوم نفسه بلا stale: المجموع 5 نافق و1 مستبعد و80.5 كغم والملاحظتان بترتيبهما');
+      eggs_cracked: null, eggs_broken: null, note: `الصباح${DOT}العصر`, dead_entered: true }, 'جهاز ثانٍ يضيف زيارة لليوم نفسه بلا stale: المجموع 5 نافق و1 مستبعد و80.5 كغم والملاحظتان بترتيبهما');
     const again = await visit(U.manager, { id: V.v2, flock: F.a1, at: ago(200), dead: 2, culled: 1, feed: '30.50', note: 'العصر' });
     t.same([again.value?.status, again.value?.visit?.version, again.value?.day?.version], ['saved', 1, 2], 'الإضافة نفسها بمرجع جديد: حُفظت بلا كتابة');
     const clash = await visit(U.manager, { id: V.v2, flock: F.a1, dead: 9 });

@@ -1,0 +1,291 @@
+{
+ "_note": "عيّنات القاعدة الحقيقية (supabase/tests/round-once.test.mjs بـROUND_ONCE_SAMPLES_OUT=1، اليوم المثبَّت 2026-11-24)؛ المحلّلات الحقيقية تقرؤها في فحوص الشاشات. flocks_overview للمنشأة: «قاعة 1» لاحم بهلاكات اليوم وعلفه (ومعه علف أمس المرسل اليوم، وملغى، وذرة، ودواء) وغازه، و«قاعة 2» بلا شيء اليوم، و«قاعة 3» مغلقة، و«قاعة البيّاض» ببيض اليوم.",
+ "flocks_overview": {
+  "sites": [
+   {
+    "id": "730dd578-c281-4826-93d5-1671b0883f14",
+    "kind": "broiler",
+    "name": "حقل الجولة",
+    "halls": [
+     {
+      "id": "b5fb211c-fbba-4f23-9f65-3331477fb869",
+      "name": "قاعة 1",
+      "flock": {
+       "id": "a879ac60-81f0-45bd-9543-c6a3928197fa",
+       "fcr": null,
+       "kind": "broiler",
+       "live": 958,
+       "breed": null,
+       "today": {
+        "dead": 2,
+        "note": null,
+        "culled": 0,
+        "feed_kg": null,
+        "on_date": "2026-11-24",
+        "version": 1,
+        "water_l": null,
+        "temp_max": null,
+        "temp_min": null,
+        "eggs_total": null,
+        "eggs_broken": null,
+        "dead_entered": true,
+        "eggs_cracked": null
+       },
+       "status": "active",
+       "version": 1,
+       "age_days": 20,
+       "closed_on": null,
+       "feed_days": 0,
+       "gas_today": 3,
+       "placed_on": "2026-11-04",
+       "count_diff": 0,
+       "dead_total": 41,
+       "eggs_today": null,
+       "feed_today": [
+        {
+         "qty": "120.000",
+         "unit": "kg",
+         "item_id": "30aa7674-14b9-4c9f-9d33-2908ffc73812",
+         "item_name": "علف بادئ"
+        },
+        {
+         "qty": "50.000",
+         "unit": "kg",
+         "item_id": "b9e2820b-9a3d-4bb8-9e59-b8f0a936d41a",
+         "item_name": "علف ناهي"
+        },
+        {
+         "qty": "10.000",
+         "unit": "kg",
+         "item_id": "e15191fe-7212-4e56-9f37-e3d01996ce02",
+         "item_name": "ذرة صفراء"
+        }
+       ],
+       "hdep_today": null,
+       "sold_birds": 0,
+       "last_weight": null,
+       "sold_net_kg": "0.000",
+       "culled_total": 1,
+       "placed_count": 1000,
+       "feed_kg_total": "0.000",
+       "feed_today_kg": "180.000",
+       "mortality_pct": "4.20",
+       "feed_span_days": 20,
+       "ticketed_birds": 0,
+       "rejects_pending": 0,
+       "live_start_today": 960,
+       "gas_today_version": 2,
+       "last_feed_item_id": "b9e2820b-9a3d-4bb8-9e59-b8f0a936d41a",
+       "days_since_placement": 21,
+       "age_days_at_placement": 0
+      },
+      "version": 1,
+      "capacity": null
+     },
+     {
+      "id": "4d15d99d-7e70-4b6a-b124-fc219d815faf",
+      "name": "قاعة 2",
+      "flock": {
+       "id": "ea737821-87eb-47dd-8b06-8118a53db54e",
+       "fcr": null,
+       "kind": "broiler",
+       "live": 500,
+       "breed": null,
+       "today": null,
+       "status": "active",
+       "version": 1,
+       "age_days": 10,
+       "closed_on": null,
+       "feed_days": 0,
+       "gas_today": null,
+       "placed_on": "2026-11-14",
+       "count_diff": 0,
+       "dead_total": 0,
+       "eggs_today": null,
+       "feed_today": [],
+       "hdep_today": null,
+       "sold_birds": 0,
+       "last_weight": null,
+       "sold_net_kg": "0.000",
+       "culled_total": 0,
+       "placed_count": 500,
+       "feed_kg_total": "0.000",
+       "feed_today_kg": null,
+       "mortality_pct": "0.00",
+       "feed_span_days": 10,
+       "ticketed_birds": 0,
+       "rejects_pending": 0,
+       "live_start_today": 500,
+       "gas_today_version": null,
+       "last_feed_item_id": null,
+       "days_since_placement": 11,
+       "age_days_at_placement": 0
+      },
+      "version": 1,
+      "capacity": null
+     },
+     {
+      "id": "efeaaa88-27b6-44dd-9c2e-9e01dd9bf5fb",
+      "name": "قاعة 3",
+      "flock": null,
+      "version": 1,
+      "capacity": null
+     }
+    ],
+    "can_manage": true,
+    "division_id": "20a3b7ef-23a9-4084-9946-64cf2cd2bf04"
+   },
+   {
+    "id": "921dff15-b612-4d93-8fcc-dfeafba84120",
+    "kind": "layer",
+    "name": "حقل البيض",
+    "halls": [
+     {
+      "id": "95d37061-b3a3-4ecd-aa90-a56136ae95ba",
+      "name": "قاعة البيّاض",
+      "flock": {
+       "id": "c672387c-e2e1-43ed-8aa6-f008dbbcde48",
+       "fcr": null,
+       "kind": "layer",
+       "live": 1990,
+       "breed": null,
+       "today": {
+        "dead": 0,
+        "note": null,
+        "culled": 0,
+        "feed_kg": null,
+        "on_date": "2026-11-24",
+        "version": 1,
+        "water_l": null,
+        "temp_max": null,
+        "temp_min": null,
+        "eggs_total": 1500,
+        "eggs_broken": null,
+        "dead_entered": false,
+        "eggs_cracked": null
+       },
+       "status": "active",
+       "version": 1,
+       "age_days": 10,
+       "closed_on": null,
+       "feed_days": 0,
+       "gas_today": null,
+       "placed_on": "2026-11-14",
+       "count_diff": 0,
+       "dead_total": 10,
+       "eggs_today": 1500,
+       "feed_today": [],
+       "hdep_today": "75.38",
+       "sold_birds": 0,
+       "last_weight": null,
+       "sold_net_kg": "0.000",
+       "culled_total": 0,
+       "placed_count": 2000,
+       "feed_kg_total": "0.000",
+       "feed_today_kg": null,
+       "mortality_pct": "0.50",
+       "feed_span_days": 10,
+       "ticketed_birds": 0,
+       "rejects_pending": 0,
+       "live_start_today": 1990,
+       "gas_today_version": null,
+       "last_feed_item_id": null,
+       "days_since_placement": 11,
+       "age_days_at_placement": 0
+      },
+      "version": 1,
+      "capacity": null
+     }
+    ],
+    "can_manage": true,
+    "division_id": "b3a4e20a-4a1c-4bb6-8333-e60189ceadbe"
+   }
+  ],
+  "today": "2026-11-24",
+  "feed_items": [
+   {
+    "name": "علف بادئ",
+    "units": [
+     {
+      "id": "0ed9f06b-e2cd-4ee7-85dd-a757784bba73",
+      "name": "كيس 50 كغم",
+      "base_qty": "50"
+     }
+    ],
+    "item_id": "30aa7674-14b9-4c9f-9d33-2908ffc73812",
+    "on_hand": "1880.000",
+    "base_unit": "kg"
+   },
+   {
+    "name": "علف ناهي",
+    "units": [
+     {
+      "id": "a885e1d4-d567-49d1-9140-9d429ea684ab",
+      "name": "كيس 25 كغم",
+      "base_qty": "25"
+     },
+     {
+      "id": "83075fef-2847-4c96-9812-7e2e762cd23b",
+      "name": "كيس 50 كغم",
+      "base_qty": "50"
+     }
+    ],
+    "item_id": "b9e2820b-9a3d-4bb8-9e59-b8f0a936d41a",
+    "on_hand": "1500.000",
+    "base_unit": "kg"
+   }
+  ]
+ },
+ "set_flock_dead_saved": {
+  "day": {
+   "dead": 7,
+   "note": null,
+   "culled": 0,
+   "feed_kg": null,
+   "on_date": "2026-11-23",
+   "version": 1,
+   "water_l": null,
+   "temp_max": null,
+   "temp_min": null,
+   "eggs_total": null,
+   "eggs_broken": null,
+   "dead_entered": true,
+   "eggs_cracked": null
+  },
+  "status": "saved"
+ },
+ "set_flock_dead_recorded": {
+  "day": {
+   "dead": 7,
+   "note": null,
+   "culled": 0,
+   "feed_kg": null,
+   "on_date": "2026-11-23",
+   "version": 1,
+   "water_l": null,
+   "temp_max": null,
+   "temp_min": null,
+   "eggs_total": null,
+   "eggs_broken": null,
+   "dead_entered": true,
+   "eggs_cracked": null
+  },
+  "status": "dead_recorded"
+ },
+ "set_flock_dead_parked": {
+  "reason": "flock_closed",
+  "status": "parked"
+ },
+ "add_flock_gas_saved": {
+  "gas": {
+   "on": "2026-11-24",
+   "version": 1,
+   "cylinders": 2
+  },
+  "status": "saved"
+ },
+ "add_flock_gas_parked": {
+  "reason": "flock_closed",
+  "status": "parked"
+ }
+}

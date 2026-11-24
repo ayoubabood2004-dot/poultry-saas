@@ -37,6 +37,9 @@
 // يكمل وينقل الفاتورة الجديدة للشكل القديم؛ وبين التراجع والإعادة بيع نقديّ بجسم 0021، وبعد الإعادة كلّ بيع نقديّ ساق واحدة مرآة رأسه، وفاتورة بعدّة سطور
 // وخصم وسيقان وأخرى لزبون نقديّ تُكتب وتُقرأ. والطريق الثاني بسبعة فروع، كلّ واحد ببذرته: أكثر من سطر، وخصم، وأكثر من ساق، ودفع جزئيّ، ووحدة بيع،
 // وملاحظة، وزبون نقديّ.
+// 0036: البذرة نفسها وفوقها هلاكات أمس بـset_flock_dead وغاز اليوم بإضافتين وعلف اليوم (ROLLBACK_EXTRAS)، فالتراجع يكمل؛ وبين التراجع والإعادة جولة بنافق
+// بجسم 0035 وغاز اليوم بـset_flock_gas، وبعد الإعادة الملء يعلّم اليومين والجولة لا تضيف إليهما والإضافة تكمل المجموع (وضابط الإعادة: بلا الملء يفشل الثابت).
+// والطريق الثاني بثلاثة فروع، كلّ واحد ببذرته: يوم سُجّلت هلاكاته صفراً، وهلاكات مركونة، وغاز مضاف مركون.
 
 const U = {
   owner: '60000000-0000-4000-8000-000000000001',
@@ -791,7 +794,50 @@ const sheetSeed = (variant) => async (db) => {
   }, { commit: true });
 };
 
+const H36 = (n) => `60000000-0000-4000-8000-0000000036${String(n).padStart(2, '0')}`;
+
+/**
+ * 0036 (طريق الرفض): ما لا يحمله النموذج القديم، كلّ حقيقة ببذرتها على فوج البذرة (المدير): يوم سُجّلت هلاكاته صفراً (علامته لا يعيدها الملء)، وهلاكات
+ * مركونة من الطابور، وغاز مضاف مركون، كلاهما بيوم في الفترة المقفلة (البذرة تقفل حتى قبل 30 يوماً). التراجع يُسقطها فطريق الرفض يوقفه، وطفرة كلّ فرع تعبر بذرته.
+ */
+const roundSeed = (variant) => async (db) => {
+  await flockReady(db);
+  await db.asUser(U.manager, async (q) => {
+    const flock = await value(q, SEED_FLOCK);
+    if (variant === 'zero') await q('select public.set_flock_dead($1, public.app_today() - 1, 0, $2, false)', [flock, H36(1)]);
+    const park = async (sql, ref) => {
+      const parked = await value(q, sql, [flock, ref]);
+      if (parked?.status !== 'parked') throw new Error(`عملية البذرة في الفترة المقفلة لم تُركن: ${JSON.stringify(parked)}`);
+    };
+    if (variant === 'dead') await park('select public.set_flock_dead($1, public.app_today() - 31, 2, $2, true)', H36(2));
+    if (variant === 'gas') await park('select public.add_flock_gas($1, public.app_today() - 31, 2, $2, true)', H36(3));
+  }, { commit: true });
+};
+
 export const BLOCKING_SEEDS = {
+  36: [
+    {
+      name: 'يوم سُجّلت هلاكاته صفراً',
+      code: 'rollback_blocked',
+      seed: roundSeed('zero'),
+      data: "select (select count(*) from public.flock_daily where dead_entered and dead + culled = 0)::text || '/' || (select count(*) from public.flock_visits)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_zero > 0 then', 'if false then'),
+    },
+    {
+      name: 'هلاكات مركونة من الطابور',
+      code: 'rollback_blocked',
+      seed: roundSeed('dead'),
+      data: "select (select count(*) from public.flock_day_rejects where payload ? 'dead' and visit_id is not null)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_dead > 0 then', 'if false then'),
+    },
+    {
+      name: 'غاز مضاف مركون من الطابور',
+      code: 'rollback_blocked',
+      seed: roundSeed('gas'),
+      data: "select (select count(*) from public.flock_day_rejects where payload ? 'gas_add')::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_gas > 0 then', 'if false then'),
+    },
+  ],
   35: [
     {
       name: 'خانة غاز',
@@ -1284,6 +1330,7 @@ export const BLOCKING_REQUIRED = [
   [32, 3, 'زيارة جديدة حيّة، وزيارة أُلغيت، وزيارة مركونة، كلّ واحدة توقف التراجع'],
   [33, 8, 'فاتورة بأكثر من سطر، وبخصم، ومن صندوقين، وبدفع جزئيّ، وبوحدة بيع، وبملاحظة، ولزبون نقديّ، وساق مدقَّقة لفاتورة جديدة مدفوعة كلّها، كلّ واحدة توقف التراجع'],
   [35, 3, 'خانة غاز، وعلف أُرسل ليوم فات، وغاز مركون، كلّ واحد يوقف التراجع'],
+  [36, 3, 'يوم سُجّلت هلاكاته صفراً، وهلاكات مركونة، وغاز مضاف مركون، كلّ واحد يوقف التراجع'],
 ];
 
 /**
@@ -1846,7 +1893,70 @@ const sheetRedone = async (db) => {
   return problems;
 };
 
+/**
+ * 0036: حالة التراجع الكاملة على فوج البذرة بلا ما يوقفه: هلاكات أمس 4 بـset_flock_dead (موجبة: زيارة وصفّ يحملهما القديم، والملء يعيد علامتها)، وغاز اليوم
+ * 2 + 1 بـadd_flock_gas (مجموع في flock_day_gas)، و10 كغم «علف الورقة» أُرسلت اليوم، فالتراجع يكمل؛ وبين التراجع والإعادة جولة قبل يومين بنافق 3 بجسم 0035
+ * (بلا علامة) وغاز اليوم 5 بـset_flock_gas بنسخته؛ وبعد الإعادة الملء يعلّم اليومين، فالجولة بالقيمة نفسها saved وبغيرها dead_recorded، والإضافة تكمل غاز
+ * اليوم إلى 6 بالنسخة 4، والملخّص بغاز اليوم وعلفه، والثابت صفر. وضابط الإعادة (controls): الهجرة بلا جملة الملء تُفشل الحالة بالثابت dead_entered_flag.
+ */
+const ROUND_BACKFILL = 'update public.flock_daily x set dead_entered = true where x.dead + x.culled > 0 and not x.dead_entered;\n';
+
+const roundFullReady = async (db) => {
+  await sheetReady(db);
+  await db.asUser(U.manager, async (q) => {
+    const flock = await value(q, SEED_FLOCK);
+    const feed = await value(q, "select id from public.items where name = 'علف الورقة'");
+    await q('select public.set_flock_dead($1, public.app_today() - 1, 4, $2, false)', [flock, H36(10)]);
+    await q('select public.add_flock_gas($1, public.app_today(), 2, $2, false)', [flock, H36(11)]);
+    await q('select public.add_flock_gas($1, public.app_today(), 1, $2, false)', [flock, H36(12)]);
+    await q('select public.send_flock_feed($1, $2, $3, $4, $5, 10, public.app_today())', [H36(13), H36(14), H36(15), flock, feed]);
+  }, { commit: true });
+};
+
+const roundOn0035 = async (db) => {
+  await db.asUser(U.manager, async (q) => {
+    const flock = await value(q, SEED_FLOCK);
+    await q('select public.save_flock_day($1, public.app_today() - 2, 3, null, null, null, null, null, null, null, null, null, null, $2, false)', [flock, H36(16)]);
+    await q('select public.set_flock_gas($1, public.app_today(), 5, 2, $2, false)', [flock, H36(17)]);
+  }, { commit: true });
+};
+
+const roundRedone = async (db) => {
+  const problems = [];
+  try {
+    const got = await db.asUser(U.manager, async (q) => {
+      const flock = await value(q, SEED_FLOCK);
+      const flags = (await q('select on_date - public.app_today() as d, dead, dead_entered from public.flock_daily where flock_id = $1 order by on_date', [flock])).rows;
+      const same = await value(q, "select public.set_flock_dead($1, public.app_today() - 2, 3, $2, false) ->> 'status'", [flock, H36(18)]);
+      const other = await value(q, "select public.set_flock_dead($1, public.app_today() - 1, 9, $2, false) ->> 'status'", [flock, H36(19)]);
+      const gas = await value(q, "select public.add_flock_gas($1, public.app_today(), 1, $2, false) -> 'gas'", [flock, H36(20)]);
+      const summary = await value(q, "select public.flock_detail($1) -> 'flock'", [flock]);
+      return { flags, same, other, gas: [gas?.cylinders, gas?.version], summary: [summary.gas_today, summary.gas_today_version, summary.feed_today_kg, summary.last_feed_item_id !== null] };
+    }, { commit: true });
+    const want = { flags: [{ d: -2, dead: 3, dead_entered: true }, { d: -1, dead: 4, dead_entered: true }], same: 'saved', other: 'dead_recorded', gas: [6, 4], summary: [6, 4, '10.000', true] };
+    if (JSON.stringify(got) !== JSON.stringify(want)) problems.push(`الجولة بعد الإعادة: ${JSON.stringify(got)}`);
+  } catch (error) {
+    problems.push(`الهلاكات والغاز بعد الإعادة رُفضا: ${error.message}`);
+  }
+  const bad = await db.asService(async (q) => (await q('select check_name, violations::text as v from public.verify_round_once()')).rows
+    .filter((r) => r.v !== '0').map((r) => `${r.check_name} = ${r.v}`));
+  if (bad.length) problems.push(`الثوابت بعد الجولة: ${bad.join('، ')}`);
+  return problems;
+};
+
 export const ROLLBACK_EXTRAS = {
+  36: {
+    seed: roundFullReady,
+    afterRollback: roundOn0035,
+    afterRedo: roundRedone,
+    controls: [
+      {
+        name: 'بلا جملة الملء',
+        expect: 'dead_entered_flag',
+        mutate: (sql) => sql.split(ROUND_BACKFILL).join(''),
+      },
+    ],
+  },
   35: {
     seed: sheetFullReady,
     afterRollback: sheetOn0034,

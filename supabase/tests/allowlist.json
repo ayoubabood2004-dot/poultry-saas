@@ -4,6 +4,7 @@
   "authenticated": [
     "public.accept_invite_code(uuid, text)",
     "public.activate_recipe_version(uuid, integer)",
+    "public.add_flock_gas(uuid, date, integer, uuid, boolean)",
     "public.add_member(text, text, text, uuid[])",
     "public.add_member_v2(text, text, text, uuid[], uuid[], uuid[])",
     "public.add_production_input(uuid, uuid, uuid, numeric, uuid, text)",
@@ -144,6 +145,7 @@
     "public.set_charge_lines(uuid, uuid[], integer)",
     "public.set_day_note(uuid, date, text, bigint)",
     "public.set_division_go_live(uuid, date)",
+    "public.set_flock_dead(uuid, date, integer, uuid, boolean)",
     "public.set_flock_gas(uuid, date, integer, bigint, uuid, boolean)",
     "public.set_halls_note(date, text, bigint)",
     "public.set_item_cost_price(uuid, numeric, numeric)",
@@ -200,6 +202,7 @@
     "public.verify_mill()",
     "public.verify_money()",
     "public.verify_purchases()",
+    "public.verify_round_once()",
     "public.verify_round_visits()",
     "public.verify_sales()",
     "public.verify_stock()",

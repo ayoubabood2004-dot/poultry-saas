@@ -200,7 +200,8 @@ async function scenario(t, db) {
 
   // base_version: أقدم من المحفوظ، أو null ويوم بيه صفّ، أو رقم ويوم بلا صفّ ← stale_day بصفّ الخادم.
   const stale = await save(U.worker, F1, '2026-10-28', { dead: 7 }, 1);
-  same(stale.v, { status: 'stale_day', server: { on_date: '2026-10-28', version: 3, dead: 5, culled: 0, feed_kg: '450', water_l: '900', temp_min: null, temp_max: null, eggs_total: null, eggs_cracked: null, eggs_broken: null, note: null } }, 'base_version أقدم ← stale_day بصفّ الخادم كاملاً');
+  // 0036: صفّ اليوم يحمل علامة «سُجّلت هلاكات اليوم» (dead_entered).
+  same(stale.v, { status: 'stale_day', server: { on_date: '2026-10-28', version: 3, dead: 5, culled: 0, feed_kg: '450', water_l: '900', temp_min: null, temp_max: null, eggs_total: null, eggs_cracked: null, eggs_broken: null, note: null, dead_entered: true } }, 'base_version أقدم ← stale_day بصفّ الخادم كاملاً');
   const staleResult = ui.dayAnswer(stale.v);
   same(
     [staleResult.kind, ui.parseDayRow(staleResult.server), ui.dayAnswer(d28.v)],
