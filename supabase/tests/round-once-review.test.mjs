@@ -317,6 +317,11 @@ async function scenario(t, db) {
       [uid(), uid(), c, day(-2), form.flock.live, JSON.stringify(pools),
         JSON.stringify([{ item_id: I.starter, qty: '150', action: 'return', warehouse_id: W.feed }, { item_id: I.finisher, qty: '30', action: 'carry' }]), form.plan]);
     const next = await place(hallC, day(-1), 300);
+    // بيع جزئيّ بلا وزن: 200 طير، و100 كغم بادئاً قبل خمسة أيّام، وبيع 100 طير (240 كغم) قبل يومين، ولا وزن: يبقى 100 حيّ بلا وزن.
+    const hallP = await hall(S.a, 'قاعة بيع جزئيّ بلا وزن');
+    const p = await place(hallP, day(-20), 200);
+    await issue(p, I.starter, 100, day(-5));
+    await sell(hallP, day(-2), 100, '7300');
 
     const sample = async (flock) => {
       const s = (await one(U.owner, DETAIL, [flock])).flock;
@@ -339,12 +344,20 @@ async function scenario(t, db) {
     t.eq(live.s.fcr, (Math.round((Number(live.sheet.feed_net_kg) * 1000 * 1000) / (live.s.live * Number(live.s.last_weight.avg_g))) / 1000).toFixed(3),
       'N: معامل الحيّة = صافي الورقة × 1,000 ÷ (الحيّ × آخر وزن)');
     same([n.closed.k.fcr_final, n.closed.k.feed_net_kg], ['0.208', '50.000'], 'N: والمغلقة معاملها = fcr_final وصافيها صافي التقرير');
+    // من بقي حيّاً بلا وزن لا معامل له في الملخّص ولا في تقرير الدورة (لا «الصافي ÷ المباع» وحده = 0.417)؛ والورقة بتعريفها «÷ صافي المباع» = 0.417.
+    const partial = await sample(p);
+    same([partial.s.live, partial.s.feed_kg_total, partial.s.fcr, partial.k.fcr, partial.sheet.feed_net_kg, partial.sheet.fcr],
+      [100, '100.000', null, null, '100.000', '0.417'], 'N: بيع جزئيّ بلا وزن: لا معامل في الملخّص ولا في تقرير الدورة ما بقي حيّ بلا وزن، والورقة «÷ صافي المباع»');
     same([live.k.epef, live.k.feed_per_bird_kg, live.k.feed_eaten_kg, live.k.feed_days, n.unweighed.k.feed_per_bird_kg, n.unweighed.k.feed_net_kg],
       ['1411', '0.500', '0.000', 0, null, null], 'N: EPEF والعلف لكلّ طير من الصافي (والمأكول وأيّامه كما هي)؛ وبسطر بلا كتلة لا علف لكلّ طير');
     same(live.weeks.map((w) => [w.week, w.feed_g_per_bird_day, w.fcr]), [[1, null, null], [2, '42.9', null], [3, '33.5', '0.421']],
       'N: غرامات كلّ طير في اليوم لكلّ أسبوع من صافي المرسل فيه، ومعامل آخر يوم منه');
+    // وأسبوع الإغلاق يطرح الخارج عنده: (230 − 180) كغم = 50,000 غم ÷ 1,100 طير·يوم (300 × 3 ثمّ 200 بعد بيع المئة) = 45.5، لا 230 كغم (209.1).
+    same(n.closed.weeks.map((w) => [w.week, w.feed_g_per_bird_day]), [[1, null], [2, null], [3, '45.5']],
+      'N: غرامات أسبوع الإغلاق من الصافي بعد الراجع والمنقول منها');
     const daily = (await one(U.owner, 'select public.halls_day($1) as v', [TODAY])).sites.flatMap((x) => x.halls);
-    same([daily.find((h) => h.hall_id === H.nL)?.flock?.fcr, daily.find((h) => h.hall_id === H.nS)?.flock?.fcr], ['0.421', '0.958'], 'N: معامل التقرير اليوميّ هو نفسه');
+    same([H.nL, H.nS, hallP].map((id) => daily.find((h) => h.hall_id === id)?.flock?.fcr), ['0.421', '0.958', null],
+      'N: معامل التقرير اليوميّ هو نفسه (وبلا معامل للبيع الجزئيّ بلا وزن)');
   });
 
   // ── K: قتلة الطفرات التي كانت تعبر الحزمة ──────────────────────────────────────────────────────────────────────────
