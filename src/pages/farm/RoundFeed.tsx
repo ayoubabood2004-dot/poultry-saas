@@ -51,10 +51,10 @@ export interface RoundFeedProps {
   onSent: (sent: FeedSent) => void;
 }
 
-/** علامة المختار (بطاقة العلف ورقيقة الوحدة) مع إطاره في round.css: اللون وحده كان 1.18:1 (مراجعة 0036). SVG هنا: الأيقونة المشتركة تفصل حزمة. */
+/** علامة المختار قبل اسمه (بطاقة العلف ورقيقة الوحدة) مع إطاره في round.css: اللون وحده كان 1.18:1 (مراجعة 0036). SVG هنا: الأيقونة المشتركة تفصل حزمة. */
 function CheckMark() {
   return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" className="round-check" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
+    <svg viewBox="0 0 24 24" aria-hidden="true" className="round-check size-4 shrink-0 text-brand-700 dark:text-brand-200" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round">
       <path d="M20 6 9 17l-5-5" />
     </svg>
   );
@@ -152,8 +152,10 @@ function RoundFeedView({ flockId, hall, items, lastItemId, today, online, stamp,
               data-action="round-feed-item"
               data-item={entry.itemId}
             >
-              {selected ? <CheckMark /> : null}
-              <span className="font-semibold">{entry.name}</span>
+              <span className="flex items-center gap-1 font-semibold">
+                {selected ? <CheckMark /> : null}
+                {entry.name}
+              </span>
               <span className="text-xs text-ink-muted">{onHandText(entry.onHand, entry.baseUnit)}</span>
             </button>
           );
@@ -170,7 +172,7 @@ function RoundFeedView({ flockId, hall, items, lastItemId, today, online, stamp,
                 role="radio"
                 aria-checked={selected}
                 onClick={() => setUnitId(entry.value)}
-                className={`round-pick flex min-h-11 items-center justify-center rounded-xl border px-3 py-2 text-center font-semibold ${selected ? 'border-line-strong bg-surface-3 shadow-card' : 'border-line bg-surface-1 hover:bg-surface-2'}`}
+                className={`round-pick flex min-h-11 items-center justify-center gap-1 rounded-xl border px-3 py-2 text-center font-semibold ${selected ? 'border-line-strong bg-surface-3 shadow-card' : 'border-line bg-surface-1 hover:bg-surface-2'}`}
                 data-action="round-feed-unit"
               >
                 {selected ? <CheckMark /> : null}

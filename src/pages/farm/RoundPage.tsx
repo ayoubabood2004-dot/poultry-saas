@@ -251,14 +251,7 @@ function ReviewShelf({ entries, names, halls, kind, onRemove }: { entries: reado
             {/* الرفض بلا تلميح (رمز خادم مثل PGRST202) بجملة فصيحة، مو الرمز وحده. */}
             <p className="text-sm">{reason}</p>
             {/* الهلاكات المسجّلة مقفولة في الجولة: تصحيحها من صفحة القاعة بالقلم (مراجعة 0036 R9). */}
-            {entry.reason === 'dead_recorded' && halls.has(op.flockId) ? (
-              <p className="text-sm">
-                {t('round.dead.fix_lead', 'للتصحيح:')}{' '}
-                <Link to={hallPath(kind, halls.get(op.flockId) ?? '')} className={`${LINK_CLASS} inline-flex min-h-11 items-center`} data-action="review-dead-fix">
-                  {t('round.dead.fix', 'صفحة القاعة ← ✎ تعديل')}
-                </Link>
-              </p>
-            ) : null}
+            {entry.reason === 'dead_recorded' && halls.has(op.flockId) ? <DeadFix to={hallPath(kind, halls.get(op.flockId) ?? '')} action="review-dead-fix" /> : null}
             <DataTable
               caption={visit ? t('round.review.visit_table', 'زيارتك والمحفوظة') : t('round.review.table', 'جولتك والمحفوظ في الخادم')}
               columns={[
@@ -294,6 +287,18 @@ function ReviewShelf({ entries, names, halls, kind, onRemove }: { entries: reado
         />
       ) : null}
     </section>
+  );
+}
+
+/** «للتصحيح: صفحة القاعة ← ✎ تعديل»: الهلاكات المسجّلة تُصحَّح من صفحة القاعة بالقلم (البطاقة المقفولة، وصفّ dead_recorded في الرفّ). */
+function DeadFix({ to, action }: { to: string; action: string }) {
+  return (
+    <p className="text-sm">
+      {t('round.dead.fix_lead', 'للتصحيح:')}{' '}
+      <Link to={to} className={`${LINK_CLASS} inline-flex min-h-11 items-center`} data-action={action}>
+        {t('round.dead.fix', 'صفحة القاعة ← ✎ تعديل')}
+      </Link>
+    </p>
   );
 }
 
@@ -422,14 +427,7 @@ function RoundCard({ row, kind, today, entry, onChange, error, status, online, s
                     {t('round.dead.pending', 'بانتظار الرفع من هذا الجهاز.')}
                   </p>
                 ) : null}
-                {entered ? (
-                  <p className="text-sm">
-                    {t('round.dead.fix_lead', 'للتصحيح:')}{' '}
-                    <Link to={hallPath(kind, row.hallId)} className={`${LINK_CLASS} inline-flex min-h-11 items-center`} data-action="round-dead-fix">
-                      {t('round.dead.fix', 'صفحة القاعة ← ✎ تعديل')}
-                    </Link>
-                  </p>
-                ) : null}
+                {entered ? <DeadFix to={hallPath(kind, row.hallId)} action="round-dead-fix" /> : null}
                 {late ? (
                   <div className="flex flex-col gap-1" data-action="round-dead-late">
                     <p role="alert" className="text-sm text-warn-800 dark:text-warn-200">
@@ -598,18 +596,13 @@ export default function RoundPage({ kind }: { kind: FlockKind }) {
   }, [shown, key, runs, fed]);
   const rows = overview ? roundRows(overview, kind, today, queue.pending) : [];
   const names = new Map<string, string>();
-  const hallOf = new Map<string, string>();
-  for (const site of overview?.sites ?? []) {
-    for (const hall of site.halls) {
-      if (!hall.flock) continue;
-      names.set(hall.flock.id, hallLabel(hall.name));
-      hallOf.set(hall.flock.id, hall.id);
-    }
-  }
+  for (const site of overview?.sites ?? []) for (const hall of site.halls) if (hall.flock) names.set(hall.flock.id, hallLabel(hall.name));
+  // قاعات هذه الجولة (نوعها) لروابط الرفّ إلى صفحة القاعة.
+  const hallOf = new Map(rows.map((row) => [row.flock.id, row.hallId]));
   /** جواب إرسال علف حُفظ: يُعرض فوق القراءة وفي نسخة الجهاز حتى تصل قراءة بعده، والجولة تُقرأ من جديد. */
   const feedSent = (flockId: string) => (sent: FeedSent) => {
     if (stamp) {
-      fedStore.set((list) => [...list, { key, flockId, day: sent.day.on, itemId: sent.issue.itemId, itemName: sent.issue.itemName, qty: sent.issue.qty, unit: sent.issue.unit, dayKg: sent.day.feedKg, mark: nextTick() }]);
+      fedStore.set((list) => [...list, { ...sent.issue, key, flockId, day: sent.day.on, dayKg: sent.day.feedKg, mark: nextTick() }]);
       void patchKept(stamp).catch(() => {
         /* swallow-ok: نسخة الجهاز للفتح بلا نت؛ القراءة التالية تكتبها من الخادم */
       });

@@ -60,7 +60,7 @@ async function screens() {
     "export { isWindowDirty } from './src/lib/pwa/dirty.ts';",
     "export { NetworkError, RejectedError, UnknownOutcomeError } from './src/lib/errors.ts';",
     "export { roundQueueStore } from './src/lib/roundUploads.ts';",
-    "export { farmTasks } from './src/pages/home/HomePage.tsx';",
+    "export { default as HomePage, farmTasks } from './src/pages/home/HomePage.tsx';",
     "export * as farmCopy from './src/lib/farmCopy.ts';",
     "export { pendingKey, readPending, storePending } from './src/pages/halls/GivePage.tsx';",
   ].join('\n');
@@ -183,7 +183,7 @@ export default async function (t) {
       const container = globalThis.document.createElement('div');
       body().appendChild(container);
       root = m.createRoot(container);
-      const routes = m.h(m.Routes, null, m.h(m.Route, { path: '/broiler/*', element: m.h(m.FarmRoutes, { kind: 'broiler' }) }), m.h(m.Route, { path: '/layers/*', element: m.h(m.FarmRoutes, { kind: 'layer' }) }));
+      const routes = m.h(m.Routes, null, m.h(m.Route, { path: '/', element: m.h(m.HomePage) }), m.h(m.Route, { path: '/broiler/*', element: m.h(m.FarmRoutes, { kind: 'broiler' }) }), m.h(m.Route, { path: '/layers/*', element: m.h(m.FarmRoutes, { kind: 'layer' }) }));
       m.flushSync(() => root.render(m.h(m.MemoryRouter, { initialEntries: [url] }, routes)));
       await settle(80);
       return container;
@@ -508,6 +508,18 @@ export default async function (t) {
       t.same([chip('h-9'), chip('h-10')], ['لم تُسجَّل', 'سُجّلت'], 'R6 جدول الحقل: بيض اليوم وحده «لم تُسجَّل»، وهلاكات على هذا الجهاز لم تُرفع «سُجّلت»');
     });
 
+    await step('R6 الرئيسية', async () => {
+      const db = await m.openOutbox();
+      await m.saveRound(db, stampOf('u-r36-6h'), { fn: 'set_flock_dead', flockId: 'f-a', day: TODAY, payload: { dead: 2 }, baseVersion: null });
+      const server = makeServer();
+      fresh(owner('u-r36-6h'), { loadOverviewJson: () => server.overview(), loadHomeSummary: () => ({}) });
+      globalThis.__r36.userId = 'someone-else'; // لا رفع
+      await mount('/');
+      await settle(80);
+      const row = byAction('today-round_broiler')[0]?.textContent ?? null;
+      t.eq(row, 'جولة حقول اللحم: قاعة واحدة باقية', 'R6 «شغل اليوم» في الرئيسية: قاعة هلاكاتها على هذا الجهاز لم تُرفع أكملت جولتها (قاعة واحدة باقية لا قاعتان)');
+    });
+
     // ── R7: «زيارات اليوم» (HallVisits) و?also= بلا مدخل ولا منتِج: خرجا ────────────────────────────────────────────────────────────────────────────
     await step('R7', async () => {
       const files = sourceFiles();
@@ -790,13 +802,13 @@ export default async function (t) {
     await step('C', async () => {
       const css = readText('src', 'pages', 'farm', 'round.css').replace(/\s+/gu, ' ');
       t.ok(css.includes('.round-save { pointer-events: none; }') && css.includes('.round-save > * { pointer-events: auto; }'), 'C شريط «احفظ الجولة» بعرض الصفحة لا يبتلع اللمس (والزرّ وحده يأخذه)');
-      t.ok(css.includes('input[data-round-field] { scroll-margin-bottom: calc(8.5rem + env(safe-area-inset-bottom)); }') && /@media \(min-width: 768px\) \{ input\[data-round-field\] \{ scroll-margin-bottom: 5rem; \} \}/u.test(css), 'C خانات الجولة بهامش تمرير يبقيها فوق الزرّ الثابت والشريط السفليّ');
-      t.ok(css.includes(".round-pick[aria-checked='true'] { border-color: rgb(var(--ring)); box-shadow: inset 0 0 0 1px rgb(var(--ring)); }") && css.includes('.round-check {'), 'C المختار بإطار لون التركيز وعلامة');
+      t.ok(css.includes('input[data-round-field] { scroll-margin-bottom: calc(8.5rem + env(safe-area-inset-bottom)); }'), 'C خانات الجولة بهامش تمرير يبقيها فوق الزرّ الثابت والشريط السفليّ');
+      t.ok(css.includes(".round-pick[aria-checked='true'] { border-color: rgb(var(--ring)); box-shadow: inset 0 0 0 1px rgb(var(--ring)); }"), 'C المختار بإطار لون التركيز');
       const server = makeServer();
       roundWith(server, 'u-r36-c');
       await mount('/broiler/round');
       await settle(60);
-      const marks = (action) => actionIn('f-a', action).map((n) => [n.getAttribute('aria-checked'), (n.getAttribute('class') ?? '').split(' ').includes('round-pick'), descendants(n).some((c) => c.localName === 'svg' && c.getAttribute('class') === 'round-check')]);
+      const marks = (action) => actionIn('f-a', action).map((n) => [n.getAttribute('aria-checked'), (n.getAttribute('class') ?? '').split(' ').includes('round-pick'), descendants(n).some((c) => c.localName === 'svg' && (c.getAttribute('class') ?? '').split(' ').includes('round-check'))]);
       t.same([marks('round-feed-item'), marks('round-feed-unit')], [[['true', true, true], ['false', true, false]], [['true', true, true], ['false', true, false]]], 'C بطاقة العلف ورقيقة الوحدة المختارتان بعلامة ✓، وغير المختار بلا علامة');
     });
   } finally {

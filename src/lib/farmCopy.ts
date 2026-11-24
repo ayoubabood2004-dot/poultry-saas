@@ -1,7 +1,7 @@
 import { decimalText, parseDecimal, toScale } from '../domain/decimal';
-import type { BaseUnit } from '../domain/units';
 import { openDatabase, requestResult, transact } from './idb';
 import type { Stamp } from './outbox';
+import type { FeedSent } from './repo/hallSheet';
 import { markFarmCopy, roundQueueStore, stampKey, type RoundRun } from './roundUploads';
 import { createStore } from './store';
 
@@ -29,14 +29,10 @@ export const nextTick = (): number => (tick += 1);
 const SESSION = Math.random();
 
 /** جواب إرسال علف حُفظ في هذه الجلسة (send_flock_feed): سطره بوحدة أساسه، ومجموع علف يومه بالكيلو بعده كما قاله الخادم، ورقمه في العدّاد. */
-export interface FedSave {
+export interface FedSave extends Pick<FeedSent['issue'], 'itemId' | 'itemName' | 'qty' | 'unit'> {
   key: string;
   flockId: string;
   day: string;
-  itemId: string;
-  itemName: string;
-  qty: bigint;
-  unit: BaseUnit;
   dayKg: bigint | null;
   mark: number;
 }
@@ -68,58 +64,67 @@ export function withSaved(json: unknown, key: string, read: number, runs: readon
   const out = JSON.parse(JSON.stringify(json)) as Json;
   const flocks = new Map<unknown, Json>();
   for (const site of (out.sites ?? []) as Json[]) for (const hall of (site.halls ?? []) as Json[]) if (hall.flock) flocks.set((hall.flock as Json).id, hall.flock as Json);
+  // فوج القراءة لنتيجة من هذا الحساب ليومها، وإلّا لا شيء.
+  const of = (owner: string, flockId: string, day: string) => (owner === key && day === out.today ? flocks.get(flockId) : undefined);
   for (const run of runs) {
-    for (const entry of run.key === key ? run.results : []) {
-      const flock = flocks.get(entry.flockId);
-      const { result } = entry;
-      if (!flock || entry.day !== out.today || result.kind !== 'saved') continue;
-      const day = result.day as Json | null | undefined;
+    for (const { flockId, day, result } of run.results) {
+      const flock = of(run.key, flockId, day);
+      if (!flock || result.kind !== 'saved') continue;
+      const row = result.day as Json | null | undefined;
       const gas = result.gas as Json | null | undefined;
-      const old = flock.today as Json | null;
-      if (day && num(day.version) > num(old?.version)) {
-        const dead = num(day.dead) - num(old?.dead);
-        const culled = num(day.culled) - num(old?.culled);
-        Object.assign(flock, { today: day, live: num(flock.live) - dead - culled, dead_total: num(flock.dead_total) + dead, culled_total: num(flock.culled_total) + culled });
+      const old = (flock.today ?? {}) as Json;
+      if (row && num(row.version) > num(old.version)) {
+        const dead = num(row.dead) - num(old.dead);
+        const culled = num(row.culled) - num(old.culled);
+        Object.assign(flock, { today: row, live: num(flock.live) - dead - culled, dead_total: num(flock.dead_total) + dead, culled_total: num(flock.culled_total) + culled });
       }
       if (gas && num(gas.version) > num(flock.gas_today_version)) Object.assign(flock, { gas_today: gas.cylinders, gas_today_version: gas.version });
     }
   }
-  const items = out.feed_items as Json[] | undefined;
+  const items = (out.feed_items ?? []) as Json[];
   for (const sent of fed) {
-    const flock = flocks.get(sent.flockId);
-    if (!flock || sent.key !== key || sent.mark < read || sent.day !== out.today) continue;
+    const flock = of(sent.key, sent.flockId, sent.day);
+    if (!flock || sent.mark < read) continue;
     const lines = (flock.feed_today ?? []) as Json[];
     const line = lines.find((entry) => entry.item_id === sent.itemId);
     if (line) line.qty = decimalText(milli(line.qty) + sent.qty, 3);
     else lines.push({ item_id: sent.itemId, item_name: sent.itemName, qty: decimalText(sent.qty, 3), unit: sent.unit });
     Object.assign(flock, { feed_today: lines, feed_today_kg: sent.dayKg === null ? null : decimalText(sent.dayKg, 3), last_feed_item_id: sent.itemId });
-    const item = items?.find((entry) => entry.item_id === sent.itemId);
-    if (item) item.on_hand = decimalText(milli(item.on_hand) - sent.qty, 3);
+    for (const item of items) if (item.item_id === sent.itemId) item.on_hand = decimalText(milli(item.on_hand) - sent.qty, 3);
   }
-  if (items) out.feed_items = items.filter((item) => milli(item.on_hand) > 0n);
+  if (out.feed_items) out.feed_items = items.filter((item) => milli(item.on_hand) > 0n);
   return out;
 }
 
 type Kept = OverviewCopy & { session?: number };
 
-/**
- * صفّ النسخة: القراءة وفوقها ما حُفظ في هذه الجلسة لحظة الكتابة داخل معاملتها (لا قبلها)، فقراءةٌ ونتيجةُ رفعٍ متزامنتان لا تكتب إحداهما فوق الأخرى بلا
- * المحفوظ؛ ورقمها في العدّاد بعدها (ما يُرسل بعده يُكتب فوقها لاحقاً).
- */
-const kept = (json: unknown, key: string, read: number, at: number): Kept => ({ json: withSaved(json, key, read, roundQueueStore.get().runs, fedStore.get()), at, read: nextTick(), session: SESSION });
+const readOf = (saved: Kept): number => (saved.session === SESSION ? saved.read : 0);
 
-/** read: رقم القراءة في عدّاد هذه الجلسة (loadOverviewKept، قبل أن تخرج). */
-export async function keepOverview(stamp: Stamp, json: unknown, at: number, read: number): Promise<void> {
+/**
+ * يكتب النسخة بمعاملة واحدة: from يرى الصفّ المحفوظ ويرجّع ما يُكتب (القراءة وموعدها ورقمها)، أو null فلا شيء. وما حُفظ في هذه الجلسة يُكتب فوقها لحظة
+ * الكتابة داخل المعاملة (لا قبلها)، فقراءةٌ ونتيجةُ رفعٍ متزامنتان لا تكتب إحداهما فوق الأخرى بلا المحفوظ؛ ورقم الصفّ في العدّاد بعدها (ما يُرسل بعده
+ * يُكتب فوقها لاحقاً).
+ */
+async function write(stamp: Stamp, from: (saved: Kept | undefined) => [json: unknown, at: number, read: number] | null): Promise<void> {
   const db = await openFarmCache();
   const key = stampKey(stamp);
-  await transact(db, CACHE_STORE, 'readwrite', async (tx) => {
-    await requestResult(tx.objectStore(CACHE_STORE).put(kept(json, key, read, at), key));
-    return true;
+  const wrote = await transact(db, CACHE_STORE, 'readwrite', async (tx) => {
+    const store = tx.objectStore(CACHE_STORE);
+    const next = from(await requestResult(store.get(key) as IDBRequest<Kept | undefined>));
+    if (next) await requestResult(store.put({ json: withSaved(next[0], key, next[2], roundQueueStore.get().runs, fedStore.get()), at: next[1], read: nextTick(), session: SESSION }, key));
+    return next !== null;
   });
-  markFarmCopy(key);
+  if (wrote) markFarmCopy(key);
 }
 
-const readOf = (saved: Kept): number => (saved.session === SESSION ? saved.read : 0);
+/** read: رقم القراءة في عدّاد هذه الجلسة (loadOverviewKept، قبل أن تخرج). */
+export const keepOverview = (stamp: Stamp, json: unknown, at: number, read: number): Promise<void> => write(stamp, () => [json, at, read]);
+
+/**
+ * نسخة الجهاز بما حُفظ بعدها في هذه الجلسة (الرافع بعد كلّ رفع، والجولة بعد كلّ إرسال علف): التطبيق يُفتح بلا نت بعد حفظٍ رُفع ولم تصل قراءة بعده
+ * فيعرض ما حُفظ، لا نسخة ما قبله (مراجعة 0036 R2c).
+ */
+export const patchKept = (stamp: Stamp): Promise<void> => write(stamp, (saved) => (saved ? [saved.json, saved.at, readOf(saved)] : null));
 
 export async function savedOverview(stamp: Stamp): Promise<OverviewCopy | null> {
   const db = await openFarmCache();
@@ -127,21 +132,6 @@ export async function savedOverview(stamp: Stamp): Promise<OverviewCopy | null> 
   if (!saved) return null;
   markFarmCopy(stampKey(stamp));
   return { json: saved.json, at: saved.at, read: readOf(saved) };
-}
-
-/**
- * نسخة الجهاز بما حُفظ بعدها في هذه الجلسة (الرافع بعد كلّ رفع، والجولة بعد كلّ إرسال علف)، قراءةً وكتابةً بمعاملة واحدة: التطبيق يُفتح بلا نت بعد حفظٍ
- * رُفع ولم تصل قراءة بعده فيعرض ما حُفظ، لا نسخة ما قبله (مراجعة 0036 R2c).
- */
-export async function patchKept(stamp: Stamp): Promise<void> {
-  const db = await openFarmCache();
-  const key = stampKey(stamp);
-  await transact(db, CACHE_STORE, 'readwrite', async (tx) => {
-    const store = tx.objectStore(CACHE_STORE);
-    const saved = await requestResult(store.get(key) as IDBRequest<Kept | undefined>);
-    if (saved) await requestResult(store.put(kept(saved.json, key, readOf(saved), saved.at), key));
-    return true;
-  });
 }
 
 /** بالجهاز نسخة من قراءة الحقول لهذا المستخدم والمنشأة (وتنعلّم بالمخزن حتى الرأس يعرف). */
