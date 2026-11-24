@@ -3,6 +3,7 @@ import { Button } from '../../components/ui/Button';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
 import { Dialog } from '../../components/ui/Dialog';
 import { Field } from '../../components/ui/Field';
+import { SectionBar, SubBar } from '../../components/ui/OfficialReport';
 import type { Day } from '../../domain/dates';
 import type { Milli } from '../../domain/money';
 import { describeError, RejectedError, UnknownOutcomeError } from '../../lib/errors';
@@ -19,6 +20,7 @@ import { birdsText, signedCount } from './ticketParts';
 // يوم التقرير يوماً بيوم (يوم التقرير مميَّز بخلفيته وبكلمته)، وصفّ مجموعه سطرُ الشهر من months كما قاله الخادم (لا جمع بالشاشة)؛ وجدول الأشهر من البداية
 // بصفّ «منذ البداية» من total؛ و«ما جرى»: جملةٌ من total ثمّ أحداث الشهر مجمَّعة باليوم. ثمّ «ملاحظة يوم …» يكتبها المالك والمدير (halls_note.write)
 // بشرط النسخة التي رأتها النافذة حين فُتحت. والأعمدة كلّها بلا مال؛ وأعمدة البيض للبيّاض وحده.
+// وبالشكل الرسميّ (عقد 0036 S1): عنوان كلّ نوع شريطٌ ملوّن، والجدولان رسميّان بشريط اسميهما («أيّام الشهر» و«الأشهر من البداية»)، و«ما جرى» عنوانٌ فرعيّ.
 
 /** حدّ ملاحظة اليوم بعد القصّ، بالحروف كما يعدّها الخادم (private.note_text بحدّ 500، العقد). */
 export const HALLS_NOTE_MAX = 500;
@@ -308,16 +310,17 @@ function KindSection({ entry, on, month }: { entry: HistoryKind; on: Day; month:
   const groups = eventsByDay(entry.events);
   return (
     <section className="flex flex-col gap-4" aria-label={title} data-action="hist-kind" data-kind={entry.kind}>
-      <div className="flex flex-col gap-1">
-        <h2 className="text-lg font-semibold">{title}</h2>
+      <div className="flex flex-col gap-2">
+        <SectionBar>{title}</SectionBar>
         <p className="text-sm" data-action="hist-start">
           {t('halls.hist.start', 'بدأنا يوم {day} — منذ البداية {days}.', { day: fmtDay(entry.start), days: daysText(entry.total.days) })}
         </p>
       </div>
       <div className="flex flex-col gap-2">
-        <h3 className="font-semibold">{t('halls.hist.days_title', 'أيّام {month}', { month: monthName })}</h3>
         <TableBox name="days">
           <DataTable
+            variant="official"
+            title={t('halls.hist.days_title', 'أيّام {month}', { month: monthName })}
             caption={t('halls.hist.days_caption', '{kind} — أيّام {month}', { kind: title, month: monthName })}
             columns={dayColumns(entry, monthRow, on)}
             rows={entry.days}
@@ -329,9 +332,10 @@ function KindSection({ entry, on, month }: { entry: HistoryKind; on: Day; month:
         </TableBox>
       </div>
       <div className="flex flex-col gap-2">
-        <h3 className="font-semibold">{t('halls.hist.months_title', 'الأشهر من البداية')}</h3>
         <TableBox name="months">
           <DataTable
+            variant="official"
+            title={t('halls.hist.months_title', 'الأشهر من البداية')}
             caption={t('halls.hist.months_caption', '{kind} — الأشهر من البداية', { kind: title })}
             columns={monthColumns(entry)}
             rows={entry.months}
@@ -343,7 +347,7 @@ function KindSection({ entry, on, month }: { entry: HistoryKind; on: Day; month:
         </TableBox>
       </div>
       <div className="flex flex-col gap-2" data-action="hist-what">
-        <h3 className="font-semibold">{t('halls.hist.what', 'ما جرى')}</h3>
+        <SubBar>{t('halls.hist.what', 'ما جرى')}</SubBar>
         <p className="text-sm" data-action="hist-sentence">
           {historySentence(entry)}
         </p>
@@ -404,7 +408,7 @@ export function NoteBlock({ on, note, canWrite, disabled, onWrite }: { on: Day; 
   const title = t('halls.note.title', 'ملاحظة يوم {day}', { day: fmtDay(on) });
   return (
     <section className="flex flex-col gap-2" aria-label={title} data-action="hist-note">
-      <h2 className="text-lg font-semibold">{title}</h2>
+      <SectionBar>{title}</SectionBar>
       {note ? (
         <p className="text-sm" style={{ whiteSpace: 'pre-wrap' }} data-action="hist-note-text">
           {note.text}

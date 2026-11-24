@@ -105,6 +105,7 @@ async function bundle() {
     target: 'node20',
     jsx: 'automatic',
     logLevel: 'silent',
+    loader: { '.css': 'empty' },
     define: { 'import.meta.env.DEV': 'false', __APP_VERSION__: '"test"', 'process.env.NODE_ENV': '"production"' },
     plugins,
   });

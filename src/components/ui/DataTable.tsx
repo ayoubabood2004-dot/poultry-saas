@@ -84,6 +84,19 @@ const SIZES: Record<TableSize, { table: string; head: string; cell: string; foot
   lg: { table: 'text-base', head: 'px-4 py-2.5 text-sm', cell: 'px-4 py-3', foot: 'px-4 py-3' },
 };
 
+/**
+ * الجدول الرسميّ (عقد 0036 S1، كلمة المالك 2026-11-24: «مرتّبة بشكل رسمي… لدون ما تنحذف او تختفي منها كلمات… واسماء الجداول يكون بيها لون بالخلفية
+ * مالتها مثل ترتيب المستشفيات»): شريط عنوان ملوّن فوق الجدول، ورأس بخلفية العلامة وخطوط أقوى، ونصّ بالحجم الأساسيّ يلتفّ ولا يُقصّ، وصفّ مجاميع غامق،
+ * ويُطبع بألوانه. أنماطه كلّها في components/ui/official.css الكسول (تستورده حزم الصفحات التي تستعمله، لا حزمة الإقلاع)، فهنا أصناف بنيوية موجودة (الثابت
+ * والمحاذاة) وأسماء ofc- لا يولّد لها Tailwind شيئاً. والعاديّ (plain) بعلاماته كما كانت حرفاً حرفاً (فحص official-tables P).
+ */
+export type TableVariant = 'plain' | 'official';
+const OFC_GRID: Record<TableSize, string> = { sm: 'ofc-grid ofc-sm', md: 'ofc-grid', lg: 'ofc-grid ofc-lg' };
+/** خلية الجدول الرسميّ: الرقم كالعاديّ (سطر واحد على خانة الآحاد)، والنصّ يلتفّ بعرض أدنى، والبيان بعرض أدنى أوسع. */
+const ofcCell = (column: Pick<Column<unknown>, 'kind' | 'wrap'>): string => (column.kind === 'number' ? NUMBER_CELL : column.wrap ? 'text-start ofc-wrap' : 'text-start ofc-text');
+/** رأس الجدول الرسميّ يلتفّ دائماً: رأسٌ طويل لا يعرّض عموده أكثر من قيمه. */
+const ofcHead = (column: Pick<Column<unknown>, 'kind'>): string => (column.kind === 'number' ? NUMBER_HEAD_WRAP : 'text-start');
+
 /** نقرة على عنصر تفاعلي داخل الصفّ (رابط أو زرّ أو خانة) له فعله، فلا تفتح الصفّ معه. */
 const INTERACTIVE = new Set(['a', 'button', 'input', 'select', 'textarea', 'summary', 'label']);
 interface Hit {
@@ -111,6 +124,8 @@ export function DataTable<Row>({
   size = 'md',
   onRowClick,
   rowTone,
+  variant,
+  title,
 }: {
   /** وصف الجدول لقارئ الشاشة. */
   caption: string;
@@ -139,7 +154,12 @@ export function DataTable<Row>({
    * أعمق ومع كلمة في خليته أيضاً (الخلفية لا تُطبع).
    */
   rowTone?: (row: Row) => 'warn' | 'mark' | null;
+  /** 'official' للجداول الرسمية (التقارير وورقة القاعة)؛ وبلاه أو بـ'plain' الجدول العاديّ كما كان. */
+  variant?: TableVariant;
+  /** نصّ شريط العنوان في الجدول الرسميّ إن خالف caption (عنوان القسم أقصر من وصف الجدول لقارئ الشاشة). */
+  title?: string;
 }) {
+  const official = variant === 'official';
   const sized = SIZES[size];
   const firstTotal = columns.findIndex(hasTotal);
   // «المجموع» ياخذ مكان الأعمدة النصّية قبل أوّل مجموع؛ مجموع بأوّل عمود كان يختفي بصمت.
@@ -155,10 +175,8 @@ export function DataTable<Row>({
   // آخر صفّ قبل المجاميع بلا خطّ أسفل (فوكه الخطّ المزدوج)، وآخر صفّ بالجدول بلا خطّ (الإطار من الغلاف).
   const edges = showFoot ? '[&>tbody>tr:last-child>*]:border-b-0 [&>tfoot>tr:last-child>*]:border-b-0' : '[&>tbody>tr:last-child>*]:border-b-0';
   const stickyOf = (column: Column<Row>, tone: 'warn' | 'mark' | null) => (column.sticky ? (tone === 'warn' ? STICKY_WARN : tone === 'mark' ? STICKY_MARK : STICKY) : '');
-  return (
-    // بالطباعة كل الصفوف بلا تمرير (FOUNDATION ٧٨٨): print.css بشاشات الحسابات يشيل حدّ الارتفاع من overflow-auto.
-    <div className="max-h-[70dvh] overflow-auto rounded-lg border border-line bg-surface-1">
-      <table className={`w-full border-separate border-spacing-0 ${sized.table} ${edges}`}>
+  const grid = (
+      <table className={official ? `w-full border-separate border-spacing-0 ${OFC_GRID[size]}` : `w-full border-separate border-spacing-0 ${sized.table} ${edges}`}>
         <caption className="sr-only">{caption}</caption>
         <thead>
           <tr>
@@ -166,7 +184,11 @@ export function DataTable<Row>({
               <th
                 key={column.key}
                 scope="col"
-                className={`sticky top-0 ${column.sticky ? 'start-0 z-[2]' : 'z-[1]'} ${BORDER} bg-surface-2 ${sized.head} font-semibold ${headClass(column, size)}`}
+                className={
+                  official
+                    ? `sticky top-0 ${column.sticky ? 'start-0 z-[2]' : 'z-[1]'} ${ofcHead(column)}`
+                    : `sticky top-0 ${column.sticky ? 'start-0 z-[2]' : 'z-[1]'} ${BORDER} bg-surface-2 ${sized.head} font-semibold ${headClass(column, size)}`
+                }
               >
                 {column.header}
               </th>
@@ -176,7 +198,7 @@ export function DataTable<Row>({
         <tbody>
           {rows.length === 0 ? (
             <tr>
-              <td colSpan={columns.length} className={`${BORDER} px-3 py-6 text-center text-ink-muted`}>
+              <td colSpan={columns.length} className={official ? 'ofc-empty text-center text-ink-muted' : `${BORDER} px-3 py-6 text-center text-ink-muted`}>
                 {empty}
               </td>
             </tr>
@@ -199,14 +221,14 @@ export function DataTable<Row>({
                     }
                   >
                     {columns.map((column) => (
-                      <td key={column.key} className={`${BORDER} ${sized.cell} ${stickyOf(column, tone)} ${cellClass(column, size)}`}>
+                      <td key={column.key} className={official ? `${stickyOf(column, tone)} ${ofcCell(column)}` : `${BORDER} ${sized.cell} ${stickyOf(column, tone)} ${cellClass(column, size)}`}>
                         {column.cell(row, index)}
                       </td>
                     ))}
                   </tr>
                   {detail ? (
                     <tr data-sub-row>
-                      <td colSpan={columns.length} className={`${BORDER} px-3 py-1.5`}>
+                      <td colSpan={columns.length} className={official ? undefined : `${BORDER} px-3 py-1.5`}>
                         {detail}
                       </td>
                     </tr>
@@ -219,12 +241,12 @@ export function DataTable<Row>({
         {showFoot ? (
           <tfoot>
             {showTotals ? (
-              <tr className="bg-surface-2 font-semibold">
-                <th scope="row" colSpan={labelSpan} className={`${BORDER} ${TOTAL_TOP} ${sized.foot} text-start`}>
+              <tr className={official ? undefined : 'bg-surface-2 font-semibold'}>
+                <th scope="row" colSpan={labelSpan} className={official ? 'text-start' : `${BORDER} ${TOTAL_TOP} ${sized.foot} text-start`}>
                   {totalLabel}
                 </th>
                 {columns.slice(labelSpan).map((column) => (
-                  <td key={column.key} className={`${BORDER} ${TOTAL_TOP} ${sized.foot} ${cellClass(column, size)}`}>
+                  <td key={column.key} className={official ? ofcCell(column) : `${BORDER} ${TOTAL_TOP} ${sized.foot} ${cellClass(column, size)}`}>
                     {column.total}
                   </td>
                 ))}
@@ -233,12 +255,12 @@ export function DataTable<Row>({
             {footers.map((footer, index) => {
               const top = !showTotals && index === 0 ? TOTAL_TOP : '';
               return (
-                <tr key={footer.key} className="bg-surface-2 font-semibold">
-                  <th scope="row" colSpan={footerSpan} className={`${BORDER} ${top} ${sized.foot} text-start`}>
+                <tr key={footer.key} className={official ? undefined : 'bg-surface-2 font-semibold'}>
+                  <th scope="row" colSpan={footerSpan} className={official ? 'text-start' : `${BORDER} ${top} ${sized.foot} text-start`}>
                     {footer.label}
                   </th>
                   {columns.slice(footerSpan).map((column) => (
-                    <td key={column.key} className={`${BORDER} ${top} ${sized.foot} ${cellClass(column, size)}`}>
+                    <td key={column.key} className={official ? ofcCell(column) : `${BORDER} ${top} ${sized.foot} ${cellClass(column, size)}`}>
                       {footer.cells[column.key]}
                     </td>
                   ))}
@@ -248,6 +270,18 @@ export function DataTable<Row>({
           </tfoot>
         ) : null}
       </table>
+  );
+  // الرسميّ: شريط العنوان خارج إطار التمرير (يبقى ظاهراً حين يُمرَّر الجدول أفقيّاً في الهاتف)، والإطار overflow-auto كالعاديّ (ورقة القاعة تمرّره إلى
+  // صفّ اليوم). والشريط نصّ مرئيّ فقط: قارئ الشاشة يسمع caption الجدول، فلا يُقرأ العنوان مرّتين.
+  return official ? (
+    <div className="ofc">
+      <div className="ofc-band" aria-hidden="true">
+        {title ?? caption}
+      </div>
+      <div className="ofc-frame max-h-[70dvh] overflow-auto">{grid}</div>
     </div>
+  ) : (
+    // بالطباعة كل الصفوف بلا تمرير (FOUNDATION ٧٨٨): print.css بشاشات الحسابات يشيل حدّ الارتفاع من overflow-auto.
+    <div className="max-h-[70dvh] overflow-auto rounded-lg border border-line bg-surface-1">{grid}</div>
   );
 }

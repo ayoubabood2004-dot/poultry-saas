@@ -6,6 +6,7 @@ import { Dialog } from '../../components/ui/Dialog';
 import { Field } from '../../components/ui/Field';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
+import { printedText, ReportFooter, ReportHeader, usePrintedAt, useWidePage, type InfoItem } from '../../components/ui/OfficialReport';
 import { toast } from '../../components/ui/Toast';
 import { addDays, localDay, type Day } from '../../domain/dates';
 import type { Milli } from '../../domain/money';
@@ -32,12 +33,14 @@ import { signedCount } from './ticketParts';
 // و«منذ أن بدأنا» (عقد 0031، كلمة المالك 2026-11-17): بعد أقسام اليوم قسمٌ لكلّ نوع من halls_history بشهر يوم التقرير المعروض (يومٌ قاله الخادم، لا ساعة
 // الجهاز)، يُقرأ بعد كلّ تقرير يومٍ يصل فيطابق اليومَ المعروض؛ ثمّ «ملاحظة يوم …» للمالك والمدير. و«أرسل صورة» يصوّر الصفحة بتخطيط الطباعة بعرض ثابت
 // (reportImage)، و«اطبع» كما كان، و«شارك نصّاً» ثانويّ.
+// وبالشكل الرسميّ (عقد 0036 S1، «مثل تقارير المستشفيات»): ورقةٌ برأس باسم المنشأة والعنوان وسطر الجولات وشبكة بيانات اليوم، وجداول رسمية بشريط اسمها،
+// وأقسام «منذ أن بدأنا» بشرائط ملوّنة، وتذييلٌ بـ«أعدّه» و«طُبع في» والتوقيعات؛ والصفحة عريضة في الشاشات الكبيرة. والحشوة وتكرار الرأس في official.css.
 
 const PAGE_STYLE = [
   '@page { size: A4 landscape; margin: 10mm; }',
   '@media print {',
   '[data-action="daily-page"] table { font-size: 10px; }',
-  '[data-action="daily-page"] th, [data-action="daily-page"] td { padding: 2px 4px; white-space: normal; min-width: 0; }',
+  '[data-action="daily-page"] th, [data-action="daily-page"] td { white-space: normal; min-width: 0; }',
   '[data-action="daily-page"] td bdi { white-space: nowrap; }',
   '[data-action="daily-page"] tfoot { display: table-row-group; }',
   '[data-action="daily-page"] tr { break-inside: avoid; }',
@@ -48,12 +51,23 @@ const PAGE_STYLE = [
   // الصورة (reportImage): نسخة الصفحة بـdata-capture خارج الشاشة بتخطيط الطباعة، بخطّ جداول أكبر قليلاً (تُقرأ على الهاتف بتكبيرها).
   '[data-capture] { padding: 16px; }',
   '[data-capture] [class~="print:hidden"] { display: none !important; }',
-  '[data-capture] [data-action="day-org"] { display: block !important; }',
   '[data-capture] [data-action="day-report"] > div, [data-capture] [data-action="hist-table"] > div { max-height: none; overflow: visible; }',
   '[data-capture] table { font-size: 11px; }',
-  '[data-capture] th, [data-capture] td { padding: 2px 4px; white-space: normal; min-width: 0; position: static; }',
+  '[data-capture] th, [data-capture] td { white-space: normal; min-width: 0; position: static; }',
   '[data-capture] td bdi { white-space: nowrap; }',
 ].join(' ');
+
+/** شبكة بيانات اليوم في رأس التقرير: اليوم، وعدد الحقول والقاعات، وتاريخ التقرير (يوم الخادم في القراءة)، ووقت الطباعة. */
+export function dayInfo(data: HallsDay, printedAt: Date): InfoItem[] {
+  const halls = data.sites.reduce((count, site) => count + site.halls.length, 0);
+  return [
+    { key: 'day', label: t('halls.day.info.day', 'اليوم'), value: <Num>{fmtDay(data.on)}</Num> },
+    { key: 'sites', label: t('halls.day.info.sites', 'الحقول'), value: <Num>{fmtInt(data.sites.length)}</Num> },
+    { key: 'halls', label: t('halls.day.info.halls', 'القاعات'), value: <Num>{fmtInt(halls)}</Num> },
+    { key: 'report_day', label: t('report.info.day', 'تاريخ التقرير'), value: <Num>{fmtDay(data.today)}</Num> },
+    { key: 'printed', label: t('report.info.printed', 'طُبع في'), value: printedText(printedAt) },
+  ];
+}
 
 /** يوم بالتقويم في الرابط (YYYY-MM-DD) بقراءة parseDayText القائمة (نمط الرصيد اليومي)، وإلّا null. */
 const dayOf = (value: string | null): Day | null => (value !== null && parseDayText(value.split('-').reverse().join('/')) === value ? value : null);
@@ -322,6 +336,7 @@ function DayReport({ data }: { data: HallsDay }) {
   return (
     <div className="flex flex-col gap-3 print:[&>div]:max-h-none print:[&>div]:overflow-visible" data-action="day-report">
       <DataTable
+        variant="official"
         caption={t('halls.day.table_all', 'القاعات — {day}', { day: fmtDay(data.on) })}
         columns={columns}
         rows={rows}
@@ -421,9 +436,12 @@ function returnReads(page: { following: boolean; shown: HallsDay | null; current
 }
 
 export default function DailyPage() {
+  useWidePage();
   const [search, setSearch] = useSearchParams();
   const session = useSession();
   const orgName = session.status === 'ready' ? session.workspace.orgName : '';
+  const by = session.status === 'ready' ? session.workspace.displayName : '';
+  const printed = usePrintedAt();
   // ?on= صريح يبقى على يومه، ورفضُ يومٍ لم يأتِ بعدُ بجملته وطريقه (D7). وبلاه (أو بيوم غير موجود) تتبع الصفحة «اليوم»: halls_day(null) فيجيب الخادم
   // بيومه الحاليّ (0027)، فلا تختار ساعة الجهاز اليوم ولا يصل الصفحةَ التي تتبع اليوم رفضُ يومٍ لم يأتِ (مراجعة 0027 H4، ساعة الجهاز أمام بغداد). ولا يدخل
   // تتبّعَ اليوم إلّا «اليوم» وطريقه في رفض D7 (go(null)).
@@ -593,6 +611,8 @@ export default function DailyPage() {
     const on = shown.on;
     setImaging(true);
     setReady(null);
+    // «طُبع في» لحظة الصورة، مكتوبةً في الصفحة قبل أن تُنسخ.
+    printed.stamp();
     let file: File;
     try {
       file = await reportImage(page, imageName(on));
@@ -618,21 +638,6 @@ export default function DailyPage() {
     <div ref={pageRef} className="flex flex-col gap-5" data-action="daily-page">
       <style>{PAGE_STYLE}</style>
       <BackLink to={back} label={backLabel(back)} />
-      <header className="flex flex-col gap-1">
-        {orgName ? (
-          <p className="hidden text-sm text-ink-muted print:block" data-action="day-org">
-            {orgName}
-          </p>
-        ) : null}
-        <h1 className="text-2xl font-semibold" data-action="day-title">
-          {title}
-        </h1>
-        {shown ? (
-          <p className="text-ink-muted" data-action="day-rounds">
-            {t('halls.day.rounds', 'الجولات المسجَّلة: {rounds} من {flocks}.', { rounds: shown.totals.rounds, flocks: shown.totals.roundsExpected })}
-          </p>
-        ) : null}
-      </header>
 
       <div className="flex flex-col gap-3 print:hidden" data-action="day-controls">
         <div className="flex flex-wrap items-center gap-2" data-action="day-bar">
@@ -651,14 +656,15 @@ export default function DailyPage() {
             </Button>
           )}
         </div>
+        {/* أفعال التقرير بارتفاع 44 نقطة (عقد 0036 S1) كأفعال تقرير الوجبة. */}
         <div className="flex flex-wrap items-center gap-2">
-          <Button size="sm" disabled={!current || !historyReady || history.loading} busy={imaging} onClick={() => void sendImage()} data-action="send-image">
+          <Button disabled={!current || !historyReady || history.loading} busy={imaging} onClick={() => void sendImage()} data-action="send-image">
             {imaging ? t('halls.day.image.making', 'جارٍ تجهيز الصورة…') : t('halls.day.image', 'أرسل صورة')}
           </Button>
-          <Button size="sm" variant="secondary" disabled={!current} onClick={() => printAs(title)} data-action="print-day">
+          <Button variant="secondary" disabled={!current} onClick={() => printAs(title)} data-action="print-day">
             {t('halls.day.print', 'اطبع أو احفظ PDF')}
           </Button>
-          <Button size="sm" variant="ghost" disabled={!current} onClick={() => void share()} data-action="share-day">
+          <Button variant="ghost" disabled={!current} onClick={() => void share()} data-action="share-day">
             {t('halls.day.share_text', 'شارك نصّاً')}
           </Button>
         </div>
@@ -713,38 +719,49 @@ export default function DailyPage() {
               : t('halls.day.reading_today', 'جارٍ قراءة تقرير اليوم… المعروض تقرير يوم {shown}.', { shown: fmtDay(shown.on) })}
         </p>
       ) : null}
-      {shown ? (
-        <DayReport data={shown} />
-      ) : !failure ? (
-        <p role="status" className="text-sm text-ink-muted" data-action="day-loading">
-          {t('page.loading', 'جارٍ الفتح…')}
-        </p>
-      ) : null}
-      {shown && history.error ? (
-        <div className="print:hidden" data-action="hist-failed">
-          {historyRefusal ? (
-            <Notice tone="warning" title={historyRefusal.hint ?? ''} />
-          ) : (
-            <LoadFailed what={t('halls.hist.what_load', 'ما جرى منذ أن بدأنا لشهر يوم {day}', { day: fmtDay(shown.on) })} error={history.error} onRetry={history.retry} />
-          )}
-        </div>
-      ) : null}
-      {shown && historyShown ? (
-        <>
-          <HistorySections history={historyShown} on={shown.on} />
-          <NoteBlock
-            on={shown.on}
-            note={noteFor(historyShown, shown.on)}
-            canWrite={canNote}
-            disabled={history.loading}
-            onWrite={() => setNoting({ day: shown.on, shown: noteFor(historyShown, shown.on) })}
-          />
-        </>
-      ) : shown && !history.error ? (
-        <p role="status" className="text-sm text-ink-muted print:hidden" data-action="hist-loading">
-          {t('halls.hist.loading', 'جارٍ قراءة ما جرى منذ أن بدأنا…')}
-        </p>
-      ) : null}
+      {/* الورقة الرسمية: الرأس بسطر الجولات وشبكة البيانات، ثمّ جدول اليوم، ثمّ «منذ أن بدأنا» وملاحظة اليوم، ثمّ التذييل بالتوقيعات. */}
+      <article className="ofc-paper" data-action="day-paper">
+        <ReportHeader org={orgName} orgAction="day-org" title={title} titleAction="day-title" info={shown ? dayInfo(shown, printed.at) : []}>
+          {shown ? (
+            <p className="ofc-sub" data-action="day-rounds">
+              {t('halls.day.rounds', 'الجولات المسجَّلة: {rounds} من {flocks}.', { rounds: shown.totals.rounds, flocks: shown.totals.roundsExpected })}
+            </p>
+          ) : null}
+        </ReportHeader>
+        {shown ? (
+          <DayReport data={shown} />
+        ) : !failure ? (
+          <p role="status" className="text-sm text-ink-muted" data-action="day-loading">
+            {t('page.loading', 'جارٍ الفتح…')}
+          </p>
+        ) : null}
+        {shown && history.error ? (
+          <div className="print:hidden" data-action="hist-failed">
+            {historyRefusal ? (
+              <Notice tone="warning" title={historyRefusal.hint ?? ''} />
+            ) : (
+              <LoadFailed what={t('halls.hist.what_load', 'ما جرى منذ أن بدأنا لشهر يوم {day}', { day: fmtDay(shown.on) })} error={history.error} onRetry={history.retry} />
+            )}
+          </div>
+        ) : null}
+        {shown && historyShown ? (
+          <>
+            <HistorySections history={historyShown} on={shown.on} />
+            <NoteBlock
+              on={shown.on}
+              note={noteFor(historyShown, shown.on)}
+              canWrite={canNote}
+              disabled={history.loading}
+              onWrite={() => setNoting({ day: shown.on, shown: noteFor(historyShown, shown.on) })}
+            />
+          </>
+        ) : shown && !history.error ? (
+          <p role="status" className="text-sm text-ink-muted print:hidden" data-action="hist-loading">
+            {t('halls.hist.loading', 'جارٍ قراءة ما جرى منذ أن بدأنا…')}
+          </p>
+        ) : null}
+        {shown ? <ReportFooter by={by} at={printed.at} /> : null}
+      </article>
       {picking ? <PickDayDialog today={bound} current={viewDay ?? bound} onClose={() => setPicking(false)} onPick={go} /> : null}
       {noting ? (
         <HallsNoteDialog

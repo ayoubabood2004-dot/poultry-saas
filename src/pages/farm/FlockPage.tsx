@@ -8,6 +8,7 @@ import { Dialog } from '../../components/ui/Dialog';
 import { Field } from '../../components/ui/Field';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
+import { useWidePage } from '../../components/ui/OfficialReport';
 import { toast } from '../../components/ui/Toast';
 import { WeightPad } from '../../components/ui/WeightPad';
 import type { Day } from '../../domain/dates';
@@ -1070,6 +1071,7 @@ function SheetTable({ sheet, ops, saved, onCell, onFeed }: { sheet: HallSheet; o
   ];
   return (
     <DataTable
+      variant="official"
       caption={sheetTitle(sheet.flock.hallName)}
       columns={columns}
       rows={sheet.days}
@@ -1084,6 +1086,8 @@ function SheetTable({ sheet, ops, saved, onCell, onFeed }: { sheet: HallSheet; o
 
 /** الورقة لفوج: القاعة من قراءة الحقول (للسابقة والتالية والبيع والتعديل) حين تُفتح من صفحة القاعة. */
 function SheetScreen({ kind, flockId, nav, site, summary, onGone }: { kind: FlockKind; flockId: string; nav?: Nav; site?: SiteView; summary?: FlockSummary; onGone?: () => void }) {
+  // الورقة جدولٌ رسميّ بعرض أكبر في الشاشات الكبيرة (عقد 0036 S1).
+  useWidePage();
   const navigate = useNavigate();
   const online = useStore(onlineStore);
   const load = useCallback(() => loadHallSheet(flockId), [flockId]);

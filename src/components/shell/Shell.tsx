@@ -2,6 +2,8 @@ import { lazy, Suspense, useCallback, useEffect, useState, type ComponentType, t
 import { visibleNav } from '../../lib/nav';
 import { useSession } from '../../lib/session';
 import { readJson, writeJson } from '../../lib/storage';
+import { useStore } from '../../lib/store';
+import { wideStore } from '../../lib/wide';
 import { Toaster } from '../ui/Toast';
 import { AppBanners } from './AppBanners';
 import { MobileDrawer, Sidebar } from './Sidebar';
@@ -24,6 +26,8 @@ export function Shell({ children }: { children: ReactNode }) {
   const items = visibleNav(session);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(() => readJson(SIDEBAR_KEY) === true);
+  // صفحة عريضة مركّبة (lib/wide.ts): data-wide على <main>، والعرض في official.css الكسول.
+  const wide = useStore(wideStore) > 0;
   // ثابتة حتى القائمة ما تعيد حبس التركيز وقفل التمرير ويّا كل رسم للقشرة.
   const closeDrawer = useCallback(() => setDrawerOpen(false), []);
   // ما تنفتح قائمة ما تنشاف (md:hidden) وتقفل التمرير.
@@ -54,7 +58,7 @@ export function Shell({ children }: { children: ReactNode }) {
       {/* بالطباعة الصفحة وحدها (0022، تقرير الرصيد اليومي): الشريطان والأشرطة والفاصل print:hidden، والإزاحة عن الشريط الجانبي صفر. */}
       <div className={collapsed ? 'md:ps-19 print:ps-0' : 'md:ps-64 print:ps-0'}>
         <TopBar />
-        <main className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 pb-[max(2rem,env(safe-area-inset-bottom))] pt-4 sm:px-6">
+        <main className="mx-auto flex w-full max-w-6xl flex-col gap-4 px-4 pb-[max(2rem,env(safe-area-inset-bottom))] pt-4 sm:px-6" data-wide={wide ? '' : undefined}>
           <AppBanners />
           {children}
           {/* فاصل بالهاتف بس: آخر الصفحة ما ينخبّى تحت الشريط السفلي (بأصناف موجودة، فما يكبر CSS الإقلاع). */}

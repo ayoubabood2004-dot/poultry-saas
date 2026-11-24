@@ -4,6 +4,7 @@ import { Button } from '../../components/ui/Button';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
+import { printedText, ReportFooter, ReportHeader, usePrintedAt, useWidePage, type InfoItem } from '../../components/ui/OfficialReport';
 import { toast } from '../../components/ui/Toast';
 import type { Milli } from '../../domain/money';
 import { RejectedError } from '../../lib/errors';
@@ -21,19 +22,24 @@ import { downloadFile, reportImage, sendFile } from './reportImage';
 // والمباع وصافي وزنه ومعدّل الوزن، ومعامل التحويل = العلف المرسل ÷ صافي المباع) من خلاصة الخادم، ثمّ جدول الورقة نفسه حتى اليوم بمجموعَي الهلاكات
 // والعلف التراكميين (جمع أيام الورقة بترتيبها)، وصفّ مجموع الخادم. بلا رسوم وزن يوميّ ولا علف مأكول. و«أرسل صورة» (reportImage) و«اطبع / PDF»
 // (printAs)؛ والتقرير المفصّل (العلف بمستنداته والأدوية واللقاحات والكلفة، والإغلاق و«أعد فتح الدورة») رابطٌ إلى /halls/cycle/:flockId.
+// وبالشكل الرسميّ (عقد 0036 S1، «مثل تقارير المستشفيات»): رأسٌ باسم المنشأة والعنوان وشبكة بيانات الوجبة، والجدولان رسميّان بشريط اسميهما، وتذييلٌ بـ«أعدّه»
+// و«طُبع في» والتوقيعات؛ والصفحة عريضة في الشاشات الكبيرة.
 
+// الورقة A4 بالطول وخطّ جداولها 11 نقطة (والحشوة وتكرار الرأس والجدول بلا تمرير في official.css)، والصورة بتخطيطها بخطّ 12 بحاشية.
 const PRINT_STYLE = [
   '@page { size: A4 portrait; margin: 10mm; }',
   '@media print {',
   '[data-action="batch-report"] table { font-size: 11px; }',
-  '[data-action="batch-report"] th, [data-action="batch-report"] td { padding: 2px 4px; white-space: normal; min-width: 0; }',
+  '[data-action="batch-report"] th, [data-action="batch-report"] td { white-space: normal; min-width: 0; }',
   '[data-action="batch-report"] td bdi { white-space: nowrap; }',
   '[data-action="batch-report"] tfoot { display: table-row-group; }',
   '[data-action="batch-report"] tr { break-inside: avoid; }',
   '}',
-  '[data-capture] [data-action="rep-org"] { display: block !important; }',
+  '[data-capture] { padding: 16px; }',
   '[data-capture] .print\\:hidden { display: none !important; }',
-  '[data-capture] [data-action="batch-days"] > div { max-height: none; overflow: visible; }',
+  '[data-capture] table { font-size: 12px; }',
+  '[data-capture] th, [data-capture] td { white-space: normal; min-width: 0; }',
+  '[data-capture] td bdi { white-space: nowrap; }',
 ].join(' ');
 
 type SummaryRow = { key: string; label: string; value: string };
@@ -124,11 +130,12 @@ function BatchBody({ sheet }: { sheet: HallSheet }) {
       : []),
     { key: 'note', header: t('sheet.col.note', 'الملاحظات'), wrap: true, cell: (row) => row.day.note ?? '' },
   ];
+  // كلّ جدول قسمٌ عنوانه شريطه الملوّن (الجدول الرسميّ): «خلاصة الوجبة» ثمّ «أيام الوجبة».
   return (
     <>
-      <section className="flex flex-col gap-2" data-action="batch-summary">
-        <h2 className="text-lg font-semibold">{t('batch.summary', 'خلاصة الوجبة')}</h2>
+      <section aria-label={t('batch.summary', 'خلاصة الوجبة')} data-action="batch-summary">
         <DataTable
+          variant="official"
           caption={t('batch.summary', 'خلاصة الوجبة')}
           columns={[
             { key: 'label', header: t('batch.col.item', 'البند'), cell: (row: SummaryRow) => row.label },
@@ -139,18 +146,51 @@ function BatchBody({ sheet }: { sheet: HallSheet }) {
           empty={dash()}
         />
       </section>
-      <section className="flex flex-col gap-2" data-action="batch-days">
-        <h2 className="text-lg font-semibold">{t('batch.days', 'أيام الوجبة')}</h2>
-        <DataTable caption={t('batch.days', 'أيام الوجبة')} columns={columns} rows={rows} rowKey={(row) => row.day.on} empty={t('sheet.empty', 'لا أيام بعد.')} totalLabel={t('sheet.total', 'المجموع')} />
+      <section aria-label={t('batch.days', 'أيام الوجبة')} data-action="batch-days">
+        <DataTable
+          variant="official"
+          caption={t('batch.days', 'أيام الوجبة')}
+          columns={columns}
+          rows={rows}
+          rowKey={(row) => row.day.on}
+          empty={t('sheet.empty', 'لا أيام بعد.')}
+          totalLabel={t('sheet.total', 'المجموع')}
+        />
       </section>
     </>
   );
 }
 
+/**
+ * شبكة بيانات الوجبة في رأس التقرير: القاعة والحقل وتاريخ الوجبة والداخل والعمر في آخر يوم من الجدول والحال (قائمة، أو أُغلقت يوم كذا)، ثمّ تاريخ التقرير
+ * (يوم الخادم في القراءة) ووقت الطباعة.
+ */
+export function batchInfo(sheet: HallSheet, printedAt: Date): InfoItem[] {
+  const flock = sheet.flock;
+  const last = reportDays(sheet).at(-1) ?? null;
+  return [
+    { key: 'hall', label: t('batch.info.hall', 'القاعة'), value: sheetHallName(flock.hallName) },
+    { key: 'site', label: t('batch.info.site', 'الحقل'), value: flock.siteName },
+    { key: 'placed_on', label: t('batch.info.placed_on', 'تاريخ الوجبة'), value: <Num>{fmtDay(flock.placedOn)}</Num> },
+    { key: 'placed', label: t('batch.info.placed', 'الداخل'), value: <Num>{fmtInt(flock.placedCount)}</Num> },
+    { key: 'age', label: t('batch.info.age', 'العمر (يوم)'), value: last ? <Num>{fmtInt(last.day.age)}</Num> : dash() },
+    {
+      key: 'state',
+      label: t('batch.info.state', 'الحالة'),
+      value: flock.status === 'closed' && flock.closedOn ? t('batch.info.closed', 'أُغلقت يوم {day}', { day: fmtDay(flock.closedOn) }) : t('batch.info.open', 'قائمة'),
+    },
+    { key: 'report_day', label: t('report.info.day', 'تاريخ التقرير'), value: <Num>{fmtDay(sheet.today)}</Num> },
+    { key: 'printed', label: t('report.info.printed', 'طُبع في'), value: printedText(printedAt) },
+  ];
+}
+
 function BatchView({ flockId }: { flockId: string }) {
+  useWidePage();
   const [search] = useSearchParams();
   const session = useSession();
   const orgName = session.status === 'ready' ? session.workspace.orgName : '';
+  const by = session.status === 'ready' ? session.workspace.displayName : '';
+  const printed = usePrintedAt();
   const load = useCallback(() => loadHallSheet(flockId), [flockId]);
   const state = useLoad(load, flockId);
   const sheet = state.data;
@@ -173,6 +213,8 @@ function BatchView({ flockId }: { flockId: string }) {
     if (!sheet || !page || imaging) return;
     setImaging(true);
     setReady(null);
+    // «طُبع في» لحظة الصورة، مكتوبةً في الصفحة قبل أن تُنسخ.
+    printed.stamp();
     let file: File;
     try {
       file = await reportImage(page, `batch-report-${sheet.flock.placedOn}-${sheet.today}.png`);
@@ -191,22 +233,6 @@ function BatchView({ flockId }: { flockId: string }) {
       <div className="print:hidden">
         <BackLink to={back} label={backLabel(back)} />
       </div>
-      <header className="flex flex-col gap-1">
-        {orgName ? (
-          <p className="hidden text-sm text-ink-muted print:block" data-action="rep-org">
-            {orgName}
-          </p>
-        ) : null}
-        <h1 className="text-2xl font-semibold" data-action="batch-title">
-          {title}
-        </h1>
-        {sheet && flock ? (
-          <p className="text-ink-muted" data-action="batch-line">
-            {t('batch.line', 'وجبة {day}، الداخل {count}.', { day: fmtDay(flock.placedOn), count: fmtInt(flock.placedCount) })}{' '}
-            {flock.status === 'closed' && flock.closedOn ? t('batch.closed', 'أُغلقت يوم {day}.', { day: fmtDay(flock.closedOn) }) : t('batch.until', 'حتى {day}.', { day: fmtDay(sheet.today < sheet.through ? sheet.today : sheet.through) })}
-          </p>
-        ) : null}
-      </header>
       {sheet ? (
         <div className="flex flex-col gap-2 print:hidden">
           <div className="flex flex-wrap items-center gap-2">
@@ -243,26 +269,31 @@ function BatchView({ flockId }: { flockId: string }) {
           ) : null}
         </div>
       ) : null}
-      {state.error ? (
-        state.error instanceof RejectedError && state.error.hint ? (
-          <Notice tone="warning" title={state.error.hint} />
-        ) : (
-          <LoadFailed what={t('batch.what', 'تقرير الوجبة')} error={state.error} onRetry={state.retry} />
-        )
-      ) : sheet ? (
-        <>
+      {/* الورقة الرسمية: الرأس بشبكة البيانات، ثمّ الجدولان، ثمّ التذييل بالتوقيعات (ما يُطبع ويُصوَّر). */}
+      <article className="ofc-paper" data-action="batch-paper">
+        <ReportHeader org={orgName} orgAction="rep-org" title={title} titleAction="batch-title" info={sheet ? batchInfo(sheet, printed.at) : []} />
+        {state.error ? (
+          state.error instanceof RejectedError && state.error.hint ? (
+            <Notice tone="warning" title={state.error.hint} />
+          ) : (
+            <LoadFailed what={t('batch.what', 'تقرير الوجبة')} error={state.error} onRetry={state.retry} />
+          )
+        ) : sheet ? (
           <BatchBody sheet={sheet} />
-          <p className="text-sm print:hidden">
-            <Link to={`/halls/cycle/${flockId}?${new URLSearchParams({ back: here }).toString()}`} className="font-semibold text-brand-700 dark:text-brand-200" data-action="batch-detailed">
-              {t('batch.detailed', 'التقرير المفصّل: العلف بمستنداته والأدوية واللقاحات والكلفة والإغلاق')}
-            </Link>
+        ) : (
+          <p role="status" className="text-sm text-ink-muted" data-action="batch-loading">
+            {t('page.loading', 'جارٍ الفتح…')}
           </p>
-        </>
-      ) : (
-        <p role="status" className="text-sm text-ink-muted" data-action="batch-loading">
-          {t('page.loading', 'جارٍ الفتح…')}
+        )}
+        {sheet && !state.error ? <ReportFooter by={by} at={printed.at} /> : null}
+      </article>
+      {sheet && !state.error ? (
+        <p className="text-sm print:hidden">
+          <Link to={`/halls/cycle/${flockId}?${new URLSearchParams({ back: here }).toString()}`} className="font-semibold text-brand-700 dark:text-brand-200" data-action="batch-detailed">
+            {t('batch.detailed', 'التقرير المفصّل: العلف بمستنداته والأدوية واللقاحات والكلفة والإغلاق')}
+          </Link>
         </p>
-      )}
+      ) : null}
     </div>
   );
 }

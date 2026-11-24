@@ -65,6 +65,7 @@ async function bundle() {
     "export { NOTE_SPACES, noteText } from './src/pages/inventory/DayBalanceView.tsx';",
     "export { HallsShapeError } from './src/lib/repo/halls.ts';",
     "export { RejectedError, NetworkError } from './src/lib/errors.ts';",
+    "export { wideStore } from './src/lib/wide.ts';",
   ].join('\n');
   const result = await build({
     stdin: { contents: entry, resolveDir: ROOT, loader: 'tsx' },
@@ -75,6 +76,7 @@ async function bundle() {
     target: 'node20',
     jsx: 'automatic',
     logLevel: 'silent',
+    loader: { '.css': 'empty' },
     define: { 'import.meta.env.DEV': 'false', __APP_VERSION__: '"test"', 'process.env.NODE_ENV': '"production"' },
     plugins,
   });
@@ -1059,6 +1061,93 @@ export default async function (t) {
         ['شارك نصّاً', true, 1, `تقرير القاعات اليومي — ${fmt(TODAY)}`, 'اطبع أو احفظ PDF'],
         'S2 «شارك نصّاً» ثانويّ ويشارك النصّ كما كان، و«اطبع أو احفظ PDF» باقٍ',
       );
+    });
+
+    // ── O: الشكل الرسميّ (عقد 0036 S1، «مثل تقارير المستشفيات») ────────────────────────────────────────────────────────
+    // ساعة الجهاز ثابتة («طُبع في» من new Date)، وتتقدّم قبل الطباعة وقبل الصورة: الوقت المكتوب في الصفحة يتجدّد قبل أن تلتقطه.
+    const RealDate = Date;
+    let clock = new RealDate(2026, 10, 17, 9, 5).getTime();
+    class FixedDate extends RealDate {
+      constructor(...args) {
+        if (args.length) super(...args);
+        else super(clock);
+      }
+      static now() {
+        return clock;
+      }
+    }
+    const ofcOf = (cls) => all().filter((n) => (n.getAttribute('class') ?? '').split(' ').includes(cls));
+    const infoOf = () => (byAction('report-info')[0]?.children ?? []).map((cell) => cell.children.map((n) => n.textContent));
+    await step('O1 التقرير اليوميّ ورقةٌ رسمية', async () => {
+      globalThis.Date = FixedDate;
+      try {
+        const shared = [];
+        setNavigator({ onLine: true, canShare: () => true, share: async (data) => shared.push(data) });
+        const { captures } = fresh(as('owner'), OK);
+        await mount(urlOf(TODAY));
+        const paper = byAction('day-paper')[0];
+        const inPaper = (name) => within(paper, name).length;
+        t.same(
+          [textOf('day-org'), (byAction('day-org')[0]?.getAttribute('class') ?? '').split(' ').includes('hidden'), textOf('day-title'), textOf('day-rounds'), infoOf()],
+          [
+            'مشروع الدواجن',
+            false,
+            `تقرير القاعات اليومي — ${fmt(TODAY)}`,
+            'الجولات المسجَّلة: 3 من 4.',
+            [['اليوم', fmt(TODAY)], ['الحقول', '2'], ['القاعات', '5'], ['تاريخ التقرير', fmt(TODAY)], ['طُبع في', '17/11/2026 الساعة 09:05']],
+          ],
+          'O1 الرأس: اسم المنشأة ظاهرٌ على الشاشة (كان للطباعة وحدها)، والعنوان، وسطر الجولات، وشبكة البيانات (اليوم والحقول والقاعات وتاريخ التقرير ووقت الطباعة)',
+        );
+        t.same(
+          [
+            ofcOf('ofc-band').map((n) => n.textContent),
+            ofcOf('ofc-bar').map((n) => [n.localName, n.textContent]),
+            ofcOf('ofc-subbar').map((n) => [n.localName, n.textContent]),
+          ],
+          [
+            [`القاعات — ${fmt(TODAY)}`, `أيّام ${NOV_NAME}`, 'الأشهر من البداية', `أيّام ${NOV_NAME}`, 'الأشهر من البداية'],
+            [['h2', BR], ['h2', LY], ['h2', `ملاحظة يوم ${fmt(TODAY)}`]],
+            [['h3', 'ما جرى'], ['h3', 'ما جرى']],
+          ],
+          'O1 الجداول رسمية بشريط اسمها الملوّن (جدول اليوم، وأيّام الشهر والأشهر لكلّ نوع)، وعنوان كلّ نوع والملاحظة شريطُ قسم، و«ما جرى» عنوانٌ فرعيّ',
+        );
+        t.same(
+          [
+            textOf('report-by'),
+            textOf('report-printed'),
+            descendants(byAction('report-sign')[0] ?? body()).filter((n) => n.localName === 'p').map((n) => n.textContent),
+            ['report-head', 'day-report', 'hist-kind', 'hist-note', 'report-foot'].map(inPaper),
+            ['day-controls', 'back'].map(inPaper),
+            m.wideStore.get(),
+          ],
+          ['أعدّه: علي', 'طُبع في 17/11/2026 الساعة 09:05', ['المسؤول: ………………………', 'التوقيع: ………………………'], [1, 1, 2, 1, 1], [0, 0], 1],
+          'O1 التذييل: «أعدّه» باسم المستخدم و«طُبع في» وسطرا «المسؤول» و«التوقيع»؛ والورقة تحمل التقرير كلّه والأزرار خارجها؛ والصفحة عريضة',
+        );
+        t.same(
+          ['send-image', 'print-day', 'share-day'].map((name) => (byAction(name)[0]?.getAttribute('class') ?? '').split(' ').includes('h-11')),
+          [true, true, true],
+          'O1 «أرسل صورة» و«اطبع أو احفظ PDF» و«شارك نصّاً» بارتفاع 44 نقطة',
+        );
+        // الطباعة: «طُبع في» يتجدّد عند beforeprint (اطبع وCtrl+P) قبل أن تلتقط الورقة.
+        clock = new RealDate(2026, 10, 17, 14, 47).getTime();
+        fire(globalThis.window, 'beforeprint', { bubbles: false });
+        await settle();
+        const printedNow = [textOf('report-printed'), infoOf().at(-1)];
+        // والصورة: الوقت يُكتب قبل النسخ.
+        clock = new RealDate(2026, 10, 17, 16, 2).getTime();
+        await click(byAction('send-image')[0]);
+        await settle();
+        t.same(
+          [printedNow, captures.length, captures[0]?.html.includes('طُبع في 17/11/2026 الساعة 16:02'), captures[0]?.html.includes('data-action="report-foot"'), shared.length],
+          [['طُبع في 17/11/2026 الساعة 14:47', ['طُبع في', '17/11/2026 الساعة 14:47']], 1, true, true, 1],
+          'O1 «طُبع في» يتجدّد قبل الطباعة وقبل الصورة (الصورة تحمل الرأس والتذييل بوقتها)',
+        );
+      } finally {
+        globalThis.Date = RealDate;
+      }
+    });
+    await step('O2 الصفحة العريضة تُترك عند المغادرة', async () => {
+      t.eq(m.wideStore.get(), 0, 'O2 بعد إزالة التقرير اليوميّ يعود العدّاد صفراً (القشرة تشيل data-wide)');
     });
 
     // ── X: أجوبة القاعدة الحقيقية ──────────────────────────────────────────────────────────────────────────────────

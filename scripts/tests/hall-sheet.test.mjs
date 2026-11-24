@@ -60,6 +60,7 @@ async function screens() {
     "export { gasAnswer } from './src/lib/repo/flocks.ts';",
     "export { UnknownOutcomeError } from './src/lib/errors.ts';",
     "export { fmtDay, fmtInt } from './src/lib/format.ts';",
+    "export { wideStore } from './src/lib/wide.ts';",
   ].join('\n');
   const result = await build({
     stdin: { contents: entry, resolveDir: ROOT, loader: 'tsx' },
@@ -945,6 +946,84 @@ export default async function (t) {
         ['batch-image', 'batch-print'].map((action) => [byAction(action).length, /\bh-11\b/u.test(classOf(byAction(action)[0])), /\bh-9\b/u.test(classOf(byAction(action)[0]))]),
         [[1, true, false], [1, true, false]],
         'T1 «أرسل صورة» و«اطبع / PDF» في تقرير الوجبة بارتفاع 44 نقطة على الأقل (h-11، لا h-9)',
+      );
+    });
+
+    // ── O: الشكل الرسميّ (عقد 0036 S1، «مثل تقارير المستشفيات») ──────────────────────────────────────────────────────
+    // ساعة الجهاز ثابتة («طُبع في» من new Date)، وتتقدّم قبل الطباعة فيتجدّد الوقت المكتوب.
+    const RealDate = Date;
+    let clock = new RealDate(2026, 11, 3, 9, 5).getTime();
+    class FixedDate extends RealDate {
+      constructor(...args) {
+        if (args.length) super(...args);
+        else super(clock);
+      }
+      static now() {
+        return clock;
+      }
+    }
+    const ofcOf = (cls, root = body()) => descendants(root).filter((n2) => classOf(n2).split(' ').includes(cls));
+    const infoOf = () => (byAction('report-info')[0]?.children ?? []).map((cell) => cell.children.map((n2) => n2.textContent));
+    await step('O1 تقرير الوجبة ورقةٌ رسمية', async () => {
+      globalThis.Date = FixedDate;
+      try {
+        fresh('viewer', { hall_sheet: () => clone(BROILER) });
+        await mount(`/halls/report/${F7}`, m.h(m.Routes, null, m.h(m.Route, { path: '/halls/report/:flockId', element: m.h(m.ReportPage) })));
+        const paper = byAction('batch-paper')[0] ?? null;
+        t.same(
+          [textOf('rep-org'), classOf(byAction('rep-org')[0]).split(' ').includes('hidden'), textOf('batch-title'), infoOf()],
+          [
+            'مزرعة',
+            false,
+            'تقرير وجبة قاعة 7 — حقل الشمال',
+            [
+              ['القاعة', '7'], ['الحقل', 'حقل الشمال'], ['تاريخ الوجبة', '13/11/2026'], ['الداخل', '5,000'], ['العمر (يوم)', '20'], ['الحالة', 'قائمة'],
+              ['تاريخ التقرير', '03/12/2026'], ['طُبع في', '03/12/2026 الساعة 09:05'],
+            ],
+          ],
+          'O1 الرأس: اسم المنشأة ظاهرٌ على الشاشة (كان للطباعة وحدها)، والعنوان، وشبكة البيانات (القاعة والحقل وتاريخ الوجبة والداخل والعمر والحالة وتاريخ التقرير ووقت الطباعة)',
+        );
+        t.same(
+          [
+            ofcOf('ofc-band').map((n2) => n2.textContent),
+            ['batch-summary', 'batch-days'].map((name) => descendants(byAction(name)[0] ?? body()).filter((n2) => n2.localName === 'h2').length),
+            [textOf('report-by'), textOf('report-printed')],
+            descendants(byAction('report-sign')[0] ?? body()).filter((n2) => n2.localName === 'p').map((n2) => n2.textContent),
+            paper ? ['report-head', 'batch-summary', 'batch-days', 'report-foot'].map((name) => byAction(name).filter((n2) => paper.contains(n2)).length) : null,
+            paper ? ['batch-image', 'batch-print', 'batch-detailed', 'back'].map((name) => byAction(name).filter((n2) => paper.contains(n2)).length) : null,
+            m.wideStore.get(),
+            all().filter((n2) => n2.localName === 'style').some((n2) => n2.textContent.includes('@page { size: A4 portrait; margin: 10mm; }')),
+          ],
+          [
+            ['خلاصة الوجبة', 'أيام الوجبة'],
+            [0, 0],
+            ['أعدّه: علي', 'طُبع في 03/12/2026 الساعة 09:05'],
+            ['المسؤول: ………………………', 'التوقيع: ………………………'],
+            [1, 1, 1, 1],
+            [0, 0, 0, 0],
+            1,
+            true,
+          ],
+          'O1 الجدولان رسميّان بشريط اسميهما (بلا عنوان مكرّر فوقهما)، والتذييل «أعدّه» و«طُبع في» وسطرا التوقيع، والورقة تحمل التقرير والأزرار خارجها، والصفحة عريضة، وA4 بالطول',
+        );
+        clock = new RealDate(2026, 11, 3, 14, 47).getTime();
+        fire(globalThis.window, 'beforeprint', { bubbles: false });
+        await settle();
+        t.same([textOf('report-printed'), infoOf().at(-1)], ['طُبع في 03/12/2026 الساعة 14:47', ['طُبع في', '03/12/2026 الساعة 14:47']], 'O1 «طُبع في» يتجدّد قبل الطباعة (beforeprint)');
+      } finally {
+        globalThis.Date = RealDate;
+      }
+    });
+    await step('O2 الورقة جدولٌ رسميّ بعرض أكبر', async () => {
+      const left = m.wideStore.get();
+      fresh('manager', sheetSetup());
+      await mount(`/broiler/hall/${H7}`);
+      const frame = ancestor(sheetTable(), (n2) => classOf(n2).split(' ').includes('ofc-frame'));
+      const outer = frame?.parentNode ?? null;
+      t.same(
+        [left, outer ? classOf(outer) : null, outer?.children[0] ? [classOf(outer.children[0]), outer.children[0].getAttribute('aria-hidden'), outer.children[0].textContent] : null, classOf(frame).includes('overflow-auto'), m.wideStore.get()],
+        [0, 'ofc', ['ofc-band', 'true', 'هلاكات قاعة (7)'], true, 1],
+        'O2 عنوان الورقة «هلاكات قاعة (7)» شريطُ الجدول الملوّن فوق إطاره (والإطار يُمرَّر إلى اليوم كما كان)، والصفحة عريضة ما دامت مركّبة (وتقرير الوجبة تركها حين أُزيل)',
       );
     });
   } finally {

@@ -1,0 +1,334 @@
+/* الجداول والتقارير الرسمية (عقد 0036 S1؛ كلمة المالك 2026-11-24: «مرتّبة بشكل رسمي وتاخذ حجم اكبر من الشاشة لدون ما تنحذف او تختفي منها كلمات ويكون
+   الكلام الي بيها واضح ايضا واسماء الجداول يكون بيها لون بالخلفية مالتها مثل ترتيب المستشفيات»، و«تطلع بشكل رسمي مثل تقارير المستشفيات»).
+   ملف كسول تستورده components/ui/OfficialReport.tsx وحده، وتستوردها صفحات حزمة القاعات (HallsRoutes-*.css: خارج الإقلاع والتثبيت المسبق بالاسم)، كـdoc.css في
+   المبيعات: لا صنف Tailwind جديد في أيّ ملف (CSS الإقلاع بسقفه). الألوان رموز: المحايدة من tokens.css (--surface-1، --ink، --line-strong)، ورموز --ofc- هنا
+   بالسمتين (درجات العلامة brand من tailwind.config.js)، وكلّ نصّ على خلفية ملوّنة ≥ 4.5:1 فيهما (فحص official-tables C): الأبيض على شريط الجدول brand-700
+   7.3:1، وعلى شريط القسم brand-900 11:1 (والداكن brand-800 9.2:1)، ونصّ الرأس brand-950 على brand-100 12.2:1 (والداكن brand-100 على 23 40 70 11.9:1).
+   وتُطبع بألوانها (print-color-adjust: exact)، والطباعة فاتحة دائماً (display.ts يشيل الداكن قبلها). */
+
+/* ─── الرموز ───────────────────────────────────────────────────────────────────────────────────────────────── */
+
+:root {
+  --ofc-band: 15 82 179;
+  --ofc-on-band: 255 255 255;
+  --ofc-bar: 20 59 118;
+  --ofc-head: 217 232 255;
+  --ofc-head-ink: 15 37 74;
+  --ofc-rule: 90 156 247;
+  --ofc-total: 238 245 255;
+  --ofc-label: 238 245 255;
+  --ofc-brand-ink: 15 82 179;
+}
+.dark {
+  --ofc-bar: 18 69 146;
+  --ofc-head: 23 40 70;
+  --ofc-head-ink: 217 232 255;
+  --ofc-rule: 51 127 240;
+  --ofc-total: 20 33 56;
+  --ofc-label: 23 33 51;
+  --ofc-brand-ink: 188 215 254;
+}
+
+/* ─── الصفحة العريضة ────────────────────────────────────────────────────────────────────────────────────────── */
+/* القشرة تضع data-wide على <main> ما دامت صفحة عريضة مركّبة (lib/wide.ts وuseWidePage): أعرض من max-w-6xl في الشاشات الكبيرة، والهاتف كما هو (العرض أصلاً
+   أضيق من الحدّ). والشريط العلويّ يتبعها فتصطفّ شاراته مع حافة الصفحة. */
+main[data-wide] {
+  max-width: 100rem;
+}
+header:has(+ main[data-wide]) > div {
+  max-width: 100rem;
+}
+
+/* ─── الجدول الرسميّ (DataTable variant="official") ─────────────────────────────────────────────────────────── */
+
+.ofc {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.ofc-band {
+  background: rgb(var(--ofc-band));
+  color: rgb(var(--ofc-on-band));
+  font-size: 1.0625rem;
+  font-weight: 700;
+  line-height: 1.4;
+  padding: 0.625rem 1rem;
+  border-radius: 0.85rem 0.85rem 0 0;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.ofc-frame {
+  background: rgb(var(--surface-1));
+  border: 1px solid rgb(var(--ofc-band));
+  border-top-width: 0;
+  border-radius: 0 0 0.85rem 0.85rem;
+}
+.ofc-grid {
+  color: rgb(var(--ink));
+  font-size: 1rem;
+  line-height: 1.5;
+}
+.ofc-grid > * > tr > th,
+.ofc-grid > * > tr > td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid rgb(var(--line-strong));
+  border-inline-end: 1px solid rgb(var(--line-strong));
+  vertical-align: middle;
+}
+.ofc-lg > * > tr > th,
+.ofc-lg > * > tr > td {
+  padding: 0.75rem 1rem;
+}
+.ofc-grid > * > tr > :last-child {
+  border-inline-end-width: 0;
+}
+.ofc-grid > tbody > tr:last-child > *,
+.ofc-grid > tfoot > tr:last-child > * {
+  border-bottom-width: 0;
+}
+/* الرأس: خلفية العلامة الفاتحة ونصّ غامق وخطّ أسفل أقوى، ويلتفّ (رأسٌ طويل لا يعرّض عموده أكثر من قيمه، ولا يُقصّ). */
+.ofc-grid > thead > tr > th {
+  background: rgb(var(--ofc-head));
+  color: rgb(var(--ofc-head-ink));
+  font-size: 0.9375rem;
+  font-weight: 700;
+  line-height: 1.35;
+  vertical-align: bottom;
+  min-width: 4rem;
+  border-bottom: 2px solid rgb(var(--ofc-rule));
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+/* النصّ يلتفّ بعرض أدنى فلا ينعصر، والبيان (الملاحظات) بعرض أدنى أوسع؛ والرقم سطر واحد على خانة الآحاد كالعاديّ. */
+.ofc-grid .ofc-text {
+  min-width: 6rem;
+  overflow-wrap: anywhere;
+}
+.ofc-grid .ofc-wrap {
+  min-width: 12rem;
+  overflow-wrap: anywhere;
+}
+.ofc-grid .ofc-empty {
+  padding-block: 1.5rem;
+}
+/* المجاميع: غامقة على خلفية العلامة الأفتح، وفوقها الخطّ المزدوج كالعاديّ. */
+.ofc-grid > tfoot > tr > * {
+  background: rgb(var(--ofc-total));
+  font-weight: 700;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.ofc-grid > tfoot > tr:first-child > * {
+  border-top: 3px double rgb(var(--ofc-rule));
+}
+/* ورقة القاعة بالهاتف (size="sm"، مراجعة 0035: ستّة أعمدة بعرض 360 بلا تمرير أفقيّ): حشوة أضيق وبلا عرض أدنى للنصّ والبيان ورؤوس تلتفّ؛ ومن 640 كالباقي. */
+.ofc-sm > * > tr > th,
+.ofc-sm > * > tr > td {
+  padding: 0.375rem 0.5rem;
+}
+.ofc-sm > thead > tr > th {
+  min-width: 0;
+}
+.ofc-sm .ofc-text,
+.ofc-sm .ofc-wrap {
+  min-width: 0;
+}
+@media (min-width: 640px) {
+  .ofc-sm > * > tr > th,
+  .ofc-sm > * > tr > td {
+    padding: 0.5rem 0.75rem;
+  }
+  .ofc-sm .ofc-wrap {
+    min-width: 12rem;
+  }
+}
+
+/* ─── التقرير الرسميّ (OfficialReport.tsx) ──────────────────────────────────────────────────────────────────── */
+
+/* الورقة: من 640 ورقةٌ بيضاء بإطار وحاشية فوق سطح الصفحة؛ وبالهاتف بلا إطار ولا حاشية (عرض الجداول أوّلاً)، وعلى الورق وفي الصورة الورقةُ نفسها. */
+.ofc-paper {
+  display: flex;
+  flex-direction: column;
+  gap: 1.25rem;
+  min-width: 0;
+}
+@media (min-width: 640px) {
+  .ofc-paper {
+    background: rgb(var(--surface-1));
+    border: 1px solid rgb(var(--line-strong));
+    border-radius: 1rem;
+    padding: 1.5rem;
+    box-shadow: 0 2px 16px -6px rgb(var(--shadow) / 0.12);
+  }
+}
+.ofc-head {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+  padding-bottom: 0.75rem;
+  border-bottom: 3px double rgb(var(--ofc-band));
+}
+.ofc-org {
+  color: rgb(var(--ofc-brand-ink));
+  font-size: 1.125rem;
+  font-weight: 700;
+}
+.ofc-title {
+  font-size: 1.5rem;
+  font-weight: 700;
+  line-height: 1.35;
+}
+.ofc-sub {
+  color: rgb(var(--ink-muted));
+}
+/* شبكة البيانات: مربّعات بخطوط مشتركة (الهامش السالب يطابق خطّ كلّ مربّع على خطّ جاره)، والعنوان فوق القيمة. */
+.ofc-info {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  padding: 1px 0 0 1px;
+  margin-top: 0.25rem;
+}
+.ofc-info > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin: -1px 0 0 -1px;
+  border: 1px solid rgb(var(--line-strong));
+  background: rgb(var(--surface-1));
+}
+.ofc-info dt {
+  background: rgb(var(--ofc-label));
+  color: rgb(var(--ofc-head-ink));
+  font-size: 0.8125rem;
+  font-weight: 600;
+  line-height: 1.4;
+  padding: 0.25rem 0.625rem;
+  border-bottom: 1px solid rgb(var(--line-strong));
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.ofc-info dd {
+  font-size: 1rem;
+  font-weight: 600;
+  line-height: 1.45;
+  padding: 0.375rem 0.625rem;
+  overflow-wrap: anywhere;
+}
+/* شريط القسم: لون العلامة الأغمق ونصّ أبيض؛ والعنوان الفرعيّ خطّ على جانب البداية فوق خلفية فاتحة. */
+.ofc-bar {
+  background: rgb(var(--ofc-bar));
+  color: rgb(var(--ofc-on-band));
+  font-size: 1.125rem;
+  font-weight: 700;
+  line-height: 1.4;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.ofc-subbar {
+  background: rgb(var(--ofc-label));
+  color: rgb(var(--ofc-head-ink));
+  font-weight: 700;
+  padding: 0.375rem 0.75rem;
+  border-inline-start: 4px solid rgb(var(--ofc-band));
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+.ofc-foot {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding-top: 0.75rem;
+  border-top: 3px double rgb(var(--ofc-band));
+}
+.ofc-foot-line,
+.ofc-sign {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem 2rem;
+}
+.ofc-sign {
+  font-weight: 600;
+  padding-top: 0.75rem;
+}
+
+/* ─── الطباعة والصورة ───────────────────────────────────────────────────────────────────────────────────────── */
+/* A4 بلا أشرطة التطبيق (القشرة print:hidden)، والجدول كلّه بلا حدّ ارتفاع، ورأسه يتكرّر في كلّ صفحة (thead مجموعة رأس) والمجاميع مرّة في آخره، والصفّ
+   لا ينقسم، والشريط لا ينفصل عن جدوله ولا العنوان عمّا بعده، والتوقيعات معاً. و@page في أسلوب كلّ صفحة (يُركَّب معها ويُزال)، لا هنا. */
+@media print {
+  main[data-wide],
+  header:has(+ main[data-wide]) > div {
+    max-width: none;
+  }
+  .ofc-paper {
+    background: none;
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    box-shadow: none;
+  }
+  .ofc-frame {
+    max-height: none;
+    overflow: visible;
+  }
+  .ofc-band,
+  .ofc-bar,
+  .ofc-subbar,
+  .ofc-head {
+    break-after: avoid;
+  }
+  .ofc-grid > thead {
+    display: table-header-group;
+  }
+  .ofc-grid > thead > tr > th {
+    position: static;
+  }
+  .ofc-grid > tfoot {
+    display: table-row-group;
+  }
+  .ofc-grid > tbody > tr,
+  .ofc-info > div,
+  .ofc-foot {
+    break-inside: avoid;
+  }
+  /* على الورقة: خطّ الجدول من أسلوب الصفحة (11 أو 10 نقاط) للرأس والخلايا معاً، والحشوة أضيق، وبلا عرض أدنى (أعمدة الجدول كلّها في عرض الورقة). */
+  .ofc-grid > * > tr > th,
+  .ofc-grid > * > tr > td {
+    padding: 0.1875rem 0.375rem;
+  }
+  .ofc-grid > thead > tr > th {
+    font-size: inherit;
+    min-width: 0;
+  }
+  .ofc-grid .ofc-text,
+  .ofc-grid .ofc-wrap {
+    min-width: 0;
+  }
+}
+/* الصورة (reportImage): نسخة الصفحة خارج الشاشة بتخطيط الطباعة وعرض 720، فالجدول كلّه بلا تمرير وبحشوة الورقة. */
+[data-capture] .ofc-paper {
+  background: none;
+  border: 0;
+  border-radius: 0;
+  padding: 0;
+  box-shadow: none;
+}
+[data-capture] .ofc-frame {
+  max-height: none;
+  overflow: visible;
+}
+[data-capture] .ofc-grid > * > tr > th,
+[data-capture] .ofc-grid > * > tr > td {
+  padding: 0.1875rem 0.375rem;
+}
+[data-capture] .ofc-grid > thead > tr > th {
+  position: static;
+  font-size: inherit;
+  min-width: 0;
+}
+[data-capture] .ofc-grid .ofc-text,
+[data-capture] .ofc-grid .ofc-wrap {
+  min-width: 0;
+}
