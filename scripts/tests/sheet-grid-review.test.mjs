@@ -87,6 +87,11 @@ async function screens() {
   return load(result);
 }
 
+/** نافذة أخرى على الجهاز نفسه: الطابور (IndexedDB) نفسه، ورافعها ومخزنها وقناتها وحدات غير وحدات الصفحة (حزمة ثانية). */
+async function otherWindow() {
+  return load(await build({ ...BUILD, stdin: { contents: "export { uploadQueue } from './src/lib/outbox/index.ts';", resolveDir: ROOT, loader: 'ts' } }));
+}
+
 /** قواعد CSS بمحدِّدها وجسمها وما يحيط بها من قواعد @ (بالأقواس وحدها: الملف بلا نصوص فيها أقواس). */
 function cssRules(css) {
   const text = css.replace(/\/\*[\s\S]*?\*\//gu, '');
@@ -135,13 +140,28 @@ const body = () => globalThis.document.body;
 const all = () => descendants(body());
 const byAction = (name, root = body()) => descendants(root).filter((n) => n.getAttribute('data-action') === name);
 const clone = (value) => JSON.parse(JSON.stringify(value));
+const td = (row, col) => all().find((n) => n.localName === 'td' && n.getAttribute('data-cell') === `${row}:${col}`) ?? null;
 const cursorAt = () => all().find((n) => n.getAttribute('data-cursor') === 'true')?.getAttribute('data-cell') ?? null;
 const focused = () => globalThis.document.activeElement;
+const input = () => byAction('grid-input')[0] ?? null;
 const click = async (node, rounds = 60) => {
   if (node) fire(node, 'click', { button: 0, detail: 1 });
   await settle(rounds);
 };
+const press = async (key, mods = {}, rounds = 30) => {
+  fire(focused() ?? body(), 'keydown', { key, code: mods.code, shiftKey: Boolean(mods.shift), ctrlKey: Boolean(mods.ctrl), metaKey: false, altKey: Boolean(mods.alt) });
+  await settle(rounds);
+};
+const typeIn = async (text) => {
+  const field = input();
+  if (field) {
+    field.value = text;
+    fire(field, 'input');
+  }
+  await settle(10);
+};
 const pencil = async () => click(byAction('sheet-pencil')[0] ?? null, 30);
+const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export default async function (t) {
   const restore = installDom();
@@ -219,6 +239,7 @@ export default async function (t) {
     // ── الحامل ─────────────────────────────────────────────────────────────────────────────────────────────────────
     const m = await screens();
     const BROILER = FIX.hall_sheet.broiler;
+    const TODAY = BROILER.today;
     const ws = (role, userId) => ({
       userId, orgId: 'org-sgr', orgName: 'مزرعة', memberId: 'mm-sgr', displayName: 'علي', phone: null, role, scopes: [], divisions: ['broiler', 'layer'],
       canSeeCost: true, canSeeAccounts: true, canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1,
@@ -296,11 +317,59 @@ export default async function (t) {
       m.onlineStore.set(true);
     };
     const setup = (sheet = BROILER, extra = {}) => ({ loadOverviewJson: () => overviewOf(sheet), hall_sheet: () => clone(sheet), ...extra });
+    const slowRereads = (sheet = BROILER) => {
+      let reads = 0;
+      return () => (reads++ === 0 ? clone(sheet) : new Promise(() => {}));
+    };
     const open = async (sheet = BROILER, extra = {}, options = {}) => {
       const ctx = fresh(setup(sheet, extra), options);
       await mount(`/broiler/hall/${sheet.flock.hall_id}`);
       return ctx;
     };
+    const moveTo = async (row, col) => {
+      const [r, c] = (cursorAt() ?? '0:0').split(':').map(Number);
+      for (let i = r; i < row; i += 1) await press('ArrowDown', {}, 5);
+      for (let i = r; i > row; i -= 1) await press('ArrowUp', {}, 5);
+      for (let i = c; i < col; i += 1) await press('ArrowLeft', {}, 5);
+      for (let i = c; i > col; i -= 1) await press('ArrowRight', {}, 5);
+      await settle(10);
+    };
+    const ops = (sent) => sent.map((op) => [op.fn, op.day, op.payload, op.baseVersion]);
+    const stampOf = (userId) => ({ userId, orgId: 'org-sgr', displayName: 'علي' });
+    // ── R8: رفعٌ من نافذة أخرى ───────────────────────────────────────────────────────────────────────────────────────
+    await step('R8', async () => {
+      const server = { version: 1 };
+      const answer = (op) => {
+        if (op.fn !== 'save_flock_day') return { kind: 'saved', version: 1 };
+        if ((op.baseVersion ?? 0) !== server.version) return { kind: 'stale_day', server: null };
+        server.version += 1;
+        return { kind: 'saved', version: server.version };
+      };
+      const { sent, userId } = await open(BROILER, { hall_sheet: slowRereads() }, { send: async (op) => answer(op) });
+      await pencil();
+      m.onlineStore.set(false);
+      await settle();
+      await press('7');
+      await press('Enter', {}, 160);
+      // النافذة الأخرى (الجهاز نفسه والطابور نفسه) يعود اتصالها أوّلاً فترفع كلّ شيء برافعها.
+      const other = await otherWindow();
+      const results = await other.uploadQueue(stampOf(userId), async () => ({ currentUserId: async () => userId, send: async (op) => answer(op), lookup: async () => null }));
+      m.onlineStore.set(true);
+      await wait(5);
+      await settle(60);
+      const pending = td(20, 2)?.textContent ?? null;
+      await moveTo(20, 5);
+      await press('ت');
+      await typeIn('تهوية');
+      await press('Enter', {}, 200);
+      t.same([results.map((entry) => entry.result.kind), sent.length], [['saved'], 1], 'R8 ضابط: النافذة الأخرى رفعت هلاكات اليوم (نسخة صفّه في الخادم 2)');
+      t.same(
+        [pending, ops(sent).at(-1)?.slice(0, 4)],
+        ['7', ['save_flock_day', TODAY, { note: 'تهوية' }, 2]],
+        'R8 رفع النافذة الأخرى يصل هذه النافذة: الخانة بلا «بانتظار الرفع»، والتعديل التالي لليوم نفسه بنسخة صفّه 2 (لا 1 فيُردّ stale_day)',
+      );
+    });
+
     // ── R12: Alt مع أيّ مفتاح في الشاشة ────────────────────────────────────────────────────────────────────────────
     await step('R12', async () => {
       await open();
