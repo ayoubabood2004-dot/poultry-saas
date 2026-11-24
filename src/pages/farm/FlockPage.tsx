@@ -1182,15 +1182,15 @@ function useSheetCells(sheet: HallSheet | null, flockId: string, ops: readonly O
   const check = useCallback(
     (changes: readonly CellChange[]): ChangeCheck[] => {
       if (!sheet) return changes.map(() => ({ kind: 'error', error: t('sheet.grid.no_day', 'هذا اليوم ليس في الورقة.') }));
-      // مجموع هلاكات اللصق: كلّ يوم يُقبل وحده حتى الحيّ، ومعاً لا تتجاوز الحيّ الآن (الخادم يردّ live_negative).
+      // مجموع هلاكات اللصق: كلّ يوم يُقبل وحده حتى الحيّ، ومعاً لا تتجاوز الحيّ الآن (الخادم يردّ live_negative). وهل التغيير تغييرٌ يقرّره الجدول بما
+      // تعرضه الخانة (ورفعٌ في الطريق معها)، لا لقطة هذا الرسم (المراجعة R11): هنا الحدود وحدها، وcommit يكتب بما في الطابور لحظتها.
       let liveLeft = sheet.summary.live;
       return changes.map((change): ChangeCheck => {
         const day = sheet.days.find((entry) => entry.on === change.on);
         if (!day) return { kind: 'error', error: t('sheet.grid.no_day', 'هذا اليوم ليس في الورقة.') };
         const shown = shownOf(day, ops, saved);
-        if (sameShown(change, shown)) return { kind: 'same' };
         const outcome = cellWrite(sheet, day, change.field, shown, change.value);
-        if (outcome.kind !== 'input') return outcome;
+        if (outcome.kind === 'error') return outcome;
         if (change.field === 'dead' && typeof change.value === 'number') {
           liveLeft -= change.value - day.dead;
           if (liveLeft < 0) return { kind: 'error', error: t('sheet.dead.max', 'الهلاكات أكثر من الطيور الحيّة ({live}).', { live: fmtInt(Math.max(sheet.summary.live, 0)) }) };

@@ -139,7 +139,13 @@ const over = (fg, alpha, bg) => [0, 1, 2].map((i) => fg[i] * alpha + bg[i] * (1 
 const body = () => globalThis.document.body;
 const all = () => descendants(body());
 const byAction = (name, root = body()) => descendants(root).filter((n) => n.getAttribute('data-action') === name);
+const textOf = (name, root = body()) => byAction(name, root)[0]?.textContent ?? null;
 const clone = (value) => JSON.parse(JSON.stringify(value));
+const dialogs = () => all().filter((n) => n.getAttribute('role') === 'dialog');
+const tableBy = (caption) => all().find((n) => n.localName === 'table' && n.children.some((c) => c.localName === 'caption' && c.textContent === caption)) ?? null;
+const section = (table, name) => table?.children.find((c) => c.localName === name) ?? null;
+const bodyRows = (table) => (section(table, 'tbody')?.children ?? []).filter((c) => c.localName === 'tr');
+const cells = (tr) => (tr?.children ?? []).filter((c) => c.localName === 'td' || c.localName === 'th').map((c) => c.textContent);
 const td = (row, col) => all().find((n) => n.localName === 'td' && n.getAttribute('data-cell') === `${row}:${col}`) ?? null;
 const cursorAt = () => all().find((n) => n.getAttribute('data-cursor') === 'true')?.getAttribute('data-cell') ?? null;
 const focused = () => globalThis.document.activeElement;
@@ -159,6 +165,22 @@ const typeIn = async (text) => {
     fire(field, 'input');
   }
   await settle(10);
+};
+/** الفأرة تنزل على عنصر كالمتصفّح: ينقل التركيز إليه ما لم يُمنع mousedown (فيطلق focusout على المركَّز قبله). يرجّع: هل مُنع. */
+const mouseDownOn = async (node, init = {}) => {
+  const before = focused();
+  const event = fire(node, 'mousedown', { button: 0, ...init });
+  if (!event.defaultPrevented && before && before !== node) {
+    globalThis.document.activeElement = node;
+    fire(before, 'focusout', { relatedTarget: node });
+  }
+  await settle(20);
+  return event.defaultPrevented;
+};
+const paste = async (text) => {
+  await press('v', { ctrl: true });
+  fire(focused() ?? body(), 'paste', { clipboardData: { getData: (type) => (type === 'text/plain' ? text : '') } });
+  await settle(30);
 };
 const pencil = async () => click(byAction('sheet-pencil')[0] ?? null, 30);
 const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -240,6 +262,7 @@ export default async function (t) {
     const m = await screens();
     const BROILER = FIX.hall_sheet.broiler;
     const TODAY = BROILER.today;
+    const dayOf = (row) => BROILER.days[row].on;
     const ws = (role, userId) => ({
       userId, orgId: 'org-sgr', orgName: 'مزرعة', memberId: 'mm-sgr', displayName: 'علي', phone: null, role, scopes: [], divisions: ['broiler', 'layer'],
       canSeeCost: true, canSeeAccounts: true, canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1,
@@ -336,6 +359,201 @@ export default async function (t) {
     };
     const ops = (sent) => sent.map((op) => [op.fn, op.day, op.payload, op.baseVersion]);
     const stampOf = (userId) => ({ userId, orgId: 'org-sgr', displayName: 'علي' });
+    /** الورقة بيوم زائد في أوّلها (التسكين أُزيح يوماً إلى الوراء من جهاز آخر): كلّ يوم في الصفّ الذي بعد صفّه. */
+    const earlier = () => {
+      const shifted = clone(BROILER);
+      const extra = clone(shifted.days[0]);
+      shifted.days[0].carry_in_kg = null;
+      Object.assign(extra, { on: '2026-11-12', age: 0, day_no: 1, dead: 0, culled: 0, day_version: null, gas: null, gas_version: null, feed_kg: null, feed: [], carry_in_kg: null, live_end: 5000 });
+      shifted.flock.placed_on = '2026-11-12';
+      shifted.days = [extra, ...shifted.days.map((day) => ({ ...day, age: day.age + 1, day_no: day.day_no + 1 }))];
+      return shifted;
+    };
+    /** قراءة الورقة الأولى كما هي، والثانية (بعد أوّل رفع) تصل حين يُقال لها. */
+    const secondRead = (next) => {
+      let reads = 0;
+      let land = null;
+      const later = new Promise((resolve) => {
+        land = resolve;
+      });
+      return { handler: () => (reads++ === 0 ? clone(BROILER) : later.then(() => clone(next))), land: () => land(), reads: () => reads };
+    };
+
+    // ── R1: «تراجع» و«أعِد» وخانةٌ تُكتب ─────────────────────────────────────────────────────────────────────────────
+    await step('R1', async () => {
+      let release = null;
+      const held = new Promise((resolve) => {
+        release = resolve;
+      });
+      let version = 1;
+      const { sent } = await open(BROILER, { hall_sheet: slowRereads() }, {
+        send: async (op) => {
+          if (op.fn === 'save_flock_day' && op.payload.dead === 7) await held;
+          version += 1;
+          return { kind: 'saved', version };
+        },
+      });
+      await pencil();
+      // B: غاز 02/12 من 1 إلى 3، محفوظ (التراجع: [B]).
+      await moveTo(19, 3);
+      await press('3');
+      await press('Enter', {}, 160);
+      // A: هلاكات اليوم، يكتب 7… ثمّ الفأرة على «تراجع».
+      await moveTo(20, 2);
+      await press('7');
+      const typing = input()?.value;
+      const undo = byAction('grid-undo')[0];
+      const kept = await mouseDownOn(undo);
+      await click(undo, 60);
+      release();
+      await settle(200);
+      const gas = ops(sent).filter(([fn]) => fn === 'set_flock_gas');
+      t.same([typing, gas[0]], ['7', ['set_flock_gas', dayOf(19), { cylinders: 3 }, 1]], 'R1 ضابط: B (غاز 02/12 من 1 إلى 3) حُفظ، ثمّ 7 يُكتب في هلاكات اليوم');
+      t.same(
+        [kept, gas.length, sent.filter((op) => op.payload.dead === 7).length, input()?.value ?? null, td(20, 2)?.textContent, textOf('grid-message')],
+        [true, 1, 0, null, '4', 'أُلغي ما كُتب في الخانة.'],
+        'R1 «تراجع» والخانة تُكتب لا يأخذ التركيز، ويلغي ما كُتب فيها (كإكسل) فلا يُحفظ 7، ولا يمسّ التعديل قبله (B)',
+      );
+    });
+
+    await step('R1 أعِد', async () => {
+      let version = 1;
+      const { sent } = await open(BROILER, { hall_sheet: slowRereads() }, { send: async () => ({ kind: 'saved', version: ++version }) });
+      await pencil();
+      await moveTo(19, 3);
+      await press('3');
+      await press('Enter', {}, 160);
+      await press('ArrowUp');
+      await press('z', { ctrl: true }, 160);
+      await moveTo(20, 2);
+      await press('5');
+      const redo = byAction('grid-redo')[0];
+      const kept = await mouseDownOn(redo);
+      await click(redo, 60);
+      await settle(160);
+      t.same(
+        [kept, ops(sent).map(([fn, , payload]) => [fn, payload.cylinders ?? payload.dead]), input()?.value ?? null],
+        [true, [['set_flock_gas', 3], ['set_flock_gas', 1]], '5'],
+        'R1 «أعِد» والخانة تُكتب لا يفعل شيئاً: 5 باقٍ في محرّره ولم يُكتب، والغاز الذي تُراجع عنه لا يُعاد',
+      );
+    });
+
+    // ── R3: التحديد والمحرّر بيوم الخانة ─────────────────────────────────────────────────────────────────────────────
+    await step('R3', async () => {
+      const read = secondRead(earlier());
+      const { sent } = await open(BROILER, { hall_sheet: read.handler }, { send: async () => ({ kind: 'saved', version: 2 }) });
+      await pencil();
+      // تعديلٌ يُرفع فيطلب قراءة الورقة من جديد (useUploadMark)، والقراءة في الطريق.
+      await moveTo(19, 3);
+      await press('3');
+      await press('Enter', {}, 160);
+      await moveTo(20, 2);
+      const selected = focused()?.getAttribute('aria-label');
+      read.land();
+      await settle(160);
+      await press('5');
+      await press('Enter', {}, 160);
+      t.same([selected, read.reads() >= 2], ['الهلاكات، يوم 03/12/2026: 4', true], 'R3 ضابط: هلاكات اليوم (03/12) محدّدة ومركَّزة، ثمّ تصل القراءة الجديدة بصفوف مزاحة');
+      t.same(ops(sent).at(-1)?.slice(0, 3), ['save_flock_day', TODAY, { dead: 5, culled: null }], 'R3 5 على خانة 03/12 المحدّدة يُكتب ليوم 03/12 (لا لليوم الذي صار في رقم صفّها)');
+    });
+
+    await step('R3 المحرّر', async () => {
+      const read = secondRead(earlier());
+      const { sent } = await open(BROILER, { hall_sheet: read.handler }, { send: async () => ({ kind: 'saved', version: 2 }) });
+      await pencil();
+      await moveTo(19, 3);
+      await press('3');
+      await press('Enter', {}, 160);
+      await moveTo(20, 2);
+      await press('5');
+      read.land();
+      await settle(160);
+      const still = input()?.getAttribute('aria-label') ?? null;
+      await press('Enter', {}, 160);
+      t.same([still, ops(sent).at(-1)?.slice(0, 3)], ['الهلاكات يوم 03/12/2026', ['save_flock_day', TODAY, { dead: 5, culled: null }]], 'R3 المحرّر المفتوح يبقى على يومه حين تزيح القراءة الصفوف، وEnter يكتب ليومه');
+    });
+
+    await step('R3 يوم اختفى', async () => {
+      const later = clone(BROILER);
+      later.days = later.days.slice(1).map((day) => ({ ...day, age: day.age - 1, day_no: day.day_no - 1 }));
+      later.flock.placed_on = later.days[0].on;
+      const read = secondRead(later);
+      const { sent } = await open(BROILER, { hall_sheet: read.handler }, { send: async () => ({ kind: 'saved', version: 2 }) });
+      await pencil();
+      await moveTo(19, 3);
+      await press('3');
+      await press('Enter', {}, 160);
+      await press('Home', { ctrl: true });
+      await moveTo(0, 5);
+      await press('ت');
+      await typeIn('تهوية');
+      read.land();
+      await settle(160);
+      const message = textOf('grid-message');
+      await press('Enter', {}, 120);
+      t.same(
+        [input()?.value ?? null, message, sent.length],
+        [null, 'لم يعد يوم 13/11/2026 في الورقة (قُرئت من جديد)، فأُلغي ما كُتب فيه ولم يُحفظ.', 1],
+        'R3 يومٌ اختفى من الورقة والمحرّر مفتوح عليه (التسكين أُزيح إلى الأمام): يُلغى ما كُتب ويُقال لماذا، ولا يُكتب في يوم آخر',
+      );
+    });
+
+    // ── R4: النقرتان داخل المحرّر ────────────────────────────────────────────────────────────────────────────────────
+    await step('R4', async () => {
+      const { sent } = await open();
+      await pencil();
+      await press('1');
+      await typeIn('12');
+      const field = input();
+      for (const detail of [1, 2]) {
+        fire(field, 'pointerdown', { pointerType: 'mouse', button: 0, buttons: 1, detail });
+        fire(field, 'click', { button: 0, detail });
+      }
+      fire(field, 'dblclick', { button: 0, detail: 2 });
+      await settle(20);
+      const after = input()?.value;
+      await press('Enter', {}, 120);
+      t.same([after, ops(sent)], ['12', [['save_flock_day', TODAY, { dead: 12, culled: null }, 1]]], 'R4 نقرتان داخل المحرّر (لتحديد نصّه) تبقيان 12 كما كُتب، وEnter يحفظ 12');
+    });
+
+    // ── R5: لمسة داخل المحرّر ────────────────────────────────────────────────────────────────────────────────────────
+    await step('R5', async () => {
+      const { sent } = await open();
+      await pencil();
+      await press('1');
+      const field = input();
+      fire(field, 'pointerdown', { pointerType: 'touch', button: 0, buttons: 1 });
+      fire(field, 'click', { button: 0, detail: 1 });
+      await settle(120);
+      t.same([ops(sent), dialogs().length, input()?.value ?? null], [[], 0, '1'], 'R5 لمسة إصبع أو قلم داخل الخانة التي تُكتب لا تحفظ نصف ما كُتب ولا تفتح ورقتها السفلية');
+    });
+
+    // ── R6: التركيز لا يخرج من المحرّر بنقرة على خانة ───────────────────────────────────────────────────────────────
+    await step('R6', async () => {
+      const { sent } = await open();
+      await pencil();
+      await press('5');
+      fire(td(20, 2), 'pointerdown', { pointerType: 'mouse', button: 0, buttons: 1 });
+      const padding = fire(td(20, 2), 'mousedown', { button: 0 }).defaultPrevented;
+      fire(td(19, 2), 'pointerdown', { pointerType: 'mouse', button: 2, buttons: 2 });
+      const right = fire(td(19, 2), 'mousedown', { button: 2 }).defaultPrevented;
+      // التركيز انتقل إلى خانة في الجدول على كلّ حال (إطار أو نقرة لم تُمنع): يعود إلى المحرّر.
+      const cell = td(19, 2);
+      globalThis.document.activeElement = cell;
+      fire(input(), 'focusout', { relatedTarget: cell });
+      await wait(5);
+      await settle(10);
+      const back = focused() === input();
+      // ورقمٌ ضُغط والتركيز ما زال على الخانة: يصل المحرّر (يعود إليه التركيز قبل أن يكتبه المتصفّح).
+      globalThis.document.activeElement = cell;
+      await press('3');
+      t.same(
+        [padding, right, back, focused() === input(), input()?.value ?? null, sent.length],
+        [true, true, true, true, '5', 0],
+        'R6 النقر على حاشية الخانة التي تُكتب وبالزرّ الأيمن على خانة أخرى لا يأخذ التركيز من المحرّر، والتركيز الذي انتقل يعود إليه، والرقم التالي يصله؛ لا شيء يُكتب ولا يضيع',
+      );
+    });
+
     // ── R8: رفعٌ من نافذة أخرى ───────────────────────────────────────────────────────────────────────────────────────
     await step('R8', async () => {
       const server = { version: 1 };
@@ -367,6 +585,57 @@ export default async function (t) {
         [pending, ops(sent).at(-1)?.slice(0, 4)],
         ['7', ['save_flock_day', TODAY, { note: 'تهوية' }, 2]],
         'R8 رفع النافذة الأخرى يصل هذه النافذة: الخانة بلا «بانتظار الرفع»، والتعديل التالي لليوم نفسه بنسخة صفّه 2 (لا 1 فيُردّ stale_day)',
+      );
+    });
+
+    // ── R11: التصحيح إلى القيمة المحفوظة والرفع قبله في الطريق ────────────────────────────────────────────────────────
+    const heldSeven = () => {
+      let release = null;
+      const held = new Promise((resolve) => {
+        release = resolve;
+      });
+      let version = 1;
+      return {
+        release: () => release(),
+        send: async (op) => {
+          if (op.payload.dead === 7) await held;
+          version += 1;
+          return { kind: 'saved', version };
+        },
+      };
+    };
+    await step('R11', async () => {
+      const gate = heldSeven();
+      const { sent } = await open(BROILER, { hall_sheet: slowRereads() }, { send: gate.send });
+      await pencil();
+      await press('7');
+      await press('Enter', {}, 60);
+      await press('ArrowUp');
+      const shown = td(20, 2)?.textContent ?? null;
+      await press('4');
+      await press('Enter', {}, 60);
+      gate.release();
+      await settle(200);
+      t.ok(shown?.startsWith('7'), `R11 ضابط: 7 معروضة (ورفعها في الطريق) حين يعود ليصحّحها (${shown})`);
+      t.same(ops(sent).map(([fn, day, payload]) => [fn, day, payload.dead]), [['save_flock_day', TODAY, 7], ['save_flock_day', TODAY, 4]], 'R11 تصحيح 7 إلى 4 (المحفوظة) ورفع 7 في الطريق يُكتب 4 بعده، لا يُعدّ «بلا تغيير» بلقطة الرسم');
+    });
+
+    await step('R11 اللصق', async () => {
+      const gate = heldSeven();
+      const { sent } = await open(BROILER, { hall_sheet: slowRereads() }, { send: gate.send });
+      await pencil();
+      await press('7');
+      await press('Enter', {}, 60);
+      await press('ArrowUp');
+      await paste('4');
+      const rows = bodyRows(tableBy('الصق في الجدول')).map(cells);
+      await click(byAction('grid-batch-go')[0], 60);
+      gate.release();
+      await settle(200);
+      t.same(
+        [rows, ops(sent).map(([fn, day, payload]) => [fn, day, payload.dead])],
+        [[['03/12/2026', 'الهلاكات', '7', '4', 'يُكتب']], [['save_flock_day', TODAY, 7], ['save_flock_day', TODAY, 4]]],
+        'R11 ولصق 4 على 7 المعروضة (ورفعها في الطريق) «يُكتب» بما تعرضه الخانة، ويُكتب بعدها',
       );
     });
 
