@@ -9,6 +9,7 @@ import { roundHalfAway } from '../../domain/money';
 import { toWesternDigits } from '../../domain/normalize';
 import { fmtDay, fmtInt, fmtMilli } from '../../lib/format';
 import { t } from '../../lib/i18n';
+import { useDirtyForm } from '../../lib/pwa/dirty';
 import type { SheetDay } from '../../lib/repo/hallSheet';
 import { at, cellsOf, digitKey, editKey, enterMove, gridKey, isRange, parseCount, parseTsv, pasteTargets, rangeOf, samePos, selectionTsv, within, type EditMode, type Pos, type Selection, type Shape } from './gridLogic';
 
@@ -20,7 +21,7 @@ import { at, cellsOf, digitKey, editKey, enterMove, gridKey, isRange, parseCount
 // والتراجع والإعادة، ومجموع النطاق كشريط حال إكسل. واللمس (أو شاشة اللمس): لمسة الخانة تفتح ورقتها السفلية القائمة.
 // وخانة العلف تفتح نافذة العلف ولا يُصرف شيء بضغطة (جواب المالك). والكتابة كلّها من الورقة نفسها (commit: save_flock_day
 // بنسخة صفّ اليوم وset_flock_gas بالطابور والرافع الواحد)، والقيمة تظهر فور الحفظ («بانتظار الرفع» حتى يُعرف مصيرها)، وما رُدّ يُقال في خانته. والتحديد
-// والمحرّر بيوم الخانة وعمودها لا برقم صفّها (المراجعة العدائية R3)، والمحرّر المفتوح لا يفقد تركيزه بنقرة (R1، R6).
+// والمحرّر بيوم الخانة وعمودها لا برقم صفّها (المراجعة العدائية R3)، والمحرّر المفتوح تعديلٌ لم يُحفظ (R2) لا يفقد تركيزه بنقرة (R1، R6).
 
 export type GridField = 'age' | 'date' | 'dead' | 'gas' | 'feed' | 'eggs' | 'note';
 export type WriteField = 'dead' | 'gas' | 'eggs' | 'note';
@@ -333,6 +334,8 @@ export function SheetGrid(props: SheetGridProps) {
   /** التركيز للجدول بعد كلّ تحديد أو حفظ ما دام العمل فيه؛ والخروج منه (نقرة على زرّ أو حقل آخر يحفظ المحرّر) لا يسحبه إليه. */
   const claimFocus = useRef(true);
   const handlers = useRef<{ copy: (event: ClipboardEvent) => void; paste: (event: ClipboardEvent) => void } | null>(null);
+  /** يحفظ المحرّر المفتوح حين تُترك الصفحة أو تُخفى (المراجعة R2): بأحدث رسم. */
+  const leaveRef = useRef<() => void>(() => undefined);
 
   useLayoutEffect(() => {
     propsRef.current = props;
@@ -1077,6 +1080,24 @@ export function SheetGrid(props: SheetGridProps) {
     if (wasActive.current && !active) pencilRef.current?.focus();
     wasActive.current = active;
   }, [active]);
+
+  // المحرّر المفتوح تعديلٌ لم يُحفظ (المراجعة R2): تحديث التطبيق وتعافيه ينتظران، وإغلاق التبويب يسأل أوّلاً؛ وترك الصفحة (الرجوع، Alt+←، رابط) أو إخفاؤها
+  // (pagehide) يحفظ ما كُتب كما يحفظه الخروج من الخانة، مرّة واحدة: الخروج إلى زرّ أو رابط حفظه قبلها فلا محرّر بعده.
+  useDirtyForm(Boolean(active && editingLive));
+  useLayoutEffect(() => {
+    leaveRef.current = () => {
+      if (editingRef.current) commitEditor(null, null);
+    };
+  });
+  useEffect(() => {
+    const leaving = leaveRef;
+    const onHide = () => leaving.current();
+    window.addEventListener('pagehide', onHide);
+    return () => {
+      window.removeEventListener('pagehide', onHide);
+      leaving.current();
+    };
+  }, []);
 
   // النسخ واللصق خارج الغلاف (المتصفّح يطلقهما على body والتركيز على خانة لا نصّ فيها)، وإفلات الفأرة في أيّ مكان.
   useLayoutEffect(() => {

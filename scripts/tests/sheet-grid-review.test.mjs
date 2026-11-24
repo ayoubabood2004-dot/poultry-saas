@@ -438,6 +438,46 @@ export default async function (t) {
       );
     });
 
+    // ── R2: المحرّر تعديلٌ لم يُحفظ ─────────────────────────────────────────────────────────────────────────────────
+    await step('R2', async () => {
+      const { sent } = await open();
+      await pencil();
+      const before = m.isWindowDirty();
+      await press('7');
+      const typing = [input()?.value, m.isWindowDirty()];
+      // الرجوع (أو Alt+←): الطريق يتغيّر وصفحة القاعة تزول والمحرّر مفتوح.
+      nav.go('/broiler');
+      await settle(200);
+      t.same([before, typing], [false, ['7', true]], 'R2 ما كُتب في خانة ولم يُحفظ يجعل النافذة «فيها ما لم يُحفظ» (useDirtyForm) كورقة الخانة: التحديث ينتظر وإغلاق التبويب يسأل');
+      t.same(
+        [ops(sent), m.isWindowDirty()],
+        [[['save_flock_day', TODAY, { dead: 7, culled: null }, 1]], false],
+        'R2 ترك الصفحة بتغيّر الطريق (الرجوع، Alt+←) يحفظ ما كُتب، والنافذة نظيفة بعده',
+      );
+    });
+
+    await step('R2 مرّة واحدة', async () => {
+      const { sent } = await open();
+      await pencil();
+      await press('8');
+      const done = byAction('sheet-edit-done')[0];
+      globalThis.document.activeElement = done;
+      fire(input(), 'focusout', { relatedTarget: done });
+      await settle(60);
+      nav.go('/broiler');
+      await settle(200);
+      t.same(ops(sent), [['save_flock_day', TODAY, { dead: 8, culled: null }, 1]], 'R2 ضابط: الخروج إلى زرّ حفظ ما كُتب، وتغيّر الطريق بعده لا يكتبه مرّة ثانية');
+    });
+
+    await step('R2 pagehide', async () => {
+      const { sent } = await open();
+      await pencil();
+      await press('6');
+      fire(globalThis.window, 'pagehide', { persisted: false });
+      await settle(200);
+      t.same([ops(sent), input()?.value ?? null], [[['save_flock_day', TODAY, { dead: 6, culled: null }, 1]], null], 'R2 إخفاء الصفحة (pagehide: إغلاق التبويب بعد السؤال، أو الذهاب إلى موقع آخر) يحفظ ما كُتب، بأفضل جهد');
+    });
+
     // ── R3: التحديد والمحرّر بيوم الخانة ─────────────────────────────────────────────────────────────────────────────
     await step('R3', async () => {
       const read = secondRead(earlier());
