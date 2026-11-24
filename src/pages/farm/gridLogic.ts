@@ -173,6 +173,8 @@ export type GridIntent =
   | { kind: 'backspace' }
   | { kind: 'undo' }
   | { kind: 'redo' }
+  /** Ctrl+D كإكسل: املأ النطاق من صفّه الأوّل (أو الخانة من التي فوقها)، بتأكيد اللصق نفسه. */
+  | { kind: 'fill' }
   | { kind: 'escape' }
   /** ليس للجدول (النسخ واللصق أحداثهما من المتصفّح، وغيرها يمرّ). */
   | { kind: 'pass' };
@@ -186,8 +188,12 @@ export const printable = (key: KeyLike): boolean => [...key.key].length === 1 &&
 /** عمود الشاشة التالي للسهم: في rtl السهم الأيسر إلى العمود التالي (+1) والأيمن إلى السابق. */
 export const arrowCols = (key: string, rtl: boolean): number => ((key === 'ArrowLeft') === rtl ? 1 : -1);
 
-/** ما يفعله مفتاح والجدول في وضع التعديل بلا خانة تُكتب الآن. */
+/**
+ * ما يفعله مفتاح والجدول في وضع التعديل بلا خانة تُكتب الآن. وكلّ مفتاح مع Alt للمتصفّح والنظام كما هو (Alt+← وAlt+→ رجوعٌ وتقدّم في الصفحات، لا تنقّل
+ * في الخانات؛ المراجعة R12).
+ */
 export function gridKey(sel: Selection, key: KeyLike, shape: Shape): GridIntent {
+  if (key.altKey) return { kind: 'pass' };
   const extend = Boolean(key.shiftKey);
   const from = extend ? sel.end : sel.cursor;
   const move = (target: Pos, keepTab = false): GridIntent => {
@@ -212,17 +218,16 @@ export function gridKey(sel: Selection, key: KeyLike, shape: Shape): GridIntent 
       return move(mod(key) ? { row: shape.rows - 1, col: shape.cols - 1 } : { row: from.row, col: shape.cols - 1 });
     case 'PageUp':
     case 'PageDown':
-      if (key.altKey) return { kind: 'pass' };
       return move({ row: from.row + (key.key === 'PageUp' ? -shape.page : shape.page), col: from.col });
     case 'Tab': {
-      if (mod(key) || key.altKey) return { kind: 'pass' };
+      if (mod(key)) return { kind: 'pass' };
       const selection = tabMove(sel, extend, shape);
       // من آخر خانة تُكتب (أو أوّلها بـShift) يخرج التركيز من الجدول إلى ما بعده في الصفحة (أو قبله: «انتهيت»)، فلوحة المفاتيح لا تُحبس فيه.
       if (samePos(selection.cursor, sel.cursor) && !isRange(sel)) return { kind: 'pass' };
       return { kind: 'move', selection, reveal: selection.cursor };
     }
     case 'Enter': {
-      if (mod(key) || key.altKey) return { kind: 'pass' };
+      if (mod(key)) return { kind: 'pass' };
       if (!isRange(sel) && sel.cursor.col === shape.opener) return { kind: 'open' };
       const selection = enterMove(sel, extend, shape);
       return { kind: 'move', selection, reveal: selection.cursor };
@@ -238,9 +243,10 @@ export function gridKey(sel: Selection, key: KeyLike, shape: Shape): GridIntent 
     default:
       break;
   }
-  if (mod(key) && !key.altKey) {
+  if (mod(key)) {
     if (letter(key, 'z')) return key.shiftKey ? { kind: 'redo' } : { kind: 'undo' };
     if (letter(key, 'y')) return { kind: 'redo' };
+    if (letter(key, 'd')) return { kind: 'fill' };
     if (letter(key, 'a')) {
       const selection = { cursor: sel.cursor, anchor: { row: 0, col: 0 }, end: { row: shape.rows - 1, col: shape.cols - 1 }, tabStart: null };
       return { kind: 'move', selection, reveal: sel.cursor };
@@ -264,19 +270,23 @@ export type EditMode = 'enter' | 'edit';
 export type EditIntent =
   /** احفظ ثمّ انتقل إلى then (أو ابقَ: then = null). */
   | { kind: 'commit'; then: Selection | null; reveal: Pos | null }
+  /** Ctrl+Enter والمحدّد نطاق: ما كُتب يملأ النطاق كلّه (كإكسل)، بتأكيد اللصق نفسه. */
+  | { kind: 'fill' }
   | { kind: 'cancel' }
   /** F2 يبدّل بين الوضعين. */
   | { kind: 'toggle' }
   | { kind: 'pass' };
 
 export function editKey(sel: Selection, key: KeyLike, mode: EditMode, shape: Shape): EditIntent {
+  // Alt مع أيّ مفتاح للمتصفّح (Alt+← رجوع) لا للمحرّر (المراجعة R12).
+  if (key.altKey) return { kind: 'pass' };
   const commit = (then: Selection | null): EditIntent => ({ kind: 'commit', then, reveal: then ? then.cursor : null });
   switch (key.key) {
     case 'Enter':
-      if (key.altKey) return { kind: 'pass' };
-      return commit(mod(key) ? null : enterMove(sel, Boolean(key.shiftKey), shape));
+      if (mod(key)) return isRange(sel) ? { kind: 'fill' } : commit(null);
+      return commit(enterMove(sel, Boolean(key.shiftKey), shape));
     case 'Tab':
-      if (mod(key) || key.altKey) return { kind: 'pass' };
+      if (mod(key)) return { kind: 'pass' };
       return commit(tabMove(sel, Boolean(key.shiftKey), shape));
     case 'Escape':
       return { kind: 'cancel' };
@@ -286,7 +296,7 @@ export function editKey(sel: Selection, key: KeyLike, mode: EditMode, shape: Sha
     case 'ArrowDown':
     case 'ArrowLeft':
     case 'ArrowRight': {
-      if (mode === 'edit' || mod(key) || key.altKey || key.shiftKey) return { kind: 'pass' };
+      if (mode === 'edit' || mod(key) || key.shiftKey) return { kind: 'pass' };
       const dRow = key.key === 'ArrowUp' ? -1 : key.key === 'ArrowDown' ? 1 : 0;
       const dCol = dRow === 0 ? arrowCols(key.key, shape.rtl) : 0;
       return commit(at(clamp({ row: sel.cursor.row + dRow, col: sel.cursor.col + dCol }, shape)));
@@ -404,4 +414,14 @@ export function pasteTargets(block: readonly (readonly string[])[], sel: Selecti
     }),
   );
   return { targets, outside };
+}
+
+/**
+ * Ctrl+D كإكسل (المراجعة R9): كلّ خانة في النطاق تحت صفّه الأوّل تأخذ قيمة خانة صفّه الأوّل في عمودها؛ وتحديدٌ بصفّ واحد (خانة أو صفّ) يأخذ قيم الصفّ الذي
+ * فوقه. لا شيء فوق أوّل صفّ في الورقة.
+ */
+export function fillDown(sel: Selection): { pos: Pos; from: Pos }[] {
+  const range = rangeOf(sel);
+  if (range.top === range.bottom) return range.top === 0 ? [] : cellsOf(range).map((pos) => ({ pos, from: { row: pos.row - 1, col: pos.col } }));
+  return cellsOf({ ...range, top: range.top + 1 }).map((pos) => ({ pos, from: { row: range.top, col: pos.col } }));
 }

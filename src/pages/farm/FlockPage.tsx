@@ -35,7 +35,7 @@ import { newTicketPath } from '../halls/ticketParts';
 import { CARD_CLASS, givePath, LINK_CLASS } from './feed';
 import { FlockEditDialog } from './FlockEditDialog';
 import { HallDialog, OpenFlockDialog } from './hallDialogs';
-import { SheetGrid, type CellChange, type CellValue, type ChangeCheck, type ChangeResult, type GridCell, type GridField, type SheetGridView } from './SheetGrid';
+import { SheetGrid, type CellChange, type CellValue, type ChangeCheck, type ChangeResult, type GridCell, type GridField, type SheetGridView, type SheetSubmit } from './SheetGrid';
 import { gasSoFar, loadTransport, parkText, soFar } from './roundText';
 import { farmPath, farmTitle, hallLabel, hallPath, loadOverviewKept, useStamp } from './shared';
 
@@ -332,12 +332,12 @@ function cellWrite(sheet: HallSheet, day: SheetDay, field: CellField, shown: Sho
 }
 
 /**
- * ورقة سفلية لخانة يوم: لوحة أرقام التطبيق تبدأ فارغة (فأوّل رقم هو القيمة، والمسجّل مكتوب فوقها)، و«تم» يحفظ بالطابور؛ والملاحظة نصّ. الحدود
- * قبل الحفظ كما يفحصها الخادم (الهلاكات لا تتجاوز الحيّ، والقناني حتى 1,000).
+ * ورقة سفلية لخانة يوم: لوحة أرقام التطبيق تبدأ فارغة (فأوّل رقم هو القيمة، والمسجّل مكتوب فوقها)، و«تم» يحفظ؛ والملاحظة نصّ. والحفظ بالجدول نفسه
+ * (submit من SheetGrid): القيمة تظهر في خانتها «بانتظار الرفع» وتدخل التراجع والإعادة كالمكتوب بلوحة المفاتيح (المراجعة R13)، بالطابور والرافع الواحد،
+ * والحدود قبل الحفظ بقواعد cellWrite نفسها (الهلاكات لا تتجاوز الحيّ، والقناني حتى 1,000).
  */
-function CellSheet({ sheet, day, field, shown, onClose, onSaved }: { sheet: HallSheet; day: SheetDay; field: CellField; shown: Shown; onClose: () => void; onSaved: () => void }) {
+function CellSheet({ day, field, shown, submit, onClose, onSaved }: { day: SheetDay; field: CellField; shown: Shown; submit: SheetSubmit; onClose: () => void; onSaved: () => void }) {
   const id = useId();
-  const stamp = useStamp();
   const online = useStore(onlineStore);
   const current = field === 'dead' ? (shown.recorded ? shown.dead : null) : field === 'gas' ? shown.gas : field === 'eggs' ? shown.eggs : null;
   const [value, setValue] = useState('');
@@ -350,43 +350,30 @@ function CellSheet({ sheet, day, field, shown, onClose, onSaved }: { sheet: Hall
   const clearable = field === 'gas' && shown.gas !== null;
 
   const save = async (clear = false) => {
-    if (!stamp || busy) return;
-    let outcome: CellWrite;
+    if (busy) return;
+    let written: CellValue;
     if (clear) {
       if (!clearable) return;
-      outcome = cellWrite(sheet, day, 'gas', shown, null);
+      written = null;
     } else if (isNote) {
-      outcome = cellWrite(sheet, day, 'note', shown, note);
+      written = note;
     } else {
       const n = /^[0-9]{1,8}$/u.test(value) ? Number(value) : null; // number-ok: عدد طيور أو قناني أو بيض من أرقام اللوحة وحدها
       if (n === null) return;
-      outcome = cellWrite(sheet, day, field, shown, n);
+      written = n;
     }
-    if (outcome.kind === 'error') {
-      setError(outcome.error);
-      return;
-    }
-    if (outcome.kind === 'same') {
-      onClose();
-      return;
-    }
-    const input = outcome.input;
     setBusy(true);
     setError(null);
-    try {
-      const op = await saveRound(await openOutbox(), stamp, input);
-      const results = online ? await uploadRounds(stamp, loadTransport).catch(() => []) : []; /* swallow-ok: الرفع فشل (IndexedDB)؛ العملية باقية بالجهاز وترتفع بالمحاولة الجاية */
-      if (!online) {
-        void refreshRoundQueue(stamp).catch(() => {
-          /* swallow-ok: عدّ الطابور تعذّر؛ الرأس يتحدّث بالرفع الجاي */
-        });
-      }
-      resultToast(op ? (results.find((entry) => entry.opId === op.id)?.result ?? null) : null, online);
-      onSaved();
-    } catch (failure) {
-      setError(`${describeError(failure).title} ${describeError(failure).detail}`);
+    const result = await submit(written);
+    // ما لم يُكتب (الحدود) أو لم يصل الطابور يبقى في الورقة بسببه؛ وما ردّه الخادم قيل بتنبيه وسببه في خانته.
+    if (result.kind === 'error' || (result.kind === 'failed' && !result.refused)) {
+      setError(result.kind === 'error' ? result.error : result.message);
       setBusy(false);
+      return;
     }
+    if (result.kind === 'saved') toast({ tone: 'success', title: t('sheet.saved', 'حُفظ.') });
+    else if (result.kind === 'device') resultToast(null, online);
+    onSaved();
   };
 
   const unit = field === 'gas' ? t('sheet.unit.gas', 'قنينة') : field === 'eggs' ? t('sheet.unit.eggs', 'بيضة') : t('sheet.unit.dead', 'طير');
@@ -1182,15 +1169,15 @@ function useSheetCells(sheet: HallSheet | null, flockId: string, ops: readonly O
   const check = useCallback(
     (changes: readonly CellChange[]): ChangeCheck[] => {
       if (!sheet) return changes.map(() => ({ kind: 'error', error: t('sheet.grid.no_day', 'هذا اليوم ليس في الورقة.') }));
-      // مجموع هلاكات اللصق: كلّ يوم يُقبل وحده حتى الحيّ، ومعاً لا تتجاوز الحيّ الآن (الخادم يردّ live_negative).
+      // مجموع هلاكات اللصق: كلّ يوم يُقبل وحده حتى الحيّ، ومعاً لا تتجاوز الحيّ الآن (الخادم يردّ live_negative). وهل التغيير تغييرٌ يقرّره الجدول بما
+      // تعرضه الخانة (ورفعٌ في الطريق معها)، لا لقطة هذا الرسم (المراجعة R11): هنا الحدود وحدها، وcommit يكتب بما في الطابور لحظتها.
       let liveLeft = sheet.summary.live;
       return changes.map((change): ChangeCheck => {
         const day = sheet.days.find((entry) => entry.on === change.on);
         if (!day) return { kind: 'error', error: t('sheet.grid.no_day', 'هذا اليوم ليس في الورقة.') };
         const shown = shownOf(day, ops, saved);
-        if (sameShown(change, shown)) return { kind: 'same' };
         const outcome = cellWrite(sheet, day, change.field, shown, change.value);
-        if (outcome.kind !== 'input') return outcome;
+        if (outcome.kind === 'error') return outcome;
         if (change.field === 'dead' && typeof change.value === 'number') {
           liveLeft -= change.value - day.dead;
           if (liveLeft < 0) return { kind: 'error', error: t('sheet.dead.max', 'الهلاكات أكثر من الطيور الحيّة ({live}).', { live: fmtInt(Math.max(sheet.summary.live, 0)) }) };
@@ -1246,7 +1233,7 @@ function useSheetCells(sheet: HallSheet | null, flockId: string, ops: readonly O
         let told = false;
         for (const { op, at } of queued) {
           const result = op ? (uploaded.find((entry) => entry.opId === op.id)?.result ?? null) : null;
-          const mapped: ChangeResult = result === null ? { kind: 'device' } : result.kind === 'saved' ? { kind: 'saved' } : { kind: 'failed', message: refusalText(result) };
+          const mapped: ChangeResult = result === null ? { kind: 'device' } : result.kind === 'saved' ? { kind: 'saved' } : { kind: 'failed', message: refusalText(result), refused: true };
           for (const index of at) results[index] = mapped;
           // ما رُدّ يُقال بتنبيه كورقة الخانة (أوّله وحده: لصق كثير لا يغرق الشاشة بالتنبيهات، والباقي في خاناته).
           if (result !== null && result.kind !== 'saved' && !told) {
@@ -1304,7 +1291,7 @@ function SheetScreen({ kind, flockId, nav, site, summary, onGone }: { kind: Floc
   const [tick, setTick] = useState(0);
   const device = useDeviceOps(flockId, tick);
   const saved = useSavedEdits(flockId);
-  const [editing, setEditing] = useState<{ on: Day; field: CellField } | null>(null);
+  const [editing, setEditing] = useState<{ on: Day; field: CellField; submit: SheetSubmit } | null>(null);
   const [feeding, setFeeding] = useState<Day | null>(null);
   const [weighing, setWeighing] = useState(false);
   // نافذة «عدّل الوجبة» بلقطة الفوج لحظة فتحها (نسخته التي رآها المستخدم)، لا بقراءة الحقل التي تأتي بعدها.
@@ -1410,7 +1397,7 @@ function SheetScreen({ kind, flockId, nav, site, summary, onGone }: { kind: Floc
             label={cells.label}
             check={cells.check}
             commit={cells.commit}
-            openSheet={(day, field) => setEditing({ on: day.on, field })}
+            openSheet={(day, field, submit) => setEditing({ on: day.on, field, submit })}
             openFeed={(day) => setFeeding(day.on)}
           >
             {(view) => <SheetTable sheet={sheet} ops={device.ops} saved={saved} view={view} />}
@@ -1449,10 +1436,10 @@ function SheetScreen({ kind, flockId, nav, site, summary, onGone }: { kind: Floc
       {editing && sheet && editDay ? (
         <CellSheet
           key={`${editing.on}:${editing.field}`}
-          sheet={sheet}
           day={editDay}
           field={editing.field}
           shown={shownOf(editDay, device.ops, saved)}
+          submit={editing.submit}
           onClose={() => setEditing(null)}
           // الورقة تُقرأ من جديد مع نتيجة الرفع (useUploadMark)، وعمليات الجهاز الآن؛ وبلا اتصال لا شيء يُقرأ.
           onSaved={() => {
