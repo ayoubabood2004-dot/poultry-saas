@@ -17,6 +17,15 @@ import { descendants, Element, fire, installDom, settle } from './dom.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const FIX = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sheet.hand.json'), 'utf8'));
+const read = (...parts) => {
+  try {
+    return readFileSync(path.join(ROOT, ...parts), 'utf8');
+  } catch {
+    return '';
+  }
+};
+const CSS = read('src', 'pages', 'farm', 'sheetGrid.css');
+const TOKENS = read('src', 'styles', 'tokens.css');
 const REAL_FLOCKS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'flocks.ts'));
 const REAL_SHEET = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'hallSheet.ts'));
 const STUBS = {
@@ -78,6 +87,50 @@ async function screens() {
   return load(result);
 }
 
+/** قواعد CSS بمحدِّدها وجسمها وما يحيط بها من قواعد @ (بالأقواس وحدها: الملف بلا نصوص فيها أقواس). */
+function cssRules(css) {
+  const text = css.replace(/\/\*[\s\S]*?\*\//gu, '');
+  const rules = [];
+  const stack = [];
+  let start = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    if (text[i] === '{') {
+      stack.push({ prelude: text.slice(start, i).trim(), body: i + 1 });
+      start = i + 1;
+    } else if (text[i] === '}') {
+      const open = stack.pop();
+      if (open && !open.prelude.startsWith('@')) rules.push({ selector: open.prelude.replace(/\s+/gu, ' '), body: text.slice(open.body, i).trim(), media: stack.map((entry) => entry.prelude) });
+      start = i + 1;
+    }
+  }
+  return rules;
+}
+
+/** رموز tokens.css لكلّ سمة: :root، و.dark، و.clarity، و.dark.clarity فوق ما قبلها. */
+function tokens(css) {
+  const block = (selector) => {
+    const at = css.indexOf(`${selector} {`);
+    if (at < 0) return {};
+    const body = css.slice(at, css.indexOf('}', at));
+    return Object.fromEntries([...body.matchAll(/--([a-z0-9-]+):\s*([0-9]+) ([0-9]+) ([0-9]+);/gu)].map((m) => [m[1], [Number(m[2]), Number(m[3]), Number(m[4])]]));
+  };
+  const light = block(':root');
+  const dark = { ...light, ...block('.dark') };
+  return { light, dark, clarity: { ...light, ...block('.clarity') }, 'dark+clarity': { ...dark, ...block('.dark.clarity') } };
+}
+const luminance = ([r, g, b]) => {
+  const f = (v) => {
+    const c = v / 255;
+    return c <= 0.03928 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4;
+  };
+  return 0.2126 * f(r) + 0.7152 * f(g) + 0.0722 * f(b);
+};
+const contrast = (a, b) => {
+  const [x, y] = [luminance(a), luminance(b)].sort((p, q) => q - p);
+  return (x + 0.05) / (y + 0.05);
+};
+const over = (fg, alpha, bg) => [0, 1, 2].map((i) => fg[i] * alpha + bg[i] * (1 - alpha));
+
 const body = () => globalThis.document.body;
 const all = () => descendants(body());
 const byAction = (name, root = body()) => descendants(root).filter((n) => n.getAttribute('data-action') === name);
@@ -121,6 +174,46 @@ export default async function (t) {
       const kinds = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'Home', 'End', 'PageDown', 'Enter', 'Tab', 'F2', 'Delete', 'z', '7'].map((key) => L.gridKey(s(20, 2), { key, altKey: true }, shape).kind);
       const inEditor = ['ArrowLeft', 'Enter', 'Escape', 'Tab'].map((key) => L.editKey(s(20, 2), { key, altKey: true }, 'enter', shape).kind);
       t.same([kinds, inEditor], [Array(12).fill('pass'), Array(4).fill('pass')], 'R12 Alt مع أيّ مفتاح للمتصفّح (Alt+← وAlt+→ رجوعٌ وتقدّم): لا يحرّك التحديد ولا يحفظ المحرّر');
+    }
+
+    // ── الأنماط (sheetGrid.css) ──────────────────────────────────────────────────────────────────────────────────────
+    {
+      const rules = cssRules(CSS);
+      const screenOnly = (rule) => rule.media.some((media) => /^@media\s+screen\b/u.test(media));
+      const printed = (rule) => rule.media.some((media) => /^@media\s+print\b/u.test(media));
+      const marks = rules.filter((rule) => /data-cursor|data-copied|aria-selected|data-edge|th\[data-sel\]|data-rowsel|data-locked/u.test(rule.selector) && /outline|box-shadow|background|color|font-weight|--sg-/u.test(rule.body));
+      t.same(
+        [marks.length >= 10, marks.filter((rule) => !screenOnly(rule)).map((rule) => rule.selector)],
+        [true, []],
+        'R7 علامات وضع التعديل كلّها للشاشة وحدها (إطار الخانة النشطة والمنسوخ، وصبغة النطاق وأطرافه، والرأس والصفّ المحدّدان، والخانة المقفولة): لا شيء منها على الورق',
+      );
+      t.ok(
+        rules.some((rule) => printed(rule) && /\.sg-input/u.test(rule.selector) && /display:\s*none/u.test(rule.body)) && rules.some((rule) => printed(rule) && /\.sg-ghost/u.test(rule.selector) && /visibility:\s*visible/u.test(rule.body)),
+        'R7 المحرّر المفتوح يُطبع بقيمة خانته المحفوظة لا بما كُتب ولم يُحفظ',
+      );
+      t.ok(rules.some((rule) => printed(rule) && rule.selector.includes('.sg-tools') && rule.selector.includes('.sg-bar') && /display:\s*none/u.test(rule.body)), 'M53 الطباعة بلا القلم وبلا شريط وضع التعديل');
+      t.ok(rules.some((rule) => rule.selector === ".sg-on td[aria-selected='true']" && /background-color:\s*rgb\(var\(--ring\) \/ 0\.1\d\)/u.test(rule.body)), 'M54 النطاق المحدّد مصبوغ بلون العلامة');
+      t.ok(rules.some((rule) => rule.selector === '.sg-on td[data-locked]' && /color:\s*rgb\(var\(--ink-subtle\)\)/u.test(rule.body) && /background-color:\s*rgb\(var\(--surface-2\)\)/u.test(rule.body)), 'M55 الخانة التي لا تُكتب أخفت (نصّ خافت على سطح ثانٍ)');
+      // أطراف النطاق: ظلّ داخليّ بلون العلامة لكلّ طرف، و≥ 3:1 على ما جاوره في السمات الأربع (السطح الأبيض، وصفّ اليوم، والصبغة داخل النطاق).
+      const edge = rules.find((rule) => rule.selector === '.sg-on td[data-edge]' && screenOnly(rule));
+      const sides = ['top', 'bottom', 'first', 'last'].map((side) => rules.some((rule) => rule.selector.includes(`data-edge~='${side}'`) && /--sg-[a-z]+:\s*[2-9]px/u.test(rule.body)));
+      const themes = tokens(TOKENS);
+      const ratios = Object.entries(themes).map(([name, theme]) => {
+        const ring = theme.ring;
+        const plain = theme['surface-1'];
+        const today = theme['surface-3'];
+        const tint = over(ring, 0.12, plain);
+        return [name, Math.min(contrast(ring, plain), contrast(ring, today), contrast(ring, tint)) >= 3];
+      });
+      t.same(
+        [Boolean(edge) && (edge?.body.match(/inset [^\n]*rgb\(var\(--ring\)\)/gu) ?? []).length === 4, sides, ratios],
+        [true, [true, true, true, true], [['light', true], ['dark', true], ['clarity', true], ['dark+clarity', true]]],
+        'R10 أطراف النطاق خطّ بلون العلامة (ظلّ داخليّ 2 نقطة لكلّ طرف) ≥ 3:1 على ما جاوره في الفاتح والداكن و«وضوح»، لا الصبغة وحدها (1.2:1)',
+      );
+      t.ok(
+        /@media \(forced-colors: active\)/u.test(CSS) && rules.some((rule) => rule.media.some((media) => /forced-colors:\s*active/u.test(media)) && rule.selector.includes("aria-selected='true'") && /background-color:\s*Highlight/u.test(rule.body) && /color:\s*HighlightText/u.test(rule.body)),
+        'R10 في الألوان المفروضة (التباين العالي في ويندوز) النطاق بلونَي التحديد في النظام (Highlight) لا بصبغة تمحوها',
+      );
     }
 
     // ── الحامل ─────────────────────────────────────────────────────────────────────────────────────────────────────

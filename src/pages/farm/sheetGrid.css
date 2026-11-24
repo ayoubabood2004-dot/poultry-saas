@@ -111,55 +111,104 @@
   scroll-margin-bottom: 0.25rem;
 }
 
-/* النطاق المحدّد: صبغة بلون العلامة. */
-.sg-on td[aria-selected='true'] {
-  background-color: rgb(var(--ring) / 0.12);
-}
+/* علامات وضع التعديل للشاشة وحدها: الطباعة في وضع التعديل تطبع الورقة كما هي مقفولة، بلا إطار الخانة النشطة ولا إطار المنسوخ ولا صبغة التحديد ولا رأس
+   العمود المحدّد (المراجعة R7). */
+@media screen {
+  /* النطاق المحدّد: صبغة بلون العلامة. */
+  .sg-on td[aria-selected='true'] {
+    background-color: rgb(var(--ring) / 0.12);
+  }
 
-/* الخانة النشطة: إطار واضح بلون العلامة مكان حلقة تركيز المتصفّح (ولوحة المفاتيح أعرض). */
-.sg-on td[data-cursor],
-.sg-on td[data-cursor]:focus {
-  outline-style: solid;
-  outline-width: 2px;
-  outline-color: rgb(var(--ring));
-  outline-offset: -2px;
-  background-color: rgb(var(--surface-1));
-}
+  /* وأطراف النطاق خطّ بلون العلامة (المراجعة R10: الصبغة وحدها 1.2:1 لا تُرى): العلامة على ما جاورها ≥ 3:1 في الفاتح والداكن و«وضوح» (5.4:1 على الأبيض،
+     و4.5:1 على الصبغة داخل النطاق، و7.6:1 على سطح الداكن). ظلّ داخليّ لكلّ طرف بمتغيّره (لا إطار يغيّر مقاس الخانة)، وجانبا البداية والنهاية من اتجاه
+     الصفحة (أوّل الأعمدة يمين الصفحة العربية). */
+  .sg-on td[data-edge] {
+    box-shadow:
+      inset 0 var(--sg-top, 0) 0 0 rgb(var(--ring)),
+      inset 0 calc(-1 * var(--sg-bottom, 0px)) 0 0 rgb(var(--ring)),
+      inset var(--sg-left, 0) 0 0 0 rgb(var(--ring)),
+      inset calc(-1 * var(--sg-right, 0px)) 0 0 0 rgb(var(--ring));
+  }
 
-.sg-on td[data-cursor]:focus-visible {
-  outline-width: 3px;
-  outline-offset: -3px;
-}
+  .sg-on td[data-edge~='top'] {
+    --sg-top: 2px;
+  }
 
-/* ما نُسخ: إطار متقطّع حتى Esc أو تعديل (كإكسل). */
-.sg-on td[data-copied] {
-  outline-style: dashed;
-  outline-width: 2px;
-  outline-color: rgb(var(--ring) / 0.75);
-  outline-offset: -3px;
-}
+  .sg-on td[data-edge~='bottom'] {
+    --sg-bottom: 2px;
+  }
 
-.sg-on td[data-copied][data-cursor] {
-  outline-style: solid;
-  outline-color: rgb(var(--ring));
-}
+  [dir='rtl'] .sg-on td[data-edge~='first'],
+  [dir='ltr'] .sg-on td[data-edge~='last'] {
+    --sg-right: 2px;
+  }
 
-/* رأس العمود المحدّد وخانتا الصفّ المحدّد (العمر والتاريخ) مظلّلة كرؤوس إكسل. */
-.sg-on th[data-sel] {
-  /* الرأس ثابت فوق الصفوف بالتمرير: الصبغة طبقة فوق لونه المعتم (لا لون شفّاف تظهر الصفوف من تحته). */
-  background-image: linear-gradient(rgb(var(--ring) / 0.22), rgb(var(--ring) / 0.22));
-  color: rgb(var(--ink));
-}
+  [dir='rtl'] .sg-on td[data-edge~='last'],
+  [dir='ltr'] .sg-on td[data-edge~='first'] {
+    --sg-left: 2px;
+  }
 
-.sg-on td[data-rowsel] {
-  background-color: rgb(var(--ring) / 0.16);
-  font-weight: 600;
-}
+  /* الخانة النشطة: إطار واضح بلون العلامة مكان حلقة تركيز المتصفّح (ولوحة المفاتيح أعرض). */
+  .sg-on td[data-cursor],
+  .sg-on td[data-cursor]:focus {
+    outline-style: solid;
+    outline-width: 2px;
+    outline-color: rgb(var(--ring));
+    outline-offset: -2px;
+    background-color: rgb(var(--surface-1));
+  }
 
-/* خانة لا تُكتب (يوم لم يأتِ): أخفت. */
-.sg-on td[data-locked] {
-  color: rgb(var(--ink-subtle));
-  background-color: rgb(var(--surface-2));
+  .sg-on td[data-cursor]:focus-visible {
+    outline-width: 3px;
+    outline-offset: -3px;
+  }
+
+  /* ما نُسخ: إطار متقطّع حتى Esc أو تعديل (كإكسل). */
+  .sg-on td[data-copied] {
+    outline-style: dashed;
+    outline-width: 2px;
+    outline-color: rgb(var(--ring) / 0.75);
+    outline-offset: -3px;
+  }
+
+  .sg-on td[data-copied][data-cursor] {
+    outline-style: solid;
+    outline-color: rgb(var(--ring));
+  }
+
+  /* رأس العمود المحدّد وخانتا الصفّ المحدّد (العمر والتاريخ) مظلّلة كرؤوس إكسل. */
+  .sg-on th[data-sel] {
+    /* الرأس ثابت فوق الصفوف بالتمرير: الصبغة طبقة فوق لونه المعتم (لا لون شفّاف تظهر الصفوف من تحته). */
+    background-image: linear-gradient(rgb(var(--ring) / 0.22), rgb(var(--ring) / 0.22));
+    color: rgb(var(--ink));
+  }
+
+  .sg-on td[data-rowsel] {
+    background-color: rgb(var(--ring) / 0.16);
+    font-weight: 600;
+  }
+
+  /* خانة لا تُكتب (يوم لم يأتِ): أخفت. */
+  .sg-on td[data-locked] {
+    color: rgb(var(--ink-subtle));
+    background-color: rgb(var(--surface-2));
+  }
+
+  /* التباين العالي في ويندوز (forced colors) يمحو الصبغة والظلّ: النطاق بلونَي التحديد في النظام هو وما فيه من نصّ، والخانة النشطة بلون الصفحة وإطارها
+     (المراجعة R10). */
+  @media (forced-colors: active) {
+    .sg-on td[aria-selected='true'],
+    .sg-on td[aria-selected='true'] * {
+      background-color: Highlight;
+      color: HighlightText;
+    }
+
+    .sg-on td[data-cursor],
+    .sg-on td[data-cursor] * {
+      background-color: Canvas;
+      color: CanvasText;
+    }
+  }
 }
 
 /* ─── المحرّر داخل الخانة ───────────────────────────────────────────────────────────────────────────────────── */
@@ -212,11 +261,20 @@
   direction: rtl;
 }
 
-/* ─── الطباعة: لا أشرطة تعديل ───────────────────────────────────────────────────────────────────────────────── */
+/* ─── الطباعة: الورقة كما هي مقفولة ───────────────────────────────────────────────────────────────────────────── */
 
+/* لا أشرطة تعديل (وعلامات وضع التعديل أعلاه للشاشة وحدها)، والمحرّر المفتوح يُطبع بقيمة خانته المحفوظة لا بما كُتب ولم يُحفظ. */
 @media print {
   .sg-tools,
   .sg-bar {
     display: none;
+  }
+
+  .sg-input {
+    display: none;
+  }
+
+  .sg-ghost {
+    visibility: visible;
   }
 }
