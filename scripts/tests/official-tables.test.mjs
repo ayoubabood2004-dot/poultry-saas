@@ -2,7 +2,8 @@
 // ويكون الكلام الي بيها واضح ايضا واسماء الجداول يكون بيها لون بالخلفية مالتها مثل ترتيب المستشفيات»، و«تطلع بشكل رسمي مثل تقارير المستشفيات»).
 // P الجدول العاديّ (بلا variant أو 'plain') بالعلامات نفسها حرفاً حرفاً كما قبل 0036: لقطاتها في fixtures/datatable-plain.json أُخذت من المصدر قبل التغيير
 //   (DATATABLE_PLAIN_OUT=1 يعيد كتابتها، ولا يُستعمل إلّا على مصدر لم يتغيّر فيه الجدول العاديّ).
-// O الجدول الرسميّ: شريط العنوان (caption أو title) خارج إطار التمرير، والإطار overflow-auto، والجدول ofc-grid بحجمه، والرأس يلتفّ بلا أصناف العاديّ،
+// O الجدول الرسميّ: شريط العنوان (caption أو title) خارج إطار التمرير عنواناً لقارئ الشاشة بمستواه (titleLevel، مراجعة 0036 R3)، والإطار overflow-auto
+//   بحدّه، والجدول ofc-grid بحجمه، والرأس يلتفّ بلا أصناف العاديّ،
 //   والنصّ ofc-text يلتفّ والبيان ofc-wrap والرقم سطر واحد، والمجاميع بلا أصناف العاديّ، ولا truncate، والثابت والنبرة كما هما.
 // C official.css: الرموز بالسمتين وكلّ نصّ على خلفية ملوّنة ≥ 4.5:1، والطباعة بالألوان، والجدول كلّه على الورق برأس يتكرّر، والصفحة العريضة، وكلّ اسم ofc-
 //   مستعمل له قاعدة ولا يولّد له Tailwind شيئاً، ولا @tailwind ولا @apply (CSS الإقلاع لا يكبر).
@@ -170,10 +171,10 @@ export default async function (t) {
   {
     const html = official('sheet_md');
     const outer = html.match(/^<div class="([^"]*)">/u)?.[1];
-    const band = html.match(/^<div class="ofc"><div class="ofc-band" aria-hidden="true">([^<]*)<\/div>/u)?.[1];
+    const band = html.match(/^<div class="ofc"><div class="ofc-band" role="heading" aria-level="2">([^<]*)<\/div>/u)?.[1];
     const frame = html.match(/<\/div><div class="([^"]*)"><table/u)?.[1];
-    t.same([outer, band, frame], ['ofc', 'أيام الوجبة', 'ofc-frame max-h-[70dvh] overflow-auto'], 'O1 شريط العنوان باسم الجدول (caption) فوق إطار التمرير، والإطار overflow-auto كالعاديّ');
-    t.ok(html.includes('<caption class="sr-only">أيام الوجبة</caption>'), 'O1 وcaption الجدول لقارئ الشاشة باقٍ (والشريط aria-hidden فلا يُقرأ مرّتين)');
+    t.same([outer, band, frame], ['ofc', 'أيام الوجبة', 'ofc-frame max-h-[70dvh] overflow-auto'], 'O1 شريط العنوان باسم الجدول (caption) فوق إطار التمرير عنواناً من المستوى الثاني افتراضاً، والإطار overflow-auto بحدّه كالعاديّ');
+    t.ok(html.includes('<caption class="sr-only">أيام الوجبة</caption>') && !html.includes('aria-hidden'), 'O1 وcaption الجدول اسمه لقارئ الشاشة باقٍ، والشريط لا يُخفى عنه (يُتنقَّل إليه بالعناوين)');
     t.same(words(classesOf(html, 'table')[0]), ['w-full', 'border-separate', 'border-spacing-0', 'ofc-grid'], 'O1 الجدول ofc-grid (الحجم المتوسّط أساسه)، بلا text-sm ولا حوافّ العاديّ');
     const heads = classesOf(between(html, '<thead>', '</thead>'), 'th');
     t.same(
@@ -206,11 +207,11 @@ export default async function (t) {
     t.ok(!/truncate|line-clamp|text-ellipsis/u.test(html), 'O5 لا قصّ في أيّ خلية (لا truncate ولا line-clamp)');
   }
   {
-    const html = official('sheet_sm', { title: 'عنوان آخر' });
+    const html = official('sheet_sm', { title: 'عنوان آخر', titleLevel: 3 });
     t.same(
-      [html.match(/<div class="ofc-band" aria-hidden="true">([^<]*)<\/div>/u)?.[1], words(classesOf(html, 'table')[0]).slice(-2), /<caption class="sr-only">هلاكات قاعة \(7\)<\/caption>/u.test(html)],
+      [html.match(/<div class="ofc-band" role="heading" aria-level="3">([^<]*)<\/div>/u)?.[1], words(classesOf(html, 'table')[0]).slice(-2), /<caption class="sr-only">هلاكات قاعة \(7\)<\/caption>/u.test(html)],
       ['عنوان آخر', ['ofc-grid', 'ofc-sm'], true],
-      'O6 title يغلب caption في الشريط وحده، والحجم الصغير ofc-sm',
+      'O6 title يغلب caption في الشريط وحده، وtitleLevel مستواه عنواناً، والحجم الصغير ofc-sm',
     );
     const marked = html.match(/<tr class="([^"]*)" data-tone="mark">/u)?.[1];
     t.ok(marked !== undefined && words(marked).includes('bg-surface-3'), 'O6 صفّ اليوم المختار بخلفيته ونبرته كالعاديّ');
@@ -291,22 +292,20 @@ export default async function (t) {
       'C3 الصفحة العريضة: <main data-wide> حتى 100rem (أعرض من max-w-6xl = 72rem) والشريط العلويّ معها، وعلى الورق بلا حدّ',
     );
     t.ok(!/@tailwind|@apply|theme\(/u.test(css), 'C4 لا @tailwind ولا @apply ولا theme(): الملفّ لا يولّد أصناف Tailwind');
-    // ما أمسكته صور Chromium (عرض 1280 و390): التاريخ انكسر «13/11/202» ثمّ «6» بـoverflow-wrap: anywhere، وجداول التقرير كانت صناديق تمرير بارتفاع 70٪،
-    // وشبكة البيانات صفّاً ناقصاً؛ وورقة القاعة بعرض 360 خرجت 22 نقطة عن إطارها بخطّ الرأس 15.
+    // ما أمسكته صور Chromium (عرض 1280 و390): التاريخ انكسر «13/11/202» ثمّ «6» بـoverflow-wrap: anywhere؛ وورقة القاعة بعرض 360 خرجت 22 نقطة عن
+    // إطارها بخطّ الرأس 15. ومراجعة 0036 بدّلت حقيقتين كانتا هنا: جداول التقرير على الشاشة في إطارها المحدود برأسٍ ثابت (R2)، وشبكة البيانات بعرضها هي (R1)؛
+    // فحوصهما بقواعد مقروءة بسياقها في official-review.
     const plainCss = css.replace(/\/\*[\s\S]*?\*\//gu, '');
     t.same(
       [
         /\.ofc-grid bdi\s*\{\s*white-space: nowrap;/u.test(plainCss),
         /overflow-wrap: anywhere/u.test(plainCss),
-        /\.ofc-paper \.ofc-frame\s*\{\s*max-height: none;/u.test(plainCss),
-        /\.ofc-info\s*\{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/u.test(plainCss),
-        /@media \(min-width: 640px\)\s*\{\s*\.ofc-info\s*\{\s*grid-template-columns: repeat\(var\(--ofc-cols, 4\), minmax\(0, 1fr\)\);/u.test(plainCss),
         /\.ofc-sm > thead > tr > th\s*\{\s*min-width: 0;\s*font-size: 0\.8125rem;/u.test(plainCss),
         /\.ofc-grid td \.flex-col > bdi\s*\{\s*align-self: flex-start;/u.test(plainCss),
         /\[data-capture\] \.ofc-info\s*\{\s*grid-template-columns: repeat\(var\(--ofc-cols, 4\), minmax\(0, 1fr\)\);/u.test(plainCss),
       ],
-      [true, false, true, true, true, true, true, true],
-      'C6 الرقم والتاريخ لا ينكسران، وجداول الورقة تجري معها بلا صندوق تمرير، وشبكة البيانات عمودان بالهاتف وصفوفٌ ممتلئة من 640، ورؤوس الورقة 13 نقطة بالهاتف، والرقم فوق كلمته على جانب البداية',
+      [true, false, true, true, true],
+      'C6 الرقم والتاريخ لا ينكسران، ورؤوس الورقة 13 نقطة بالهاتف، والرقم فوق كلمته على جانب البداية، وشبكة البيانات في الصورة بأعمدة --ofc-cols',
     );
     // كلّ اسم ofc- في الشاشات له قاعدة هنا، وكلّ قاعدة لاسمٍ مستعمل، ولا يولّد Tailwind لأيّ منها شيئاً (CSS الإقلاع كما هو).
     const used = new Set();

@@ -139,6 +139,7 @@ export function DataTable<Row>({
   rowTone,
   variant,
   title,
+  titleLevel = 2,
   grid,
 }: {
   /** وصف الجدول لقارئ الشاشة. */
@@ -172,6 +173,11 @@ export function DataTable<Row>({
   variant?: TableVariant;
   /** نصّ شريط العنوان في الجدول الرسميّ إن خالف caption (عنوان القسم أقصر من وصف الجدول لقارئ الشاشة). */
   title?: string;
+  /**
+   * مستوى شريط العنوان عنواناً لقارئ الشاشة في الجدول الرسميّ: 2 تحت عنوان الصفحة (تقرير الوجبة وورقة القاعة وجدول اليوم)، و3 داخل قسمٍ عنوانه h2
+   * («منذ أن بدأنا»)، كعناوين h2 وh3 قبل 0036.
+   */
+  titleLevel?: 2 | 3;
   /** شبكة كإكسل: سمات الجدول والخلايا والرؤوس (DataGrid)؛ بلاها لا يتغيّر شيء. */
   grid?: DataGrid<Row>;
 }) {
@@ -292,11 +298,12 @@ export function DataTable<Row>({
         ) : null}
       </table>
   );
-  // الرسميّ: شريط العنوان خارج إطار التمرير (يبقى ظاهراً حين يُمرَّر الجدول أفقيّاً في الهاتف)، والإطار overflow-auto كالعاديّ (ورقة القاعة تمرّره إلى
-  // صفّ اليوم). والشريط نصّ مرئيّ فقط: قارئ الشاشة يسمع caption الجدول، فلا يُقرأ العنوان مرّتين.
+  // الرسميّ: شريط العنوان خارج إطار التمرير (يبقى ظاهراً حين يُمرَّر الجدول أفقيّاً في الهاتف)، والإطار overflow-auto بحدّ ارتفاعه كالعاديّ (ورقة القاعة
+  // تمرّره إلى صفّ اليوم، والرأس ثابت فيه). والشريط عنوانٌ لقارئ الشاشة بمستواه (مراجعة 0036 R3: يُتنقَّل إليه بالعناوين كما كانت h2 وh3 قبله)، وcaption
+  // الجدول اسمه كما كان.
   return official ? (
     <div className="ofc">
-      <div className="ofc-band" aria-hidden="true">
+      <div className="ofc-band" role="heading" aria-level={titleLevel}>
         {title ?? caption}
       </div>
       <div className="ofc-frame max-h-[70dvh] overflow-auto">{table}</div>

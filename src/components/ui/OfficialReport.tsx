@@ -2,8 +2,9 @@ import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } 
 import { flushSync } from 'react-dom';
 import { localDay } from '../../domain/dates';
 import { fmtDay, fmtInt } from '../../lib/format';
-import { t } from '../../lib/i18n';
+import { t, Trans } from '../../lib/i18n';
 import { wideStore } from '../../lib/wide';
+import { Num } from './DataTable';
 import './official.css';
 
 // التقرير الرسميّ «مثل تقارير المستشفيات» (عقد 0036 S1، كلمة المالك 2026-11-24): رأسٌ باسم المنشأة وعنوان التقرير وشبكة بيانات بمربّعات، وأشرطة أقسام
@@ -19,10 +20,20 @@ export function useWidePage(): void {
 }
 
 const pad = (n: number): string => `${n < 10 ? '0' : ''}${fmtInt(n)}`;
+/** «09:05» بساعة الجهاز. */
+const clockOf = (at: Date): string => `${pad(at.getHours())}:${pad(at.getMinutes())}`;
 
 /** «24/11/2026 الساعة 09:05» بساعة الجهاز ويومه (localDay، لا يوم غرينتش). */
 export function printedText(at: Date): string {
-  return t('report.when', '{day} الساعة {time}', { day: fmtDay(localDay(at)), time: `${pad(at.getHours())}:${pad(at.getMinutes())}` });
+  return t('report.when', '{day} الساعة {time}', { day: fmtDay(localDay(at)), time: clockOf(at) });
+}
+
+/**
+ * النصّ نفسه في مربّع «طُبع في» من شبكة البيانات: اليوم والوقت كلٌّ في Num (LTR معزول، وسطرٌ واحد في official.css)، فيلتفّ المربّع الضيّق بين الكلمات
+ * ولا ينكسر التاريخ ولا الوقت (مراجعة 0036 R1).
+ */
+export function PrintedAt({ at }: { at: Date }) {
+  return <Trans k="report.when" text="{day} الساعة {time}" vars={{ day: <Num>{fmtDay(localDay(at))}</Num>, time: <Num>{clockOf(at)}</Num> }} />;
 }
 
 /**

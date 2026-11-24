@@ -6,7 +6,7 @@ import { Dialog } from '../../components/ui/Dialog';
 import { Field } from '../../components/ui/Field';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
-import { printedText, ReportFooter, ReportHeader, usePrintedAt, useWidePage, type InfoItem } from '../../components/ui/OfficialReport';
+import { PrintedAt, ReportFooter, ReportHeader, usePrintedAt, useWidePage, type InfoItem } from '../../components/ui/OfficialReport';
 import { toast } from '../../components/ui/Toast';
 import { addDays, localDay, type Day } from '../../domain/dates';
 import type { Milli } from '../../domain/money';
@@ -19,7 +19,7 @@ import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
 import { BackLink, backLabel, dash, daysText, decimalsOf, grams, kgText, kindLabel, pct, printAs, qtyText, reportsBack, stateLabel, unweighedText } from './parts';
 import { HallsNoteDialog, HistorySections, monthStartOf, NoteBlock } from './dailyHistory';
-import { downloadFile, imageName, reportImage, sendFile } from './reportImage';
+import { downloadFile, IMAGE_WIDTH, imageName, reportImage, sendFile } from './reportImage';
 import { signedCount } from './ticketParts';
 
 // تقرير القاعات اليومي (0027، كلمة المالك 2026-11-12: «تقارير القاعات الي تطلعلي بشكل يومي»، docs/HALLS_REPORTS_PLAN.md): /halls/day?on=YYYY-MM-DD
@@ -67,7 +67,7 @@ export function dayInfo(data: HallsDay, printedAt: Date): InfoItem[] {
     { key: 'sites', label: t('halls.day.info.sites', 'الحقول'), value: <Num>{fmtInt(data.sites.length)}</Num> },
     { key: 'halls', label: t('halls.day.info.halls', 'القاعات'), value: <Num>{fmtInt(halls)}</Num> },
     { key: 'report_day', label: t('report.info.day', 'تاريخ التقرير'), value: <Num>{fmtDay(data.today)}</Num> },
-    { key: 'printed', label: t('report.info.printed', 'طُبع في'), value: printedText(printedAt) },
+    { key: 'printed', label: t('report.info.printed', 'طُبع في'), value: <PrintedAt at={printedAt} /> },
   ];
 }
 
@@ -243,7 +243,8 @@ function DayReport({ data }: { data: HallsDay }) {
       header: t('halls.day.col.hall', 'القاعة'),
       sticky: true,
       cell: ({ hall, site }) => (
-        <span className="flex flex-col gap-0.5" data-action="day-hall" data-hall={hall.hallId}>
+        // اسم القاعة سطرٌ واحد كما كان في الجدول العاديّ قبل 0036 (مراجعة 0036 R8: «قاعة البيض 1» التفّت سطرين بالهاتف).
+        <span className="flex flex-col gap-0.5 whitespace-nowrap" data-action="day-hall" data-hall={hall.hallId}>
           <HallName hall={hall} />
           {many ? <span className="text-xs text-ink-muted">{site.name}</span> : null}
         </span>
@@ -617,7 +618,8 @@ export default function DailyPage() {
     printed.stamp();
     let file: File;
     try {
-      file = await reportImage(page, imageName(on));
+      // فاتحةٌ دائماً كالورقة المطبوعة (مراجعة 0036 R7): تُرسل لغير صاحب الجهاز، ولو كانت الصفحة بالسمة الداكنة.
+      file = await reportImage(page, imageName(on), IMAGE_WIDTH, { light: true });
     } catch {
       setImaging(false);
       toast({ tone: 'danger', title: t('halls.day.image.failed', 'تعذّر تجهيز الصورة على هذا الجهاز. اطبع التقرير أو احفظه PDF بدلاً من ذلك.') });
@@ -643,22 +645,22 @@ export default function DailyPage() {
 
       <div className="flex flex-col gap-3 print:hidden" data-action="day-controls">
         <div className="flex flex-wrap items-center gap-2" data-action="day-bar">
-          <Button size="sm" variant="secondary" disabled={prevOff} onClick={() => step(-1)} data-action="day-prev">
+          <Button variant="secondary" disabled={prevOff} onClick={() => step(-1)} data-action="day-prev">
             {t('halls.day.prev', 'اليوم السابق')}
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => setPicking(true)} aria-label={t('halls.day.pick', 'اختر يوماً آخر (المطلوب {day})', { day: dayLabel })} data-action="day-pick">
+          <Button variant="ghost" onClick={() => setPicking(true)} aria-label={t('halls.day.pick', 'اختر يوماً آخر (المطلوب {day})', { day: dayLabel })} data-action="day-pick">
             {dayLabel}
           </Button>
-          <Button size="sm" variant="secondary" disabled={nextOff} onClick={() => step(1)} data-action="day-next">
+          <Button variant="secondary" disabled={nextOff} onClick={() => step(1)} data-action="day-next">
             {t('halls.day.next', 'اليوم التالي')}
           </Button>
           {following ? null : (
-            <Button size="sm" variant="ghost" onClick={() => go(null)} data-action="day-today">
+            <Button variant="ghost" onClick={() => go(null)} data-action="day-today">
               {t('halls.day.today', 'اليوم')}
             </Button>
           )}
         </div>
-        {/* أفعال التقرير بارتفاع 44 نقطة (عقد 0036 S1) كأفعال تقرير الوجبة. */}
+        {/* أفعال التقرير والتنقّل بين الأيّام بارتفاع 44 نقطة (عقد 0036 S1، ومراجعته R5) كأفعال تقرير الوجبة. */}
         <div className="flex flex-wrap items-center gap-2">
           <Button disabled={!current || !historyReady || history.loading} busy={imaging} onClick={() => void sendImage()} data-action="send-image">
             {imaging ? t('halls.day.image.making', 'جارٍ تجهيز الصورة…') : t('halls.day.image', 'أرسل صورة')}
@@ -676,11 +678,10 @@ export default function DailyPage() {
             title={t('halls.day.image.ready', 'الصورة جاهزة: اضغط «أرسلها» لتختار التطبيق ومن ترسلها إليه.')}
             action={
               <div className="flex flex-wrap gap-2">
-                <Button size="sm" onClick={() => void deliver(readyNow.file, readyNow.on, readyNow.title)} data-action="send-ready">
+                <Button onClick={() => void deliver(readyNow.file, readyNow.on, readyNow.title)} data-action="send-ready">
                   {t('halls.day.image.send', 'أرسلها')}
                 </Button>
                 <Button
-                  size="sm"
                   variant="secondary"
                   onClick={() => {
                     downloadFile(readyNow.file);

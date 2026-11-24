@@ -821,10 +821,17 @@ export default async function (t) {
             true,
             'daily-page',
             `${m.IMAGE_WIDTH}px`,
-            { width: 720, pixelRatio: 2, backgroundColor: 'rgb(8, 13, 23)', preferredFontFormat: 'woff2', style: { margin: '0' } },
+            {
+              width: 720,
+              pixelRatio: 2,
+              backgroundColor: 'rgb(243, 248, 253)',
+              preferredFontFormat: 'woff2',
+              style: { margin: '0' },
+              imagePlaceholder: 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7',
+            },
             [true, true, true, true],
           ],
-          'I1 الصورة نسخةٌ من الصفحة كلّها (اليوم و«منذ أن بدأنا» والملاحظة) بـdata-capture في المستند وبعرض ثابت 720 ومقياس 2 وخلفية سطح السمة الحاليّة',
+          'I1 الصورة نسخةٌ من الصفحة كلّها (اليوم و«منذ أن بدأنا» والملاحظة) بـdata-capture في المستند وبعرض ثابت 720 ومقياس 2، وفاتحةٌ كالورقة المطبوعة ولو كان سطح الصفحة داكناً (مراجعة 0036 R7: خلفية سطح السمة الفاتحة لا سطح السمة الحاليّة)',
         );
         t.same(
           [shared.length, file instanceof File, file?.type, file?.name, shared[0]?.title, all().filter((n) => n.hasAttribute('data-capture')).length, toasts(), clicked.length],

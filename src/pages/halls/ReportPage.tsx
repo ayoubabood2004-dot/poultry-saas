@@ -4,18 +4,18 @@ import { Button } from '../../components/ui/Button';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
-import { printedText, ReportFooter, ReportHeader, usePrintedAt, useWidePage, type InfoItem } from '../../components/ui/OfficialReport';
+import { PrintedAt, ReportFooter, ReportHeader, usePrintedAt, useWidePage, type InfoItem } from '../../components/ui/OfficialReport';
 import { toast } from '../../components/ui/Toast';
 import type { Milli } from '../../domain/money';
 import { RejectedError } from '../../lib/errors';
 import { columnDecimals, fmtDay, fmtInt, fmtQtyCell, fmtScaledCell } from '../../lib/format';
-import { t } from '../../lib/i18n';
+import { t, Trans } from '../../lib/i18n';
 import { loadHallSheet, type HallSheet, type SheetDay } from '../../lib/repo/hallSheet';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
 import { sheetHallName } from '../farm/FlockPage';
 import { BackLink, backLabel, backTarget, flockPath, pct, printAs } from './parts';
-import { downloadFile, reportImage, sendFile } from './reportImage';
+import { downloadFile, IMAGE_WIDTH, reportImage, sendFile } from './reportImage';
 
 // «تقرير الوجبة» (طلب المالك 2026-11-21: «تقارير مبسّطة بجداول أرقام مثل ورقته»؛ عقد 0034/0035 S2، docs/HALLS_SHEET_PLAN.md المرحلة ٣):
 // /halls/report/:flockId بقراءة hall_sheet واحدة. خلاصة الوجبة جدولاً (الداخل، والهلاكات ونسبتها، والباقي، والعلف المرسل بالكيلو والأكياس، والغاز،
@@ -177,10 +177,11 @@ export function batchInfo(sheet: HallSheet, printedAt: Date): InfoItem[] {
     {
       key: 'state',
       label: t('batch.info.state', 'الحالة'),
-      value: flock.status === 'closed' && flock.closedOn ? t('batch.info.closed', 'أُغلقت يوم {day}', { day: fmtDay(flock.closedOn) }) : t('batch.info.open', 'قائمة'),
+      value:
+        flock.status === 'closed' && flock.closedOn ? <Trans k="batch.info.closed" text="أُغلقت يوم {day}" vars={{ day: <Num>{fmtDay(flock.closedOn)}</Num> }} /> : t('batch.info.open', 'قائمة'),
     },
     { key: 'report_day', label: t('report.info.day', 'تاريخ التقرير'), value: <Num>{fmtDay(sheet.today)}</Num> },
-    { key: 'printed', label: t('report.info.printed', 'طُبع في'), value: printedText(printedAt) },
+    { key: 'printed', label: t('report.info.printed', 'طُبع في'), value: <PrintedAt at={printedAt} /> },
   ];
 }
 
@@ -217,7 +218,8 @@ function BatchView({ flockId }: { flockId: string }) {
     printed.stamp();
     let file: File;
     try {
-      file = await reportImage(page, `batch-report-${sheet.flock.placedOn}-${sheet.today}.png`);
+      // فاتحةٌ دائماً كالورقة المطبوعة (مراجعة 0036 R7): تُرسل لغير صاحب الجهاز، ولو كانت الصفحة بالسمة الداكنة.
+      file = await reportImage(page, `batch-report-${sheet.flock.placedOn}-${sheet.today}.png`, IMAGE_WIDTH, { light: true });
     } catch {
       setImaging(false);
       toast({ tone: 'danger', title: t('halls.day.image.failed', 'تعذّر تجهيز الصورة على هذا الجهاز. اطبع التقرير أو احفظه PDF بدلاً من ذلك.') });
@@ -249,11 +251,10 @@ function BatchView({ flockId }: { flockId: string }) {
               title={t('halls.day.image.ready', 'الصورة جاهزة: اضغط «أرسلها» لتختار التطبيق ومن ترسلها إليه.')}
               action={
                 <div className="flex flex-wrap gap-2">
-                  <Button size="sm" onClick={() => void deliver(ready.file, ready.title)} data-action="batch-send-ready">
+                  <Button onClick={() => void deliver(ready.file, ready.title)} data-action="batch-send-ready">
                     {t('halls.day.image.send', 'أرسلها')}
                   </Button>
                   <Button
-                    size="sm"
                     variant="secondary"
                     onClick={() => {
                       downloadFile(ready.file);

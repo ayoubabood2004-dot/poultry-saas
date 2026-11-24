@@ -1113,9 +1113,15 @@ export default async function (t) {
       const frame = ancestor(sheetTable(), (n2) => classOf(n2).split(' ').includes('ofc-frame'));
       const outer = frame?.parentNode ?? null;
       t.same(
-        [left, outer ? classOf(outer) : null, outer?.children[0] ? [classOf(outer.children[0]), outer.children[0].getAttribute('aria-hidden'), outer.children[0].textContent] : null, classOf(frame).includes('overflow-auto'), m.wideStore.get()],
-        [0, 'ofc', ['ofc-band', 'true', 'هلاكات قاعة (7)'], true, 1],
-        'O2 عنوان الورقة «هلاكات قاعة (7)» شريطُ الجدول الملوّن فوق إطاره (والإطار يُمرَّر إلى اليوم كما كان)، والصفحة عريضة ما دامت مركّبة (وتقرير الوجبة تركها حين أُزيل)',
+        [
+          left,
+          outer ? classOf(outer) : null,
+          outer?.children[0] ? [classOf(outer.children[0]), outer.children[0].getAttribute('role'), outer.children[0].getAttribute('aria-level'), outer.children[0].getAttribute('aria-hidden'), outer.children[0].textContent] : null,
+          classOf(frame).includes('overflow-auto'),
+          m.wideStore.get(),
+        ],
+        [0, 'ofc', ['ofc-band', 'heading', '2', null, 'هلاكات قاعة (7)'], true, 2],
+        'O2 عنوان الورقة «هلاكات قاعة (7)» شريطُ الجدول الملوّن فوق إطاره عنواناً من المستوى الثاني (مراجعة 0036 R3؛ والإطار يُمرَّر إلى اليوم كما كان)، والصفحة عريضة ما دامت مركّبة: صفحة القاعة والورقة كلتاهما (R6؛ والورقة وحدها في /flock/:id)، وتقرير الوجبة تركها حين أُزيل',
       );
     });
   } finally {

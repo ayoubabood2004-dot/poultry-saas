@@ -20,7 +20,8 @@ import { birdsText, signedCount } from './ticketParts';
 // يوم التقرير يوماً بيوم (يوم التقرير مميَّز بخلفيته وبكلمته)، وصفّ مجموعه سطرُ الشهر من months كما قاله الخادم (لا جمع بالشاشة)؛ وجدول الأشهر من البداية
 // بصفّ «منذ البداية» من total؛ و«ما جرى»: جملةٌ من total ثمّ أحداث الشهر مجمَّعة باليوم. ثمّ «ملاحظة يوم …» يكتبها المالك والمدير (halls_note.write)
 // بشرط النسخة التي رأتها النافذة حين فُتحت. والأعمدة كلّها بلا مال؛ وأعمدة البيض للبيّاض وحده.
-// وبالشكل الرسميّ (عقد 0036 S1): عنوان كلّ نوع شريطٌ ملوّن، والجدولان رسميّان بشريط اسميهما («أيّام الشهر» و«الأشهر من البداية»)، و«ما جرى» عنوانٌ فرعيّ.
+// وبالشكل الرسميّ (عقد 0036 S1): عنوان كلّ نوع شريطٌ ملوّن (h2)، والجدولان رسميّان بشريط اسميهما («أيّام الشهر» و«الأشهر من البداية») عنوانين من المستوى
+// الثالث تحته كما كانا h3 (مراجعة 0036 R3)، و«ما جرى» عنوانٌ فرعيّ.
 
 /** حدّ ملاحظة اليوم بعد القصّ، بالحروف كما يعدّها الخادم (private.note_text بحدّ 500، العقد). */
 export const HALLS_NOTE_MAX = 500;
@@ -321,6 +322,7 @@ function KindSection({ entry, on, month }: { entry: HistoryKind; on: Day; month:
           <DataTable
             variant="official"
             title={t('halls.hist.days_title', 'أيّام {month}', { month: monthName })}
+            titleLevel={3}
             caption={t('halls.hist.days_caption', '{kind} — أيّام {month}', { kind: title, month: monthName })}
             columns={dayColumns(entry, monthRow, on)}
             rows={entry.days}
@@ -336,6 +338,7 @@ function KindSection({ entry, on, month }: { entry: HistoryKind; on: Day; month:
           <DataTable
             variant="official"
             title={t('halls.hist.months_title', 'الأشهر من البداية')}
+            titleLevel={3}
             caption={t('halls.hist.months_caption', '{kind} — الأشهر من البداية', { kind: title })}
             columns={monthColumns(entry)}
             rows={entry.months}

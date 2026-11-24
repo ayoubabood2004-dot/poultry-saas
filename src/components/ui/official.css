@@ -28,6 +28,19 @@
   --ofc-label: 23 33 51;
   --ofc-brand-ink: 188 215 254;
 }
+/* الصورة فاتحةٌ دائماً كالورقة المطبوعة (reportImage بـlight، مراجعة 0036 R7): رموز :root نفسها على النسخة فتغلب .dark على <html> (ورموز tokens.css
+   يضعها reportImage على حاويتها)؛ وإلّا خرج رأس الجدول ومربّعات البيانات داكنة وصفّ المجاميع حبراً داكناً على داكن. فحص official-review يطابقها بـ:root. */
+[data-capture] {
+  --ofc-band: 15 82 179;
+  --ofc-on-band: 255 255 255;
+  --ofc-bar: 20 59 118;
+  --ofc-head: 217 232 255;
+  --ofc-head-ink: 15 37 74;
+  --ofc-rule: 90 156 247;
+  --ofc-total: 238 245 255;
+  --ofc-label: 238 245 255;
+  --ofc-brand-ink: 15 82 179;
+}
 
 /* ─── الصفحة العريضة ────────────────────────────────────────────────────────────────────────────────────────── */
 /* القشرة تضع data-wide على <main> ما دامت صفحة عريضة مركّبة (lib/wide.ts وuseWidePage): أعرض من max-w-6xl في الشاشات الكبيرة، والهاتف كما هو (العرض أصلاً
@@ -173,11 +186,8 @@ header:has(+ main[data-wide]) > div {
     box-shadow: 0 2px 16px -6px rgb(var(--shadow) / 0.12);
   }
 }
-/* جداول التقرير تجري مع الورقة كلّها كالمطبوع (لا صندوق تمرير بارتفاع 70٪ داخل الصفحة)، والتمرير الأفقيّ في إطارها بالهاتف كما هو؛ وورقة القاعة (خارج
-   الورقة) باقية بإطارها المحدود الذي يُمرَّر إلى صفّ اليوم. */
-.ofc-paper .ofc-frame {
-  max-height: none;
-}
+/* جداول التقرير على الشاشة في إطارها المحدود (max-h-[70dvh] من DataTable) كما قبل 0036: صفّ أسماء الأعمدة ثابتٌ فوق ما يُمرَّر من صفوف جدولٍ طويل
+   (مراجعة 0036 R2: بلا حدّ كان الرأس يغيب عن الشاشة في آخر الوجبة). وعلى الورق وفي الصورة الجدول كلّه بلا حدّ ولا تمرير (أدناه). */
 .ofc-head {
   display: flex;
   flex-direction: column;
@@ -198,18 +208,15 @@ header:has(+ main[data-wide]) > div {
 .ofc-sub {
   color: rgb(var(--ink-muted));
 }
-/* شبكة البيانات: مربّعات بخطوط مشتركة (الهامش السالب يطابق خطّ كلّ مربّع على خطّ جاره)، والعنوان فوق القيمة؛ عمودان بالهاتف، ومن 640 بعدد الأعمدة الذي
-   يملأ الصفوف (--ofc-cols من ReportHeader: ثمانية مربّعات صفّان من أربعة، وخمسة صفّ واحد). */
+/* شبكة البيانات: مربّعات بخطوط مشتركة (الهامش السالب يطابق خطّ كلّ مربّع على خطّ جاره)، والعنوان فوق القيمة. على الشاشة بعرضها هي لا بعرض الجهاز
+   (مراجعة 0036 R1: بعرض 768–900 والشريط الجانبيّ مفتوح كانت أعمدة --ofc-cols بـ84–123 نقطة فانكسر «12/11/2026»): كلّ عمود 9.5rem على الأقلّ (أعرض تاريخ 6.1rem
+   وحشوته 1.25rem، مقيس بـChromium)، فيقلّ عدد الأعمدة حين تضيق، وأكثرها --ofc-cols من ReportHeader (ثمانية مربّعات صفّان من أربعة، وخمسة صفّ واحد)؛
+   وعلى الورق وفي الصورة عدد --ofc-cols ثابتاً (أدناه). */
 .ofc-info {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(max(9.5rem, calc(100% / var(--ofc-cols, 4) - 1px)), 1fr));
   padding: 1px 0 0 1px;
   margin-top: 0.25rem;
-}
-@media (min-width: 640px) {
-  .ofc-info {
-    grid-template-columns: repeat(var(--ofc-cols, 4), minmax(0, 1fr));
-  }
 }
 .ofc-info > div {
   display: flex;
@@ -236,6 +243,10 @@ header:has(+ main[data-wide]) > div {
   line-height: 1.45;
   padding: 0.375rem 0.625rem;
   overflow-wrap: break-word;
+}
+/* التاريخ والوقت والرقم (Num) في القيمة سطرٌ واحد لا ينكسر، والقيمة تلتفّ بين كلماتها («24/11/2026» ثمّ «الساعة 09:05»). */
+.ofc-info bdi {
+  white-space: nowrap;
 }
 /* شريط القسم: لون العلامة الأغمق ونصّ أبيض؛ والعنوان الفرعيّ خطّ على جانب البداية فوق خلفية فاتحة. */
 .ofc-bar {
@@ -291,6 +302,9 @@ header:has(+ main[data-wide]) > div {
     border-radius: 0;
     padding: 0;
     box-shadow: none;
+  }
+  .ofc-info {
+    grid-template-columns: repeat(var(--ofc-cols, 4), minmax(0, 1fr));
   }
   .ofc-frame {
     max-height: none;
