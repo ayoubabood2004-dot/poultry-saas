@@ -24,7 +24,7 @@ import { t } from '../../lib/i18n';
 import { onlineStore } from '../../lib/online';
 import { openOutbox, pendingOps, removeReview, reviewEntries, saveRound, visitDayVersion, type EnqueueInput, type FlockDayPayload, type FlockGasPayload, type OutboxOp, type ReviewEntry, type SendResult } from '../../lib/outbox';
 import type { FlockSummary, HallView, SiteView } from '../../lib/repo/flocks';
-import { parseDayRow, recordFlockWeight } from '../../lib/repo/flocks';
+import { parseDayRow, parseGas, recordFlockWeight } from '../../lib/repo/flocks';
 import { decideFlockReject, loadHallSheet, sendFlockFeed, toBaseQty, voidSheetFeed, type FeedSend, type HallSheet, type RejectDecision, type SheetDay, type SheetFeedItem, type SheetFeedLine, type SheetReject, type SheetUnit } from '../../lib/repo/hallSheet';
 import { refreshRoundQueue, roundQueueStore, stampKey, uploadRounds, type RoundRun } from '../../lib/roundUploads';
 import { useStore } from '../../lib/store';
@@ -36,7 +36,7 @@ import { CARD_CLASS, givePath, LINK_CLASS } from './feed';
 import { FlockEditDialog } from './FlockEditDialog';
 import { HallDialog, OpenFlockDialog } from './hallDialogs';
 import { SheetGrid, type CellChange, type CellValue, type ChangeCheck, type ChangeResult, type GridCell, type GridField, type SheetGridView } from './SheetGrid';
-import { loadTransport, parkText, soFar } from './roundText';
+import { gasSoFar, loadTransport, parkText, soFar } from './roundText';
 import { farmPath, farmTitle, hallLabel, hallPath, loadOverviewKept, useStamp } from './shared';
 
 // صفحة القاعة = ورقة القاعة (طلب المالك 2026-11-21 بصورة ورقته «هلاكات قاعة (7)»، «وجبة 2026-11-13»؛ عقد 0034/0035 الجزء C/S2،
@@ -94,6 +94,14 @@ export function savedEdits(runs: readonly RoundRun[], key: string, flockId: stri
       const { version } = entry.result;
       if (entry.fn === 'set_flock_gas') {
         edits.push({ kind: 'gas', on: entry.day, version, cylinders: (entry.payload as FlockGasPayload).cylinders });
+      } else if (entry.fn === 'add_flock_gas') {
+        // قناني أُرسلت من الجولة (0036): غاز اليوم بعد الإضافة كما أرجعه الخادم (فحصه المحلّل قبل أن تُعدّ محفوظة)، لا الإضافة وحدها.
+        try {
+          const gas = parseGas(entry.result.gas);
+          edits.push({ kind: 'gas', on: entry.day, version: gas.version, cylinders: gas.cylinders });
+        } catch { // swallow-ok: جواب بشكل غريب لا يُعرض؛ القراءة من جديد بعد الرفع تعرضه من الخادم
+          continue;
+        }
       } else if (entry.fn === 'save_flock_day') {
         const payload = entry.payload as FlockDayPayload;
         edits.push({
@@ -106,7 +114,7 @@ export function savedEdits(runs: readonly RoundRun[], key: string, flockId: stri
           ...(given(payload.note) ? { note: payload.note === '' ? null : payload.note } : {}),
         });
       } else {
-        // زيارة: صفّ اليوم بعدها كما أرجعه الخادم (فحصه المحلّل قبل أن تُعدّ محفوظة).
+        // زيارة، أو هلاكات اليوم مرّة (set_flock_dead، 0036): صفّ اليوم بعدها كما أرجعه الخادم (فحصه المحلّل قبل أن تُعدّ محفوظة).
         const after = visitDayVersion(entry.result.day);
         if (after === null) continue;
         try {
@@ -216,11 +224,17 @@ function shownOf(day: SheetDay, ops: readonly OutboxOp[], saved: readonly SavedE
   }
   const own = ops.filter((op) => op.day === day.on).sort((a, b) => a.createdAt - b.createdAt);
   const pending = new Set<CellField>();
-  const totals = own.filter((op) => op.fn !== 'set_flock_gas');
+  // الغاز بنوعيه كما تعدّه الجولة (gasSoFar): التصحيح يحلّ محلّ المجموع، والقناني المرسلة من الجولة (add_flock_gas، 0036) تُضاف إليه.
+  const gasNow = gasSoFar(gas, own);
+  gas = gasNow.cylinders;
+  if (gasNow.pending) pending.add('gas');
+  const totals = own.filter((op) => op.fn !== 'set_flock_gas' && op.fn !== 'add_flock_gas');
   for (const op of own) {
-    if (op.fn === 'set_flock_gas') {
-      gas = op.payload.cylinders;
-      pending.add('gas');
+    if (op.fn === 'set_flock_gas' || op.fn === 'add_flock_gas') {
+      continue;
+    } else if (op.fn === 'set_flock_dead') {
+      // هلاكات اليوم مرّة من الجولة (0036): خانة الهلاكات وحدها تنتظر، ومجموعها من soFar.
+      pending.add('dead');
     } else if (op.fn === 'save_flock_day') {
       if (given(op.payload.dead)) pending.add('dead');
       if (given(op.payload.culled)) culled = op.payload.culled;
@@ -733,6 +747,9 @@ function rejectWhat(payload: Record<string, unknown>): string {
   if (dead !== null || culled !== null) parts.push(t('sheet.reject.dead', 'الهلاكات {n}', { n: fmtInt((dead ?? 0) + (culled ?? 0)) }));
   const gas = num('gas');
   if (gas !== null) parts.push(t('sheet.reject.gas', 'الغاز {n}', { n: fmtInt(gas) }));
+  // قناني أُرسلت من الجولة (add_flock_gas، 0036): تُضاف إلى غاز اليوم، لا تحلّ محلّه.
+  const gasAdd = num('gas_add');
+  if (gasAdd !== null) parts.push(t('sheet.reject.gas_add', 'إضافة غاز {n}', { n: fmtInt(gasAdd) }));
   const feed = typeof payload.feed_kg === 'string' ? parseDecimal(payload.feed_kg, 3) : null;
   if (feed) parts.push(t('sheet.reject.feed', 'العلف {kg} كغم', { kg: kgOf(toScale(feed, 3)) }));
   const eggs = num('eggs_total');

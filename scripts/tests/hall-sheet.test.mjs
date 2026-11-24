@@ -54,7 +54,7 @@ async function screens() {
     "export { default as FarmRoutes } from './src/pages/farm/FarmRoutes.tsx';",
     "export { default as ReportPage, summaryRows, reportDays } from './src/pages/halls/ReportPage.tsx';",
     "export { onlineStore } from './src/lib/online.ts';",
-    "export { openOutbox, pendingOps, reviewEntries } from './src/lib/outbox/index.ts';",
+    "export { openOutbox, pendingOps, reviewEntries, saveRound } from './src/lib/outbox/index.ts';",
     "export { uploadRounds } from './src/lib/roundUploads.ts';",
     "export { parseHallSheet, parseFeedSent, toBaseQty, HallSheetShapeError } from './src/lib/repo/hallSheet.ts';",
     "export { gasAnswer } from './src/lib/repo/flocks.ts';",
@@ -727,6 +727,50 @@ export default async function (t) {
       return () => (reads++ === 0 ? clone(sheet) : new Promise(() => {}));
     };
     const doneIn = async (title, rounds = 120) => click(byAction('cell-done', dialogTitled(title) ?? body())[0], rounds);
+
+    // ── تكامل 0036: عمليات الجولة الجديدة (set_flock_dead وadd_flock_gas) على الورقة — كلّ حالة تفشل على c67ab76 ─────────────────────────────
+    await step('I1 هلاكات الجولة وقنانيها تنتظر في خانتيهما وحدهما', async () => {
+      fresh('hall_worker', sheetSetup(), { userId: 'u-i36a' });
+      m.onlineStore.set(false);
+      const db = await m.openOutbox();
+      await m.saveRound(db, owner('u-i36a'), { fn: 'add_flock_gas', flockId: F7, day: TODAY, payload: { add: 2 }, baseVersion: null });
+      await m.saveRound(db, owner('u-i36a'), { fn: 'set_flock_dead', flockId: F7, day: '2026-11-19', payload: { dead: 3 }, baseVersion: null });
+      await mount(`/broiler/hall/${H7}`);
+      t.same(
+        [cells(rowOn(TODAY)).slice(2, 4), cells(rowOn('2026-11-19')).slice(2, 4)],
+        [['4', '2بانتظار الرفع'], ['3بانتظار الرفع', '']],
+        'I1 قنينتان أُرسلتا من الجولة: خانة الغاز «2 بانتظار الرفع» والهلاكات كما هي؛ وهلاكات الجولة في خانتها وحدها (كانت الإضافة تعلّم الهلاكات والغاز فارغ)',
+      );
+      await unmount();
+      fresh('hall_worker', sheetSetup(LAYER), { userId: 'u-i36b' });
+      m.onlineStore.set(false);
+      await m.saveRound(await m.openOutbox(), owner('u-i36b'), { fn: 'set_flock_dead', flockId: LAYER.flock.id, day: '2026-12-01', payload: { dead: 1 }, baseVersion: null });
+      await mount(`/layers/hall/${LAYER.flock.hall_id}`);
+      const row = bodyRows(tableBy('هلاكات قاعة (3)')).find((tr) => cells(tr)[1]?.startsWith('01/12')) ?? null;
+      t.same([cells(row)[2], cells(row)[5]], ['1بانتظار الرفع', ''], 'I1 البيّاض: هلاكات الجولة لا تعلّم خانة البيض «بانتظار الرفع»');
+    });
+
+    await step('I2 قناني الجولة بعد رفعها: الخانة بمجموع الخادم بعد الإضافة', async () => {
+      fresh('hall_worker', sheetSetup(), {
+        userId: 'u-i36c',
+        send: (op) => (op.fn === 'add_flock_gas' ? { kind: 'saved', version: 2, gas: { on: TODAY, cylinders: 3, version: 2 } } : { kind: 'saved', version: 99 }),
+      });
+      m.onlineStore.set(false);
+      await m.saveRound(await m.openOutbox(), owner('u-i36c'), { fn: 'add_flock_gas', flockId: F7, day: TODAY, payload: { add: 2 }, baseVersion: null });
+      await mount(`/broiler/hall/${H7}`);
+      m.onlineStore.set(true);
+      await background('u-i36c');
+      t.same(cells(rowOn(TODAY))[3], '3', 'I2 بعد الرفع: «3» كما أرجعه الخادم (قنينة من جهاز آخر + 2 من هذا)، لا فارغة حتى تصل قراءة بعده');
+    });
+
+    await step('I3 مركون إضافة الغاز بجملته', async () => {
+      const sheet = clone(BROILER);
+      sheet.rejects[1].payload = { gas_add: 2 };
+      fresh('hall_worker', sheetSetup(sheet));
+      await mount(`/broiler/hall/${H7}`);
+      const lines = byAction('sheet-reject').map((n) => descendants(n).find((c) => c.localName === 'span')?.textContent ?? null);
+      t.eq(lines[1], 'يوم 21/11/2026: إضافة غاز 2 — كان اليوم في فترة حسابات مقفلة.', 'I3 مركون قناني الجولة يقول «إضافة غاز 2» (كان «تعديل»)');
+    });
 
     await step('H1 رفع في الخلفية: ما حُفظ لا يرجع، والتعديل التالي بنسخته', async () => {
       let n = 0;
