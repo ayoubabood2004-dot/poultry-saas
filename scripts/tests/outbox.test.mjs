@@ -811,6 +811,35 @@ export default async function (t) {
     t.same([first.stopped, second.saved, totals.get('d5'), refs.size, (await q.summarize(db, ALI)).mine, add.payload.add], ['network', 1, 2, 1, 0, 2], 'D5 جواب ضاع ثمّ الإعادة بالمرجع نفسه: المجموع 2 لا 4');
   }
 
+  // D6) مراجعة 0036 R3: «احفظ الجولة» بمعاملة واحدة (saveRounds): قواعد الدمج نفسها داخلها (ومع ما كُتب قبلها فيها)، وفشل كتابة في منتصفها لا يُبقي
+  // شيئاً، وعملية لا تدخل الطابور ترفض الجولة كلّها قبل أيّ كتابة.
+  {
+    const db = await open();
+    t.eq(typeof q.enqueueAll, 'undefined', 'D6 enqueueAll مو مصدّر للشاشات: saveRounds بس');
+    const ops = await q.saveRounds(db, ALI, [gasAdd('d6', '2026-11-24', 2), dead('d6', '2026-11-24', 4), gasAdd('d6', '2026-11-24', 3), dead('d6b', '2026-11-24', 1)]);
+    t.same(
+      [ops.map((op) => op.id === ops[0].id), (await readOps(db)).map((op) => [op.fn, op.flockId, op.payload.add ?? op.payload.dead]).sort()],
+      [[true, false, true, false], [['add_flock_gas', 'd6', 5], ['set_flock_dead', 'd6', 4], ['set_flock_dead', 'd6b', 1]]],
+      'D6 الإضافتان لليوم في الجولة نفسها تُجمعان (2 + 3 = 5) بقاعدة الدمج، والهلاكات لكلّ قاعة عمليتها',
+    );
+    const realAdd = globalThis.IDBObjectStore.prototype.add;
+    globalThis.IDBObjectStore.prototype.add = function (value, key) {
+      if (value?.flockId === 'd6c') throw new DOMException('The quota has been exceeded.', 'QuotaExceededError');
+      return key === undefined ? realAdd.call(this, value) : realAdd.call(this, value, key);
+    };
+    let failed = null;
+    try {
+      await q.saveRounds(db, ALI, [gasAdd('d6', '2026-11-24', 1), gasAdd('d6d', '2026-11-24', 2), dead('d6c', '2026-11-24', 7)]);
+    } catch (error) {
+      failed = error?.name ?? String(error);
+    } finally {
+      globalThis.IDBObjectStore.prototype.add = realAdd;
+    }
+    t.same([failed, (await readOps(db)).map((op) => [op.flockId, op.payload.add ?? op.payload.dead]).sort()], ['QuotaExceededError', [['d6', 5], ['d6', 4], ['d6b', 1]].sort()], 'D6 فشل كتابة في منتصف الجولة: لا شيء منها (لا دمج 5 + 1 ولا عملية d6d)');
+    await t.rejects(q.saveRounds(db, ALI, [gasAdd('d6e', '2026-11-24', 1), gasAdd('d6e', '2026-11-24', 0)]), 'D6 عملية لا تدخل الطابور ترفض الجولة كلّها', /not_queueable/);
+    t.eq((await readOps(db)).filter((op) => op.flockId === 'd6e').length, 0, 'D6 ولا شيء منها كُتب');
+  }
+
   // ١٣د) S3 (0036): الطابور بنسخة 4، فنافذة بحزمة 0035 (نسخة 3: كانت ترسل set_flock_dead وadd_flock_gas بـsave_flock_day فتكتب هلاكات اليوم مجموعاً
   // وتُضيع الغاز) لا تشاركه: اتصالها يتسكّر، وفتحها بعده بنسخة 3 يرفض بصوت؛ والعمليات تبقى.
   {
