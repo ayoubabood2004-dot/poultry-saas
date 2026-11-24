@@ -335,7 +335,11 @@ header:has(+ main[data-wide]) > div {
     line-height: 1.3;
   }
 }
-/* الصورة (reportImage): نسخة الصفحة خارج الشاشة بتخطيط الطباعة وعرض 720، فالجدول كلّه بلا تمرير وبحشوة الورقة. */
+/* الصورة (reportImage): نسخة الصفحة خارج الشاشة بتخطيط الطباعة وعرض 720، فالجدول كلّه بلا تمرير وبحشوة الورقة. والصورة واحدة من الهاتف والحاسوب: ما
+   يتبع عرض الشاشة (الورقة وشبكة البيانات) يُثبَّت هنا بعرض النسخة لا بعرض الجهاز. */
+[data-capture] .ofc-info {
+  grid-template-columns: repeat(var(--ofc-cols, 4), minmax(0, 1fr));
+}
 [data-capture] .ofc-paper {
   background: none;
   border: 0;

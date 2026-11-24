@@ -303,8 +303,9 @@ export default async function (t) {
         /@media \(min-width: 640px\)\s*\{\s*\.ofc-info\s*\{\s*grid-template-columns: repeat\(var\(--ofc-cols, 4\), minmax\(0, 1fr\)\);/u.test(plainCss),
         /\.ofc-sm > thead > tr > th\s*\{\s*min-width: 0;\s*font-size: 0\.8125rem;/u.test(plainCss),
         /\.ofc-grid td \.flex-col > bdi\s*\{\s*align-self: flex-start;/u.test(plainCss),
+        /\[data-capture\] \.ofc-info\s*\{\s*grid-template-columns: repeat\(var\(--ofc-cols, 4\), minmax\(0, 1fr\)\);/u.test(plainCss),
       ],
-      [true, false, true, true, true, true, true],
+      [true, false, true, true, true, true, true, true],
       'C6 الرقم والتاريخ لا ينكسران، وجداول الورقة تجري معها بلا صندوق تمرير، وشبكة البيانات عمودان بالهاتف وصفوفٌ ممتلئة من 640، ورؤوس الورقة 13 نقطة بالهاتف، والرقم فوق كلمته على جانب البداية',
     );
     // كلّ اسم ofc- في الشاشات له قاعدة هنا، وكلّ قاعدة لاسمٍ مستعمل، ولا يولّد Tailwind لأيّ منها شيئاً (CSS الإقلاع كما هو).
