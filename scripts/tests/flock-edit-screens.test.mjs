@@ -67,6 +67,7 @@ const OPTIONS = {
   target: 'node20',
   jsx: 'automatic',
   logLevel: 'silent',
+  loader: { '.css': 'empty' }, // أنماط الجولة الكسولة (pages/farm/round.css) بلا مخرَج هنا
   define: { 'import.meta.env.DEV': 'false', __APP_VERSION__: '"test"', 'process.env.NODE_ENV': '"production"' },
 };
 const load = async (contents, withStubs) => {

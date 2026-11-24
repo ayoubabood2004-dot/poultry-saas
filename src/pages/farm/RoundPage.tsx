@@ -23,6 +23,7 @@ import { ackRuns, refreshRoundQueue, roundQueueStore, stampKey, uploadRounds, ty
 import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { CARD_CLASS, givePath, LINK_CLASS } from './feed';
+import './round.css';
 import { cylindersText, errorText, feedAmount, gasSoFar, loadTransport, parkText, soFar, soFarText, staleVisitText, type GasSoFar, type SoFar } from './roundText';
 import { farmPath, farmTitle, hallLabel, hallPath, roundLazies, useOverview, useStamp, type RoundFeedProps } from './shared';
 
@@ -826,7 +827,7 @@ export default function RoundPage({ kind }: { kind: FlockKind }) {
         />
       ))}
       {rows.length > 0 && canSave ? (
-        <div className="sticky bottom-4 flex justify-end">
+        <div className="round-save sticky flex justify-end">
           <Button size="lg" onClick={() => void save()} busy={busy} disabled={ready.length === 0 || !stamp} data-action="round-save">
             {saveLabel(ready.length, ready[0] ? hallLabel(ready[0].hallName) : '')}
           </Button>

@@ -1,0 +1,10 @@
+/* «احفظ الجولة» ثابت أسفل الشاشة (عقد 0036 الجزء R3) فوق الشريط السفليّ للهاتف (Shell: BottomBar، ثابت بارتفاع نحو 3.6rem وحافّة الجهاز)؛ كان bottom-4 فيختفي
+   تحته. وبالحاسوب (md: لا شريط سفليّ) على بُعد 1rem. ملف كسول تستورده الجولة وحدها (CSS حزمة الحقول، لا CSS الإقلاع): لا صنف Tailwind جديد. */
+.round-save {
+  bottom: calc(4.5rem + env(safe-area-inset-bottom));
+}
+@media (min-width: 768px) {
+  .round-save {
+    bottom: 1rem;
+  }
+}

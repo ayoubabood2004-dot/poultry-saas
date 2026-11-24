@@ -429,7 +429,7 @@ export default async function (t) {
       t.same(sent.map((op) => [op.fn, op.flockId, op.day, op.baseVersion, op.payload]), [['set_flock_dead', 'f-b', TODAY, null, { dead: 5 }]], 'N2 عملية set_flock_dead واحدة بالعدد كما كُتب، بلا نسخة (لا زيارة)');
       t.ok(statusOf('f-b').includes('حُفظت') && text().includes('حُفظ 1 من 1'), 'N2 «حُفظت» و«حُفظ 1 من 1»');
       t.same([(await queueOf('u-n2')).pending.length, calls.filter(([name]) => name === 'loadOverviewJson').length >= 2], [0, true], 'N2 الطابور فارغ والجولة قُرئت من جديد');
-      t.same([inCard('f-b', '-dead'), textIn('f-b', 'round-dead-value'), textIn('f-b', 'round-dead-locked')?.includes('سُجّلت هلاكات اليوم')], [null, '5', true], 'N2 بعد الحفظ تُقفل الهلاكات برقمها (لا خانة)');
+      t.same([Boolean(inCard('f-b', '-dead')), textIn('f-b', 'round-dead-value'), textIn('f-b', 'round-dead-locked')?.includes('سُجّلت هلاكات اليوم')], [false, '5', true], 'N2 بعد الحفظ تُقفل الهلاكات برقمها (لا خانة)');
       // R1z: «زرت القاعة ولا هلاكات» — الصفر المكتوب يُسجَّل مرّةً ويُقفل.
       type(inCard('f-a', '-dead'), '0');
       await settle();
@@ -443,7 +443,7 @@ export default async function (t) {
       const { sent } = roundWith(server, 'u-n3');
       await mount('/broiler/round');
       const box = actionIn('f-a', 'round-dead-locked')[0];
-      t.same([inCard('f-a', '-dead'), textIn('f-a', 'round-dead-value'), Boolean(box?.textContent.includes('سُجّلت هلاكات اليوم'))], [null, '4', true], 'N3 dead_entered: بلا خانة، والصندوق برقمها 4 (3 + مستبعد قديم 1) و«سُجّلت هلاكات اليوم»');
+      t.same([Boolean(inCard('f-a', '-dead')), textIn('f-a', 'round-dead-value'), Boolean(box?.textContent.includes('سُجّلت هلاكات اليوم'))], [false, '4', true], 'N3 dead_entered: بلا خانة، والصندوق برقمها 4 (3 + مستبعد قديم 1) و«سُجّلت هلاكات اليوم»');
       const fix = actionIn('f-a', 'round-dead-fix')[0];
       t.same([fix?.getAttribute('href'), fix?.textContent, box?.textContent.includes('للتصحيح:')], ['/broiler/hall/h-1', 'صفحة القاعة ← ✎ تعديل', true], 'N3 «للتصحيح: صفحة القاعة ← ✎ تعديل» رابطاً إلى صفحة القاعة');
       t.same([Boolean(inCard('f-b', '-dead')), actionIn('f-b', 'round-dead-locked').length], [true, 0], 'N3 dead_entered: false بلا هلاكات: خانة');
@@ -457,7 +457,7 @@ export default async function (t) {
       const old = () => ({ today: TODAY, sites: [site('s-1', 'broiler', [hall('h-1', 'قاعة 1', flock('f-a', 'broiler', { today: dayRow({ version: 4, dead: 2 }) })), hall('h-2', 'قاعة 2', flock('f-b', 'broiler', { today: dayRow({ version: 1, dead: 0, note: 'تهوية' }) }))])] });
       fresh(owner('u-n3b'), { loadOverviewJson: old });
       await mount('/broiler/round');
-      t.same([inCard('f-a', '-dead'), textIn('f-a', 'round-dead-value'), Boolean(inCard('f-b', '-dead'))], [null, '2', true], 'N3 بلا dead_entered: يوم فيه هلاكات مقفول، ويوم بلا هلاكات خانة');
+      t.same([Boolean(inCard('f-a', '-dead')), textIn('f-a', 'round-dead-value'), Boolean(inCard('f-b', '-dead'))], [false, '2', true], 'N3 بلا dead_entered: يوم فيه هلاكات مقفول، ويوم بلا هلاكات خانة');
       t.same([byAction('round-feed-item').length, textIn('f-a', 'round-gas-today')], [0, 'اليوم: لم يُسجَّل غاز'], 'N3 وبلا مفاتيح 0036: لا بطاقات علف ولا غاز اليوم');
     });
 
@@ -472,13 +472,13 @@ export default async function (t) {
       await settle();
       await save(80);
       t.same([sent.length, (await queueOf('u-n4')).pending.map((op) => [op.fn, op.payload.dead])], [0, [['set_flock_dead', 6]]], 'N4 ضابط: بلا نت بالطابور ولا إرسال');
-      t.same([inCard('f-a', '-dead'), textIn('f-a', 'round-dead-value'), actionIn('f-a', 'round-dead-pending').length, actionIn('f-a', 'round-dead-locked')[0]?.getAttribute('data-pending')], [null, '6', 1, 'true'], 'N4 مقفولة برقم العملية المنتظرة و«بانتظار الرفع»');
+      t.same([Boolean(inCard('f-a', '-dead')), textIn('f-a', 'round-dead-value'), actionIn('f-a', 'round-dead-pending').length, actionIn('f-a', 'round-dead-locked')[0]?.getAttribute('data-pending')], [false, '6', 1, 'true'], 'N4 مقفولة برقم العملية المنتظرة و«بانتظار الرفع»');
       await unmount();
       // فتح الجولة من جديد والعملية ما زالت على الجهاز: مقفولة أيضاً.
       const again = roundWith(server, 'u-n4');
       globalThis.__farm.userId = 'someone-else'; // لا رفع
       await mount('/broiler/round');
-      t.same([inCard('f-a', '-dead'), textIn('f-a', 'round-dead-value')], [null, '6'], 'N4 وبعد إعادة الفتح ما دامت العملية على الجهاز');
+      t.same([Boolean(inCard('f-a', '-dead')), textIn('f-a', 'round-dead-value')], [false, '6'], 'N4 وبعد إعادة الفتح ما دامت العملية على الجهاز');
       globalThis.__farm.userId = 'u-n4';
       m.onlineStore.set(true);
       await settle(150);
@@ -714,6 +714,19 @@ export default async function (t) {
       type(inCard('f-c', '-dead'), '2');
       await settle();
       t.eq(byAction('round-save')[0]?.textContent, 'احفظ الجولة لـ3 قاعات', 'N12 «احفظ الجولة لـ3 قاعات»');
+      // الزرّ الثابت فوق الشريط السفليّ للهاتف (كان bottom-4 فيختفي تحت BottomBar الثابت)، وبالحاسوب على بُعد 1rem: أنماط round.css الكسولة.
+      let css = '';
+      try {
+        css = readFileSync(path.join(ROOT, 'src', 'pages', 'farm', 'round.css'), 'utf8').replace(/\s+/gu, ' ');
+      } catch {
+        css = '';
+      }
+      const bar = byAction('round-save')[0]?.parentNode;
+      t.same(
+        [bar?.getAttribute('class')?.split(' ').includes('round-save'), bar?.getAttribute('class')?.split(' ').includes('bottom-4'), css.includes('.round-save { bottom: calc(4.5rem + env(safe-area-inset-bottom)); }'), /@media \(min-width: 768px\) \{ \.round-save \{ bottom: 1rem; \} \}/u.test(css)],
+        [true, false, true, true],
+        'N12 «احفظ الجولة» ثابت فوق الشريط السفليّ للهاتف (4.5rem وحافّة الجهاز) وعلى بُعد 1rem بالحاسوب',
+      );
     });
 
     // ── N13: dead_recorded (سُجّلت من جهاز آخر قبل أن تصل): الرفّ بـ«الهلاكات» وما كتبته وما سُجّل، وجملته ────────────────────────────
@@ -733,7 +746,7 @@ export default async function (t) {
       const cells = shelf ? descendants(shelf).filter((n) => n.localName === 'td').map((n) => n.textContent) : [];
       t.ok(Boolean(shelf?.textContent.includes('سُجّلت هلاكات هذا اليوم من جهاز آخر: 5') && shelf.textContent.includes('هلاكات اليوم')), `N13 الرفّ: «سُجّلت هلاكات هذا اليوم من جهاز آخر: 5» (${shelf?.textContent})`);
       t.same(cells, ['الهلاكات', '7', '5'], 'N13 صفّ الرفّ: الخانة «الهلاكات» وما كتبته (7) وما سُجّل (5)');
-      t.same([textIn('f-a', 'round-dead-value'), inCard('f-a', '-dead')], ['5', null], 'N13 والقاعة مقفولة بما سُجّل (لا يُضاف إليه)');
+      t.same([textIn('f-a', 'round-dead-value'), Boolean(inCard('f-a', '-dead'))], ['5', false], 'N13 والقاعة مقفولة بما سُجّل (لا يُضاف إليه)');
     });
 
     // ── N14: هلاكات كُتبت ثمّ سُجّلت قبل الحفظ: تُقال ولا تُرسل، و«حسناً» يمسحها ─────────────────────────────────────────────────────
@@ -765,7 +778,7 @@ export default async function (t) {
       const F3 = '0036a000-0000-4000-8000-0000000000f3';
       await mount('/broiler/round');
       await settle(60);
-      t.same([textIn(F1, 'round-dead-value'), inCard(F1, '-dead'), Boolean(inCard(F2, '-dead')), Boolean(inCard(F3, '-dead'))], ['7', null, true, true], 'H القاعة 1 مقفولة (7)، و2 بلا صفّ و3 بصفّ لم تُسجَّل هلاكاته: خانتان');
+      t.same([textIn(F1, 'round-dead-value'), Boolean(inCard(F1, '-dead')), Boolean(inCard(F2, '-dead')), Boolean(inCard(F3, '-dead'))], ['7', false, true, true], 'H القاعة 1 مقفولة (7)، و2 بلا صفّ و3 بصفّ لم تُسجَّل هلاكاته: خانتان');
       t.same([textIn(F1, 'round-gas-today'), textIn(F2, 'round-gas-today'), textIn(F3, 'round-gas-today')], ['اليوم: قنينتان', 'اليوم: لم يُسجَّل غاز', 'اليوم: لم يُسجَّل غاز'], 'H الغاز: 2، ولا صفّ، والممسوح (نسخة بلا عدد)');
       t.eq(textIn(F1, 'round-feed-today'), 'أُرسل اليوم: 150 كغم«علف بادئ»: 100 كغم«علف ناهي»: 50 كغم', 'H «أُرسل اليوم» ولكلّ مادّة سطرها بترتيبها');
       const checked = (flockId) => actionIn(flockId, 'round-feed-item').find((n) => n.getAttribute('aria-checked') === 'true')?.getAttribute('data-item') ?? null;
@@ -958,7 +971,7 @@ export default async function (t) {
       await settle();
       release();
       await settle(150);
-      t.same([inCard('f-a', '-dead'), inCard('f-b', '-gas')?.value, text().includes('حُفظ 1 من 1')], [null, '7', true], 'L5 بعد الرفع: هلاكات قاعة 1 حُفظت وقُفلت، والمكتوب أثناء الرفع (غاز قاعة 2) باقٍ');
+      t.same([Boolean(inCard('f-a', '-dead')), inCard('f-b', '-gas')?.value, text().includes('حُفظ 1 من 1')], [false, '7', true], 'L5 بعد الرفع: هلاكات قاعة 1 حُفظت وقُفلت، والمكتوب أثناء الرفع (غاز قاعة 2) باقٍ');
     });
 
     // ── L6: عملية هلاكات مجهولة النتيجة لا تُعدّ مرّتين فوق محفوظ قد يحملها ──────────────────────────────────────────────────────
