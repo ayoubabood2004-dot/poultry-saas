@@ -365,7 +365,15 @@ async function scenario(t, db) {
       { user: U.worker, sql: DEAD, params: deadParams({ flock: F.a, on: day(-7), n: 5 }) });
     same([control.state, control.rows[1]?.[0]?.v?.status, (await dayRow(F.a, day(-7)))?.dead], ['blocked', 'saved', 5], 'ضابط: الأوّل يرجع فيُسجَّل الثاني');
     // ضابط القفل: الجسم بلا قفل صفّ الوجبة (مثبَّتاً للجلستين ثمّ يعود حرفاً) يفشل الثاني بدل dead_recorded.
-    const unlocked = await committedMutation(SIG.dead, [[' and x.id = p_flock for update;\n', ' and x.id = p_flock;\n']], () =>
+    // مرساة ضائعة لا توقف القسم (الفحوص بعدها تجري): ضابط القفل يفشل باسمها.
+    const tryMutation = async (signature, pairs, fn) => {
+      try {
+        return await committedMutation(signature, pairs, fn);
+      } catch (error) {
+        return { state: 'anchor', second: error.message };
+      }
+    };
+    const unlocked = await tryMutation(SIG.dead, [[' and x.id = p_flock for update;\n', ' and x.id = p_flock;\n']], () =>
       race(db, { user: U.owner, sql: DEAD, params: deadParams({ flock: F.a, on: day(-18), n: 3 }) }, { user: U.worker, sql: DEAD, params: deadParams({ flock: F.a, on: day(-18), n: 5 }) }));
     t.ok(unlocked.state === 'blocked' && unlocked.second !== 'ok', `ضابط: بلا قفل صفّ الوجبة لا يرى الثاني يوم الأوّل فيفشل (${unlocked.second})`);
     same((await dayRow(F.a, day(-18)))?.dead, 3, 'وبعد الضابط اليوم بقيمة الأوّل وحده');
@@ -379,7 +387,7 @@ async function scenario(t, db) {
     const gasControl = await race(db, { user: U.owner, sql: ADD, params: addParams({ flock: F.b, on: day(-2), n: 2 }), rollback: true },
       { user: U.worker, sql: ADD, params: addParams({ flock: F.b, on: day(-2), n: 3 }) });
     same([gasControl.state, gasControl.rows[1]?.[0]?.v], ['blocked', { status: 'saved', gas: { on: day(-2), cylinders: 3, version: 1 } }], 'ضابط: الأولى ترجع فتبقى الثانية وحدها');
-    const gasUnlocked = await committedMutation(SIG.add, [[' and x.id = p_flock for update;\n', ' and x.id = p_flock;\n'], [' and x.on_date = p_on for update;\n', ' and x.on_date = p_on;\n']], () =>
+    const gasUnlocked = await tryMutation(SIG.add, [[' and x.id = p_flock for update;\n', ' and x.id = p_flock;\n'], [' and x.on_date = p_on for update;\n', ' and x.on_date = p_on;\n']], () =>
       race(db, { user: U.owner, sql: ADD, params: addParams({ flock: F.b, on: day(-3), n: 2 }) }, { user: U.worker, sql: ADD, params: addParams({ flock: F.b, on: day(-3), n: 3 }) }));
     t.ok(gasUnlocked.state === 'blocked' && gasUnlocked.second !== 'ok', `ضابط: بلا قفل الوجبة وصفّ الغاز تفشل الإضافة الثانية ليوم بلا صفّ (${gasUnlocked.second})`);
     same(await gasRow(F.b, day(-3)), { cylinders: 2, version: 1 }, 'وبعد الضابط غاز اليوم بالأولى وحدها');
@@ -786,11 +794,17 @@ async function scenario(t, db) {
         correct: (v) => JSON.stringify(v) === JSON.stringify(['علف بادئ', 'علف ناهي']),
       },
     ];
+    // الحقيقيّ لكلّ حالة يُحسب ولو ضاعت مرساة طفرة غيرها (الجسم نفسه مكسوراً فحصٌ يفشل بسلوكه)، والمرساة الضائعة «لم يُمسك» باسمها.
     const outcomes = [];
     for (const c of CASES) {
       const real = await mutant(db, U.owner, [], (kit) => c.run(kit));
-      const broken = await mutant(db, U.owner, c.fns, (kit) => c.run(kit));
-      outcomes.push({ name: c.name, real: c.correct(real), caught: !c.correct(broken), shown: JSON.stringify(real), broken: JSON.stringify(broken) });
+      let broken;
+      try {
+        broken = await mutant(db, U.owner, c.fns, (kit) => c.run(kit));
+      } catch (error) {
+        broken = { lostAnchor: error.message };
+      }
+      outcomes.push({ name: c.name, real: c.correct(real), caught: !Object.hasOwn(Object(broken), 'lostAnchor') && !c.correct(broken), shown: JSON.stringify(real), broken: JSON.stringify(broken) });
     }
     t.same(outcomes.filter((o) => !o.real).map((o) => `${o.name}: ${o.shown}`), [], `الطفرات (${CASES.length}): الشفرة الحقيقية بالصحيح في كلّ حالة`);
     t.same(outcomes.filter((o) => !o.caught).map((o) => `${o.name}: ${o.broken}`), [], `الطفرات: ${outcomes.filter((o) => o.caught).length} من ${CASES.length} مُسكت`);

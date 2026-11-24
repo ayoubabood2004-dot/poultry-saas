@@ -523,12 +523,36 @@ async function scenario(t, db) {
         },
         correct: (v) => v === false,
       },
+      {
+        // يوم من أيّام ما قبل 0036 بزيارتين بهلاكات (كلتاهما معلَّمة بالملء): زيارة المستبعد وحده ليست «صفراً»، فتعديلها يُحفظ ولو عُلّمت الأخرى.
+        name: 'K19 visit-raise-from-zero-counts-culled (زيارة بمستبعد وحده تُعدَّل بنافق ولو في اليوم زيارة معلَّمة أخرى)',
+        fns: [[SIG.visit, [['if v_mark and (v.id is null or v.dead + v.culled = 0)', 'if v_mark and (v.id is null or v.dead = 0)']]]],
+        run: async ({ oq, attempt }) => {
+          const visitId = uid();
+          await inside(attempt, U.worker, VISIT, visitParams({ id: visitId, flock: F.k6, on: day(-7), culled: 2 }));
+          await oq("insert into public.flock_visits (org_id, flock_id, hall_id, site_id, division_id, on_date, recorded_at, dead, source, dead_entry) select org_id, id, hall_id, site_id, division_id, $2, now(), 3, 'legacy', true from public.flocks where id = $1",
+            [F.k6, day(-7)]);
+          const answer = await inside(attempt, U.worker, VISIT, visitParams({ id: visitId, flock: F.k6, on: day(-7), dead: 1, culled: 2, base: 1 }));
+          return answer?.code ?? answer?.day?.dead;
+        },
+        correct: (v) => v === 4,
+      },
     ];
+    // السلوك الحقيقيّ فحصٌ وحده (يفشل حين يُكسر الجسم نفسه، ولو ضاعت مرساة الطفرة)، ثمّ الطفرة تُثبت أنّه يمسكها (ومرساة ضائعة فشلٌ باسمها لا نجاح؛
+    // مفتاحها lostAnchor بـObject.hasOwn، لأنّ "نصّ".anchor دالّة قديمة في String.prototype).
+    const broken = async (c) => {
+      try {
+        return await mutant(db, U.owner, c.fns, (kit) => c.run(kit));
+      } catch (error) {
+        return { lostAnchor: error.message };
+      }
+    };
     for (const c of CASES) {
       const real = await mutant(db, U.owner, [], (kit) => c.run(kit));
-      const broken = await mutant(db, U.owner, c.fns, (kit) => c.run(kit));
-      t.ok(c.correct(real) && !c.correct(broken), `${c.name}: الحقيقيّ ${JSON.stringify(real)}، والطفرة ${JSON.stringify(broken)}`);
-      if (process.env.REVIEW_VERBOSE) console.log(`${c.name}: built ${JSON.stringify(real)}, mutant ${JSON.stringify(broken)}`);
+      t.ok(c.correct(real), `${c.name}: الحقيقيّ ${JSON.stringify(real)}`);
+      const wrong = await broken(c);
+      t.ok(!Object.hasOwn(Object(wrong), 'lostAnchor') && !c.correct(wrong), `${c.name}: الطفرة يمسكها ${JSON.stringify(wrong)}`);
+      if (process.env.REVIEW_VERBOSE) console.log(`${c.name}: built ${JSON.stringify(real)}, mutant ${JSON.stringify(wrong)}`);
     }
 
     // K11/K12 (حارس الفترة): كاتب يقرأ قفل الفترة بلا period_guard لا ينتظر set_period_lock في جلسة أخرى فيكتب في اليوم الذي يُقفل. جلستان حقيقيتان؛
@@ -549,15 +573,22 @@ async function scenario(t, db) {
     };
     const lockRace = (sql, params) => race(db, { user: U.owner, sql: LOCK, params: [day(-12)], rollback: true }, { user: U.worker, sql, params });
     const guard = [['  perform private.period_guard();\n', '']];
+    const brokenRace = async (signature, run) => {
+      try {
+        return await committedMutation(signature, guard, run);
+      } catch (error) {
+        return { state: 'anchor', second: error.message };
+      }
+    };
     const deadReal = await lockRace(DEAD, deadParams({ flock: F.k5, on: day(-13), n: 1 }));
-    const deadBroken = await committedMutation(SIG.dead, guard, () => lockRace(DEAD, deadParams({ flock: F.k5, on: day(-14), n: 1 })));
-    t.ok(deadReal.state === 'blocked' && deadBroken.state !== 'blocked',
-      `K11 dead-no-period-guard: set_flock_dead ينتظر قفل فترة يُكتب في جلسة أخرى (الحقيقيّ ${deadReal.state}، والطفرة ${deadBroken.state})`);
+    t.eq(deadReal.state, 'blocked', 'K11 dead-no-period-guard: set_flock_dead ينتظر قفل فترة يُكتب في جلسة أخرى');
+    const deadBroken = await brokenRace(SIG.dead, () => lockRace(DEAD, deadParams({ flock: F.k5, on: day(-14), n: 1 })));
+    t.ok(deadBroken.state !== 'blocked' && deadBroken.state !== 'anchor', `K11: وبلا period_guard لا ينتظر (${deadBroken.state} ${deadBroken.second})`);
     const gasReal = await lockRace(ADD, addParams({ flock: F.k5, on: day(-13), n: 1 }));
-    const gasBroken = await committedMutation(SIG.add, guard, () => lockRace(ADD, addParams({ flock: F.k5, on: day(-14), n: 1 })));
+    t.eq(gasReal.state, 'blocked', 'K12 gas-no-period-guard: add_flock_gas ينتظر قفل فترة يُكتب في جلسة أخرى');
+    const gasBroken = await brokenRace(SIG.add, () => lockRace(ADD, addParams({ flock: F.k5, on: day(-14), n: 1 })));
     if (process.env.REVIEW_VERBOSE) console.log(`K11 ${deadReal.state}/${deadBroken.state} (${deadBroken.second}); K12 ${gasReal.state}/${gasBroken.state} (${gasBroken.second})`);
-    t.ok(gasReal.state === 'blocked' && gasBroken.state !== 'blocked',
-      `K12 gas-no-period-guard: add_flock_gas ينتظر قفل فترة يُكتب في جلسة أخرى (الحقيقيّ ${gasReal.state}، والطفرة ${gasBroken.state})`);
+    t.ok(gasBroken.state !== 'blocked' && gasBroken.state !== 'anchor', `K12: وبلا period_guard لا ينتظر (${gasBroken.state} ${gasBroken.second})`);
   });
 
   same((await db.asService((q) => q('select check_name, violations::int as v from public.verify_round_once()'))).rows.filter((r) => r.v !== 0), [],
