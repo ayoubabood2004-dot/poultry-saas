@@ -1006,6 +1006,7 @@ export default async function (t) {
           ],
           'O1 الجدولان رسميّان بشريط اسميهما (بلا عنوان مكرّر فوقهما)، والتذييل «أعدّه» و«طُبع في» وسطرا التوقيع، والورقة تحمل التقرير والأزرار خارجها، والصفحة عريضة، وA4 بالطول',
         );
+        t.eq(byAction('report-info')[0]?.style['--ofc-cols'], '4', 'O1 ثمانية مربّعات صفّان من أربعة من 640 (--ofc-cols)');
         clock = new RealDate(2026, 11, 3, 14, 47).getTime();
         fire(globalThis.window, 'beforeprint', { bubbles: false });
         await settle();

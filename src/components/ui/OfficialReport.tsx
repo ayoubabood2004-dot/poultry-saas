@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useState, type CSSProperties, type ReactNode } from 'react';
 import { flushSync } from 'react-dom';
 import { localDay } from '../../domain/dates';
 import { fmtDay, fmtInt } from '../../lib/format';
@@ -46,11 +46,15 @@ export interface InfoItem {
   value: ReactNode;
 }
 
+/** أعمدة شبكة البيانات من 640 (--ofc-cols): خمسة مربّعات فأقلّ صفٌّ واحد، وأكثر منها صفّان ممتلئان (ثمانية: أربعة وأربعة). */
+export const infoColumns = (count: number): number => (count <= 5 ? Math.max(count, 1) : Math.ceil(count / 2));
+
 /**
  * رأس التقرير: اسم المنشأة (من مساحة العمل في الجلسة) ثمّ العنوان ثمّ ما يُمرَّر (سطر حالٍ إن وُجد) ثمّ شبكة البيانات. orgAction وtitleAction أسماء
  * data-action التي تعرفها الصفحة وفحوصها (rep-org/batch-title، day-org/day-title).
  */
 export function ReportHeader({ org, title, info, orgAction, titleAction, children }: { org: string; title: string; info: readonly InfoItem[]; orgAction: string; titleAction: string; children?: ReactNode }) {
+  const columns = { '--ofc-cols': String(infoColumns(info.length)) } as CSSProperties;
   return (
     <header className="ofc-head" data-action="report-head">
       {org ? (
@@ -63,7 +67,7 @@ export function ReportHeader({ org, title, info, orgAction, titleAction, childre
       </h1>
       {children}
       {info.length ? (
-        <dl className="ofc-info" data-action="report-info">
+        <dl className="ofc-info" style={columns} data-action="report-info">
           {info.map((item) => (
             <div key={item.key} data-info={item.key}>
               <dt>{item.label}</dt>

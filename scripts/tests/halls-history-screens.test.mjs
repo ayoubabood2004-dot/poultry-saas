@@ -1128,6 +1128,7 @@ export default async function (t) {
           [true, true, true],
           'O1 «أرسل صورة» و«اطبع أو احفظ PDF» و«شارك نصّاً» بارتفاع 44 نقطة',
         );
+        t.eq(byAction('report-info')[0]?.style['--ofc-cols'], '5', 'O1 خمسة مربّعات صفٌّ واحد من 640 (--ofc-cols)');
         // الطباعة: «طُبع في» يتجدّد عند beforeprint (اطبع وCtrl+P) قبل أن تلتقط الورقة.
         clock = new RealDate(2026, 10, 17, 14, 47).getTime();
         fire(globalThis.window, 'beforeprint', { bubbles: false });

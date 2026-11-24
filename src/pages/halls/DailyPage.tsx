@@ -47,6 +47,8 @@ const PAGE_STYLE = [
   '[data-action="vac-swatch"] { -webkit-print-color-adjust: exact; print-color-adjust: exact; }',
   '[data-action="hist-kind"] h2, [data-action="hist-kind"] h3, [data-action="hist-note"] h2 { break-after: avoid; }',
   '[data-action="hist-event-day"] { break-inside: avoid; }',
+  // شريط النوع وسطر بدايته لا ينفصلان عن جدوله الأوّل (يبقيان على ورقة وحدهما).
+  '[data-action="hist-start"] { break-after: avoid; }',
   '}',
   // الصورة (reportImage): نسخة الصفحة بـdata-capture خارج الشاشة بتخطيط الطباعة، بخطّ جداول أكبر قليلاً (تُقرأ على الهاتف بتكبيرها).
   '[data-capture] { padding: 16px; }',

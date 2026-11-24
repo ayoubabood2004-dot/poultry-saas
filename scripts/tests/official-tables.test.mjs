@@ -291,10 +291,27 @@ export default async function (t) {
       'C3 الصفحة العريضة: <main data-wide> حتى 100rem (أعرض من max-w-6xl = 72rem) والشريط العلويّ معها، وعلى الورق بلا حدّ',
     );
     t.ok(!/@tailwind|@apply|theme\(/u.test(css), 'C4 لا @tailwind ولا @apply ولا theme(): الملفّ لا يولّد أصناف Tailwind');
+    // ما أمسكته صور Chromium (عرض 1280 و390): التاريخ انكسر «13/11/202» ثمّ «6» بـoverflow-wrap: anywhere، وجداول التقرير كانت صناديق تمرير بارتفاع 70٪،
+    // وشبكة البيانات صفّاً ناقصاً؛ وورقة القاعة بعرض 360 خرجت 22 نقطة عن إطارها بخطّ الرأس 15.
+    const plainCss = css.replace(/\/\*[\s\S]*?\*\//gu, '');
+    t.same(
+      [
+        /\.ofc-grid bdi\s*\{\s*white-space: nowrap;/u.test(plainCss),
+        /overflow-wrap: anywhere/u.test(plainCss),
+        /\.ofc-paper \.ofc-frame\s*\{\s*max-height: none;/u.test(plainCss),
+        /\.ofc-info\s*\{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/u.test(plainCss),
+        /@media \(min-width: 640px\)\s*\{\s*\.ofc-info\s*\{\s*grid-template-columns: repeat\(var\(--ofc-cols, 4\), minmax\(0, 1fr\)\);/u.test(plainCss),
+        /\.ofc-sm > thead > tr > th\s*\{\s*min-width: 0;\s*font-size: 0\.8125rem;/u.test(plainCss),
+        /\.ofc-grid td \.flex-col > bdi\s*\{\s*align-self: flex-start;/u.test(plainCss),
+      ],
+      [true, false, true, true, true, true, true],
+      'C6 الرقم والتاريخ لا ينكسران، وجداول الورقة تجري معها بلا صندوق تمرير، وشبكة البيانات عمودان بالهاتف وصفوفٌ ممتلئة من 640، ورؤوس الورقة 13 نقطة بالهاتف، والرقم فوق كلمته على جانب البداية',
+    );
     // كلّ اسم ofc- في الشاشات له قاعدة هنا، وكلّ قاعدة لاسمٍ مستعمل، ولا يولّد Tailwind لأيّ منها شيئاً (CSS الإقلاع كما هو).
     const used = new Set();
     for (const file of sourceFiles(path.join(ROOT, 'src')).filter((file) => /\.tsx?$/u.test(file))) {
-      for (const match of readFileSync(file, 'utf8').matchAll(/\bofc(?:-[a-z]+)*\b/gu)) used.add(match[0]);
+      // أسماء الأصناف وحدها: --ofc-cols رمزٌ لا صنف.
+      for (const match of readFileSync(file, 'utf8').matchAll(/(?<![\w-])ofc(?:-[a-z]+)*\b/gu)) used.add(match[0]);
     }
     const defined = new Set([...css.matchAll(/\.(ofc(?:-[a-z]+)*)\b/gu)].map((match) => match[1]));
     t.same([...used].filter((cls) => !defined.has(cls)).sort(), [], `C5 كلّ اسم ofc- مستعمل له قاعدة (${used.size})`);
@@ -338,7 +355,7 @@ export default async function (t) {
         "export { flushSync } from 'react-dom';",
         "export { MemoryRouter } from 'react-router-dom';",
         "export { Shell } from './src/components/shell/Shell.tsx';",
-        "export { useWidePage } from './src/components/ui/OfficialReport.tsx';",
+        "export { useWidePage, infoColumns } from './src/components/ui/OfficialReport.tsx';",
         "export { wideStore } from './src/lib/wide.ts';",
       ].join('\n'),
       [
@@ -351,6 +368,7 @@ export default async function (t) {
         },
       ],
     );
+    t.same([1, 2, 5, 6, 7, 8, 9, 10].map(w.infoColumns), [1, 2, 5, 3, 4, 4, 5, 5], 'W0 أعمدة شبكة البيانات: خمسة مربّعات فأقلّ صفٌّ واحد، وأكثر صفّان ممتلئان');
     globalThis.__of = {
       session: {
         status: 'ready',

@@ -50,7 +50,7 @@ header:has(+ main[data-wide]) > div {
   background: rgb(var(--ofc-band));
   color: rgb(var(--ofc-on-band));
   font-size: 1.0625rem;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.4;
   padding: 0.625rem 1rem;
   border-radius: 0.85rem 0.85rem 0 0;
@@ -91,7 +91,7 @@ header:has(+ main[data-wide]) > div {
   background: rgb(var(--ofc-head));
   color: rgb(var(--ofc-head-ink));
   font-size: 0.9375rem;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.35;
   vertical-align: bottom;
   min-width: 4rem;
@@ -99,14 +99,21 @@ header:has(+ main[data-wide]) > div {
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
 }
-/* النصّ يلتفّ بعرض أدنى فلا ينعصر، والبيان (الملاحظات) بعرض أدنى أوسع؛ والرقم سطر واحد على خانة الآحاد كالعاديّ. */
+/* النصّ يلتفّ عند المسافات بعرض أدنى فلا ينعصر، والبيان (الملاحظات) بعرض أدنى أوسع وتنكسر فيه الكلمة الطويلة وحدها؛ والرقم والتاريخ (Num) سطر واحد
+   لا ينكسر أبداً ولو التفّت خليّته («13/11/2026» لا «13/11/202» ثمّ «6»)، والخلية الرقمية سطر واحد على خانة الآحاد كالعاديّ. */
+.ofc-grid bdi {
+  white-space: nowrap;
+}
+/* رقمٌ فوق كلمة في خلية (التاريخ و«اليوم» أو «يوم التقرير»): الرقم LTR معزول، فلو امتدّ بعرض عموده لالتصق بيساره؛ يبقى على جانب البداية مع كلمته. */
+.ofc-grid td .flex-col > bdi {
+  align-self: flex-start;
+}
 .ofc-grid .ofc-text {
   min-width: 6rem;
-  overflow-wrap: anywhere;
 }
 .ofc-grid .ofc-wrap {
   min-width: 12rem;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 .ofc-grid .ofc-empty {
   padding-block: 1.5rem;
@@ -114,20 +121,22 @@ header:has(+ main[data-wide]) > div {
 /* المجاميع: غامقة على خلفية العلامة الأفتح، وفوقها الخطّ المزدوج كالعاديّ. */
 .ofc-grid > tfoot > tr > * {
   background: rgb(var(--ofc-total));
-  font-weight: 700;
+  font-weight: 600;
   -webkit-print-color-adjust: exact;
   print-color-adjust: exact;
 }
 .ofc-grid > tfoot > tr:first-child > * {
   border-top: 3px double rgb(var(--ofc-rule));
 }
-/* ورقة القاعة بالهاتف (size="sm"، مراجعة 0035: ستّة أعمدة بعرض 360 بلا تمرير أفقيّ): حشوة أضيق وبلا عرض أدنى للنصّ والبيان ورؤوس تلتفّ؛ ومن 640 كالباقي. */
+/* ورقة القاعة بالهاتف (size="sm"، مراجعة 0035: ستّة أعمدة بعرض 360 بلا تمرير أفقيّ): الخلايا بالحجم الأساسيّ وحشوة أضيق، والرؤوس 13 نقطة تلتفّ، وبلا
+   عرض أدنى للنصّ والبيان (مقيس بـChromium: الجدول 326 من إطار 326 بعرض 360، والملاحظات 80 نقطة ثمّ 100 بعرض 390)؛ ومن 640 كالباقي. */
 .ofc-sm > * > tr > th,
 .ofc-sm > * > tr > td {
-  padding: 0.375rem 0.5rem;
+  padding: 0.375rem;
 }
 .ofc-sm > thead > tr > th {
   min-width: 0;
+  font-size: 0.8125rem;
 }
 .ofc-sm .ofc-text,
 .ofc-sm .ofc-wrap {
@@ -137,6 +146,9 @@ header:has(+ main[data-wide]) > div {
   .ofc-sm > * > tr > th,
   .ofc-sm > * > tr > td {
     padding: 0.5rem 0.75rem;
+  }
+  .ofc-sm > thead > tr > th {
+    font-size: 0.9375rem;
   }
   .ofc-sm .ofc-wrap {
     min-width: 12rem;
@@ -161,6 +173,11 @@ header:has(+ main[data-wide]) > div {
     box-shadow: 0 2px 16px -6px rgb(var(--shadow) / 0.12);
   }
 }
+/* جداول التقرير تجري مع الورقة كلّها كالمطبوع (لا صندوق تمرير بارتفاع 70٪ داخل الصفحة)، والتمرير الأفقيّ في إطارها بالهاتف كما هو؛ وورقة القاعة (خارج
+   الورقة) باقية بإطارها المحدود الذي يُمرَّر إلى صفّ اليوم. */
+.ofc-paper .ofc-frame {
+  max-height: none;
+}
 .ofc-head {
   display: flex;
   flex-direction: column;
@@ -171,22 +188,28 @@ header:has(+ main[data-wide]) > div {
 .ofc-org {
   color: rgb(var(--ofc-brand-ink));
   font-size: 1.125rem;
-  font-weight: 700;
+  font-weight: 600;
 }
 .ofc-title {
   font-size: 1.5rem;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.35;
 }
 .ofc-sub {
   color: rgb(var(--ink-muted));
 }
-/* شبكة البيانات: مربّعات بخطوط مشتركة (الهامش السالب يطابق خطّ كلّ مربّع على خطّ جاره)، والعنوان فوق القيمة. */
+/* شبكة البيانات: مربّعات بخطوط مشتركة (الهامش السالب يطابق خطّ كلّ مربّع على خطّ جاره)، والعنوان فوق القيمة؛ عمودان بالهاتف، ومن 640 بعدد الأعمدة الذي
+   يملأ الصفوف (--ofc-cols من ReportHeader: ثمانية مربّعات صفّان من أربعة، وخمسة صفّ واحد). */
 .ofc-info {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   padding: 1px 0 0 1px;
   margin-top: 0.25rem;
+}
+@media (min-width: 640px) {
+  .ofc-info {
+    grid-template-columns: repeat(var(--ofc-cols, 4), minmax(0, 1fr));
+  }
 }
 .ofc-info > div {
   display: flex;
@@ -212,14 +235,14 @@ header:has(+ main[data-wide]) > div {
   font-weight: 600;
   line-height: 1.45;
   padding: 0.375rem 0.625rem;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 /* شريط القسم: لون العلامة الأغمق ونصّ أبيض؛ والعنوان الفرعيّ خطّ على جانب البداية فوق خلفية فاتحة. */
 .ofc-bar {
   background: rgb(var(--ofc-bar));
   color: rgb(var(--ofc-on-band));
   font-size: 1.125rem;
-  font-weight: 700;
+  font-weight: 600;
   line-height: 1.4;
   padding: 0.5rem 1rem;
   border-radius: 0.5rem;
@@ -229,7 +252,7 @@ header:has(+ main[data-wide]) > div {
 .ofc-subbar {
   background: rgb(var(--ofc-label));
   color: rgb(var(--ofc-head-ink));
-  font-weight: 700;
+  font-weight: 600;
   padding: 0.375rem 0.75rem;
   border-inline-start: 4px solid rgb(var(--ofc-band));
   -webkit-print-color-adjust: exact;
@@ -306,6 +329,11 @@ header:has(+ main[data-wide]) > div {
   .ofc-grid .ofc-wrap {
     min-width: 0;
   }
+  /* الكلمة الصغيرة تحت رقم الخلية («وسطر واحد بلا وزن»، اسم الحقل) نسبةٌ من خطّ الورقة، لا 12 نقطة فوق خطّ جدولٍ بـ10 أو 11. */
+  .ofc-grid .text-xs {
+    font-size: 0.85em;
+    line-height: 1.3;
+  }
 }
 /* الصورة (reportImage): نسخة الصفحة خارج الشاشة بتخطيط الطباعة وعرض 720، فالجدول كلّه بلا تمرير وبحشوة الورقة. */
 [data-capture] .ofc-paper {
@@ -331,4 +359,8 @@ header:has(+ main[data-wide]) > div {
 [data-capture] .ofc-grid .ofc-text,
 [data-capture] .ofc-grid .ofc-wrap {
   min-width: 0;
+}
+[data-capture] .ofc-grid .text-xs {
+  font-size: 0.85em;
+  line-height: 1.3;
 }
