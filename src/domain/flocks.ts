@@ -87,6 +87,23 @@ export function readVisit(text: RoundText, context: { kind: FlockKind; liveStart
   return { values: { dead, culled, feed_kg: feed, eggs_total: eggsTotal, eggs_broken: eggsBroken } };
 }
 
+/** قناني غاز اليوم لا تتجاوز 1,000 (حدّ الخادم لصفّ اليوم). */
+export const MAX_DAY_CYLINDERS = 1000;
+
+export type GasAddError = 'bad_gas' | 'gas_over_day';
+
+/**
+ * «قناني أُرسلت الآن» في الجولة (0036، جواب المالك: تُضاف إلى مجموع اليوم): الفارغة لا شيء، وإلّا عدد صحيح من 1 إلى 1,000 (الخادم يرفض الصفر
+ * والأكثر bad_value)، ومجموع اليوم بعدها (المسجّل وما على الجهاز، today) لا يتجاوز 1,000.
+ */
+export function readGasAdd(text: string, today: number | null): { add: number | null } | { error: GasAddError } {
+  const value = count(text);
+  if (value === null) return { add: null };
+  if (value === 'bad' || value < 1 || value > MAX_DAY_CYLINDERS) return { error: 'bad_gas' };
+  if ((today ?? 0) + value > MAX_DAY_CYLINDERS) return { error: 'gas_over_day' };
+  return { add: value };
+}
+
 /** زيارة بلا أيّ خانة مكتوبة (الخادم يرفضها empty_visit). الصفر المكتوب خانة: «لا نافق» يُسجَّل. */
 export const emptyVisit = (values: VisitValues): boolean => values.dead === null && values.culled === null && values.feed_kg === null && values.eggs_total === null && values.eggs_broken === null;
 

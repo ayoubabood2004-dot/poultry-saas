@@ -4,4 +4,4 @@ export type { EnqueueInput, FlushReport, FlushStop, QueueSummary } from './queue
 export { saveRound } from './round';
 export { refreshQueue, uploadQueue } from './uploader';
 export { QUEUEABLE_FUNCTIONS } from './types';
-export type { DayOp, FlockDayPayload, FlockGasPayload, FlockVisitPayload, GasOp, OpState, OutboxOp, ReviewEntry, SendResult, Stamp, Transport, VisitOp } from './types';
+export type { DayOp, DeadOp, FlockDayPayload, FlockDeadPayload, FlockGasAddPayload, FlockGasPayload, FlockVisitPayload, GasAddOp, GasOp, OpState, OutboxOp, ReviewEntry, SendResult, Stamp, Transport, VisitOp } from './types';

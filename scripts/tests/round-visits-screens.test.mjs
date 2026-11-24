@@ -1,3 +1,6 @@
+// منذ 0036 (كلمة المالك 2026-11-24: «زيارات اليوم» و«كلّ القاعات» خرجتا من الجولة، والتصحيح من ورقة القاعة): مكوّن «زيارات اليوم» (HallVisits، ما زال في
+// حزمة القاعات) يُركَّب هنا وحده بخصائص الجولة القديمة فتبقى فحوصه، ورفّ المراجعة يُرى في الجولة بعده؛ وما كان عن الجولة نفسها صار فحص غيابه: V0 لا زرّ
+// «زيارات اليوم» ولا قراءة round_visits من الجولة (بنت وبلا نت وبلا حزمة القاعات)، وG لا اختيار ولا «اصرف للمختارة» و«أضف للقاعة» لكلّ قاعة.
 // الجولة بزيارات في اليوم (0032، كلمة المالك 2026-11-17؛ عقد docs/plans/0032/contract-0032.md «ب. الشاشات»): react-dom/client الحقيقي على DOM صغير
 // (dom.mjs) يشغّل FarmRoutes وHallsRoutes الحقيقيتين، وrepo الحقيقي (flocks وhalls: المحلّلات وبناء النداءات) على core بديل يسجّل كلّ نداء ويجيب
 // بأجوبة العقد مكتوبة باليد (visit_json وround_visits وsave_flock_visit)، والطابور الحقيقي على fake-indexeddb. الدمج يمرّر عيّنات القاعدة الحقيقية
@@ -46,7 +49,7 @@ async function bundle() {
     "export { createRoot } from 'react-dom/client';",
     "export { flushSync } from 'react-dom';",
     "export { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';",
-    "export { default as HallsRoutes } from './src/pages/halls/HallsRoutes.tsx';",
+    "export { default as HallsRoutes, HallVisits } from './src/pages/halls/HallsRoutes.tsx';",
     "export { default as FarmRoutes } from './src/pages/farm/FarmRoutes.tsx';",
     "export { openOutbox, pendingOps, reviewEntries, saveRound } from './src/lib/outbox/index.ts';",
     "export { roundQueueStore, uploadRounds } from './src/lib/roundUploads.ts';",
@@ -213,7 +216,23 @@ export default async function (t) {
     };
     const roundRpcs = (over = {}) => ({ flocks_overview: () => overview(TODAY), vaccine_reminders: () => ({ today: TODAY, items: [] }), ...over });
     const cardOf = (flockId) => all().find((n) => n.getAttribute('data-flock') === flockId) ?? null;
-    const openVisits = async (flockId = FLOCK) => click(byAction('round-visits', cardOf(flockId) ?? body())[0] ?? null, 80);
+    /** «زيارات اليوم» (HallVisits) وحدها بخصائص الجولة قبل 0036 (اليوم والنوع والحيّ بداية اليوم)، والعدد الذي تُبلغه (onCount) في counts. */
+    const counts = [];
+    const mountVisits = async ({ kind = 'broiler', flockId = FLOCK, liveStart = 5000 } = {}) => {
+      counts.length = 0;
+      const container = globalThis.document.createElement('div');
+      body().appendChild(container);
+      root = m.createRoot(container);
+      m.flushSync(() => root.render(m.h(m.MemoryRouter, { initialEntries: ['/'] }, m.h(m.HallVisits, { kind, flockId, day: TODAY, canSave: true, liveStart, onCount: (n) => counts.push(n) }))));
+      await settle(80);
+    };
+    /** الجولة بعد ما جرى في «زيارات اليوم»: رفّ المراجعة فيها. */
+    const remountRound = async (url = '/broiler/round') => {
+      m.flushSync(() => root.unmount());
+      body().textContent = '';
+      await settle();
+      await mount(url);
+    };
     const visitRow = (time) => (tableRows('زيارات اليوم') ?? []).find((row) => row[0] === time) ?? null;
     const actionIn = (time, action) => {
       const table = all().find((n) => n.localName === 'table' && descendants(n).some((c) => c.localName === 'caption' && c.textContent === 'زيارات اليوم'));
@@ -228,10 +247,8 @@ export default async function (t) {
     // ── L: القائمة من round_visits ───────────────────────────────────────────────────────────────────────────────────────────
     await step('L', async () => {
       const rpcLog = fresh(OWNER, roundRpcs({ round_visits: () => roundVisits(TODAY, [V1, V2, V3]) }));
-      await mount('/broiler/round');
-      t.same([textOf('round-visits', cardOf(FLOCK) ?? body()), named(rpcLog, 'round_visits').length], ['زيارات اليوم', 0], 'L ضابط: «زيارات اليوم» مطويّة ولا قراءة قبل فتحها');
-      await openVisits();
-      t.same(named(rpcLog, 'round_visits'), [{ p_on: TODAY, p_kind: 'broiler', p_flock: FLOCK }], 'L round_visits ليوم الجولة ونوعها والفوج وحده');
+      await mountVisits();
+      t.same(named(rpcLog, 'round_visits'), [{ p_on: TODAY, p_kind: 'broiler', p_flock: FLOCK }], 'L round_visits لليوم والنوع والفوج وحده');
       t.same(
         tableRows('زيارات اليوم')?.map((row) => row.slice(0, 4)),
         [
@@ -242,7 +259,7 @@ export default async function (t) {
         'L كلّ زيارة بوقتها بساعة الجهاز وهلاكاتها (النافق والمستبعد القديم معاً، 0035) وعلفها بمراتب العمود وكاتبها ومصدرها',
       );
       t.same(tableFoot('زيارات اليوم')?.slice(0, 3), ['مجموع اليوم', '10', '220'], 'L صفّ «مجموع اليوم» بمجموع الزيارات (الهلاكات 4 + 1 مستبعد قديم + 2 + 3)');
-      t.eq(textOf('round-visits', cardOf(FLOCK) ?? body()), 'زيارات اليوم (3)', 'L الزرّ بعدد زيارات اليوم بعد القراءة');
+      t.eq(counts.at(-1), 3, 'L عدد زيارات اليوم بعد القراءة');
     });
 
     // ── E: «عدّل» بلقطة الزيارة ونسختها لحظة الفتح ───────────────────────────────────────────────────────────────────────────
@@ -252,8 +269,7 @@ export default async function (t) {
         round_visits: () => roundVisits(TODAY, [V1, { ...V2, version, dead: version === 2 ? 2 : 9 }, V3]),
         save_flock_visit: () => ({ status: 'stale_visit', server: { ...V2, version: 3, dead: 9 } }),
       }));
-      await mount('/broiler/round');
-      await openVisits();
+      await mountVisits();
       await click(actionIn(clockOf(V2.recorded_at), 'visit-edit'));
       const dialog = () => dialogTitled('عدّل زيارة');
       const field = (name) => (dialog() ? byAction(`visit-${name}`, dialog())[0] ?? null : null);
@@ -277,6 +293,7 @@ export default async function (t) {
       t.same([last?.tone, last?.title], ['danger', 'تغيّرت هذه الزيارة من جهاز آخر قبل أن يصل طلبك، فلم يُكتب فوقها.'], 'E stale_visit: تنبيه لا يكتب فوقها');
       const { review } = await queue('u-owner');
       t.same([review.length, review[0]?.reason, review[0]?.op.payload.dead, review[0]?.server?.dead], [1, 'stale_visit', 5, 9], 'E ورفّ المراجعة بالنسختين');
+      await remountRound();
       t.ok(text().includes('تعديل زيارة') && text().includes('زيارتك') && text().includes('المحفوظة'), 'E الرفّ في الجولة: «تعديل زيارة» و«زيارتك» و«المحفوظة»');
     });
 
@@ -286,8 +303,7 @@ export default async function (t) {
         round_visits: () => roundVisits(TODAY, [V1, V2, V3]),
         save_flock_visit: () => ({ status: 'saved', visit: { ...V2, dead: 4991, version: 3 }, day: null }),
       }));
-      await mount('/broiler/round');
-      await openVisits();
+      await mountVisits();
       await click(actionIn(clockOf(V2.recorded_at), 'visit-edit'));
       m.roundQueueStore.set((state) => ({ ...state, seq: state.seq + 1 }));
       await settle(60);
@@ -316,8 +332,7 @@ export default async function (t) {
           return { status: 'saved', visit: { ...V3, voided: true, version: 2 }, day: { on_date: TODAY, version: 9, dead: 6, culled: 1, feed_kg: '170.000', water_l: null, temp_min: null, temp_max: null, eggs_total: null, eggs_cracked: null, eggs_broken: null, note: null } };
         },
       }));
-      await mount('/broiler/round');
-      await openVisits();
+      await mountVisits();
       await click(actionIn(clockOf(V3.recorded_at), 'visit-void'));
       const confirm = dialogTitled('ألغِ زيارة');
       t.eq(
@@ -329,7 +344,7 @@ export default async function (t) {
       await click(byAction('visit-void-confirm')[0] ?? null, 120);
       const [args] = named(rpcLog, 'save_flock_visit');
       t.same([args?.p_visit, args?.p_void, args?.p_base_version, args?.p_dead, args?.p_feed_kg], ['v-3', true, 1, 3, '50.000'], 'X عملية الإلغاء بنسختها ومحتواها');
-      t.same([globalThis.__rv.toasts.at(-1)?.title, (tableRows('زيارات اليوم') ?? []).length, textOf('round-visits', cardOf(FLOCK) ?? body())], ['أُلغيت الزيارة وطُرح ما فيها من مجموع اليوم.', 2, 'زيارات اليوم (2)'], 'X التنبيه، والقائمة تُقرأ من جديد بلا الملغاة');
+      t.same([globalThis.__rv.toasts.at(-1)?.title, (tableRows('زيارات اليوم') ?? []).length, counts.at(-1)], ['أُلغيت الزيارة وطُرح ما فيها من مجموع اليوم.', 2, 2], 'X التنبيه، والقائمة تُقرأ من جديد بلا الملغاة (وعددها 2)');
       await click(actionIn(clockOf(V2.recorded_at), 'visit-void'));
       const note = dialogTitled('ألغِ زيارة');
       t.eq(note ? descendants(note).find((n) => n.localName === 'div' && n.getAttribute('class') === 'text-ink-muted')?.textContent : null, `تُلغى زيارة ${clockOf(V2.recorded_at)}، ويُطرح من مجموع اليوم: النافق 2، والعلف 50 كغم. وتُلغى معها ملاحظتها.`, 'X وزيارة بملاحظة: «وتُلغى معها ملاحظتها»');
@@ -345,8 +360,7 @@ export default async function (t) {
       const rpcLog = fresh({ status: 'ready', workspace: ws('owner', { userId: user }), offline: false }, roundRpcs({ round_visits: () => roundVisits(TODAY, [V1, V2, V3]) }));
       // جلسة غيره: الرفع لا يرسل شيئاً، فتبقى العمليات منتظرة.
       globalThis.__rv.sessionUser = 'someone-else';
-      await mount('/broiler/round');
-      await openVisits();
+      await mountVisits();
       const dev = clockOf(`${TODAY}T08:30:00.000Z`);
       t.same(
         [visitRow(clockOf(V2.recorded_at))?.slice(1, 4), visitRow(dev)?.slice(1, 4)],
@@ -377,22 +391,28 @@ export default async function (t) {
       t.same([actionIn(clockOf(V2.recorded_at), 'visit-edit'), actionIn(clockOf(V1.recorded_at), 'visit-edit') !== null], [null, true], 'D زيارة عمليتها في الطريق بلا «عدّل» ولا «ألغِ» (وغيرها بأفعالها)');
     });
 
-    // ── O: بلا نت، وبلا حزمة القاعات، وفشل القراءة ─────────────────────────────────────────────────────────────────────────────
-    await step('O بلا نت', async () => {
+    // ── V0 (0036): لا «زيارات اليوم» في الجولة، ولا قراءة round_visits منها: بنت، وبلا نت، وبلا حزمة القاعات (والجولة تعمل) ──────────────────
+    await step('V0 بنت', async () => {
+      const rpcLog = fresh(OWNER, roundRpcs({ round_visits: () => roundVisits(TODAY, [V1]) }));
+      await mount('/broiler/round');
+      await settle(60);
+      t.same([byAction('round-visits').length, byAction('hall-visits').length, text().includes('زيارات اليوم'), named(rpcLog, 'round_visits').length, byAction('round-save').length], [0, 0, false, 0, 1], 'V0 بنت: لا زرّ «زيارات اليوم» ولا قائمة ولا قراءة، والحفظ قائم');
+    });
+    await step('V0 بلا نت', async () => {
       const rpcLog = fresh(OWNER, roundRpcs({ round_visits: () => roundVisits(TODAY, [V1]) }));
       await mount('/broiler/round');
       m.onlineStore.set(false);
       await settle();
-      await openVisits();
-      t.same([textOf('visits-offline'), named(rpcLog, 'round_visits').length], ['زيارات اليوم تحتاج اتصالاً بالإنترنت.', 0], 'O بلا نت: «تحتاج اتصالاً» بلا نداء');
+      t.same([byAction('round-visits').length, byAction('visits-offline').length, named(rpcLog, 'round_visits').length, byAction('round-save').length], [0, 0, 0, 1], 'V0 بلا نت: لا «زيارات اليوم تحتاج اتصالاً»، والجولة تعمل');
     });
-    await step('O بلا حزمة', async () => {
+    await step('V0 بلا حزمة', async () => {
       const rpcLog = fresh(OWNER, roundRpcs({ round_visits: () => roundVisits(TODAY, [V1]) }));
       globalThis.__rv.chunkDown = true;
       await mount('/broiler/round');
-      await openVisits();
-      t.same([textOf('visits-offline'), named(rpcLog, 'round_visits').length, byAction('round-save').length], ['زيارات اليوم تحتاج اتصالاً بالإنترنت.', 0, 1], 'O حزمة القاعات لا تُحمَّل: «تحتاج اتصالاً»، والجولة تعمل');
+      await settle(60);
+      t.same([byAction('round-visits').length, named(rpcLog, 'round_visits').length, byAction('round-save').length, byAction('round-feed-offline').length], [0, 0, 1, 3], 'V0 حزمة القاعات لا تُحمَّل: الجولة تعمل، وإرسال العلف في كلّ قاعة يقول إنّه يحتاج اتصالاً');
     });
+    // فشل قراءة «زيارات اليوم» نفسها: «أعد المحاولة».
     await step('O فشل القراءة', async () => {
       let fail = true;
       const rpcLog = fresh(OWNER, roundRpcs({
@@ -401,8 +421,7 @@ export default async function (t) {
           return roundVisits(TODAY, [V1]);
         },
       }));
-      await mount('/broiler/round');
-      await openVisits();
+      await mountVisits();
       const retry = all().find((n) => n.localName === 'button' && n.textContent === 'أعد المحاولة');
       t.ok(Boolean(retry) && !tableRows('زيارات اليوم'), 'O فشل القراءة: «أعد المحاولة» بلا قائمة');
       fail = false;
@@ -410,29 +429,21 @@ export default async function (t) {
       t.same([named(rpcLog, 'round_visits').length, (tableRows('زيارات اليوم') ?? []).length], [2, 1], 'O وإعادتها تقرأ وتعرض');
     });
 
-    // ── G: «اصرف من المخزن للقاعات المختارة» ─────────────────────────────────────────────────────────────────────────────────
+    // ── G (0036): لا اختيار ولا «اصرف من المخزن للقاعات المختارة»؛ «أضف للقاعة» لكلّ قاعة إلى صفحة الإضافة والرجوع إلى الجولة ─────────────────────
     await step('G', async () => {
       fresh(OWNER, roundRpcs({ flock_issue_options: () => clone(OPTIONS) }));
       await mount('/broiler/round');
-      await tick(withAttr('round-pick', 'aria-label', 'اختر قاعة 2'));
-      t.eq(textOf('round-picked'), 'المختارة: 2 من 3', 'G ضابط: قاعة 2 مستثناة');
-      await click(byAction('round-give-picked')[0] ?? null, 80);
+      t.same([byAction('round-pick').length, byAction('round-pick-all').length, byAction('round-give-picked').length, byAction('round-picked').length], [0, 0, 0, 0], 'G لا مربّعات اختيار ولا «كلّ القاعات» ولا «اصرف للمختارة»');
+      const give = byAction('round-give', cardOf(F3) ?? body())[0] ?? null;
+      t.eq(give?.getAttribute('href'), `/halls/give/${F3}?back=%2Fbroiler%2Fround`, 'G «أضف للقاعة» على بطاقة القاعة بالرجوع إلى الجولة');
+      await click(give, 80);
       const [where, query] = (globalThis.__rv.location ?? '').split('?');
-      const params = new URLSearchParams(query ?? '');
-      t.same([where, params.get('also'), params.get('back')], [`/halls/give/${FLOCK}`, F3, '/broiler/round'], 'G إلى صفحة الإضافة بأوّل قاعة مختارة، والباقية مختارة معها (?also=)، والرجوع إلى الجولة');
-      t.same(byAction('give-hall').filter((n) => n.checked).map((n) => n.getAttribute('data-flock')), [F3], 'G صفحة الإضافة: القاعة الأخرى المختارة في الجولة مختارة مسبقاً');
-    });
-    await step('G بلا نت', async () => {
-      fresh(OWNER, roundRpcs());
-      await mount('/broiler/round');
-      m.onlineStore.set(false);
-      await settle();
-      t.same([byAction('round-give-picked')[0]?.hasAttribute('disabled'), textOf('round-give-offline')], [true, 'يحتاج اتصالاً.'], 'G بلا نت: معطّل و«يحتاج اتصالاً»');
+      t.same([where, new URLSearchParams(query ?? '').get('back'), new URLSearchParams(query ?? '').get('also')], [`/halls/give/${F3}`, '/broiler/round', null], 'G إلى صفحة الإضافة لتلك القاعة وحدها');
     });
     await step('G المشاهد', async () => {
       fresh({ status: 'ready', workspace: ws('viewer', { userId: 'u-viewer' }), offline: false }, roundRpcs());
       await mount('/broiler/round');
-      t.ok(byAction('round-give-picked').length > 0 && byAction('round-pick').length > 0 && byAction('round-save').length > 0, 'G المشاهد: الاختيار والصرف والحفظ كالمالك (0034)');
+      t.ok(byAction('round-give').length === 3 && byAction('round-save').length > 0 && byAction('round-pick').length === 0, 'G المشاهد: «أضف للقاعة» والحفظ كالمالك (0034)، بلا اختيار');
     });
 
     // ── A: ?also= في صفحة الإضافة ────────────────────────────────────────────────────────────────────────────────────────────
@@ -490,8 +501,7 @@ export default async function (t) {
       const { time, rpcs } = await deviceVisit(user, 'v-m2v');
       const rpcLog = fresh({ status: 'ready', workspace: ws('owner', { userId: user }), offline: false }, rpcs);
       globalThis.__rv.sessionUser = 'someone-else';
-      await mount('/broiler/round');
-      await openVisits();
+      await mountVisits();
       t.eq(visitRow(time)?.[3], 'علي · على هذا الجهاز', 'M2 ضابط: الزيارة «على هذا الجهاز» قبل رفعها');
       await click(actionIn(time, 'visit-void'));
       await uploadNow(user);
@@ -510,8 +520,7 @@ export default async function (t) {
       const { time, rpcs } = await deviceVisit(user, 'v-m2e');
       const rpcLog = fresh({ status: 'ready', workspace: ws('owner', { userId: user }), offline: false }, rpcs);
       globalThis.__rv.sessionUser = 'someone-else';
-      await mount('/broiler/round');
-      await openVisits();
+      await mountVisits();
       await click(actionIn(time, 'visit-edit'));
       await uploadNow(user);
       t.same([named(rpcLog, 'save_flock_visit').length, Boolean(dialogTitled('عدّل زيارة'))], [1, true], 'M2 ضابط: رُفعت الإضافة والنافذة مفتوحة');
@@ -533,15 +542,16 @@ export default async function (t) {
     for (const [index, [label, answer, sentence]] of staleCases.entries()) {
       await step('L3 ' + label, async () => {
         fresh({ status: 'ready', workspace: ws('owner', { userId: 'u-l3-' + index }), offline: false }, roundRpcs({ round_visits: () => roundVisits(TODAY, [V1, V2, V3]), save_flock_visit: () => clone(answer) }));
-        await mount('/broiler/round');
-        await openVisits();
+        await mountVisits();
         await click(actionIn(clockOf(V2.recorded_at), 'visit-edit'));
         type(inDialog('عدّل زيارة', 'visit-dead'), '5');
         await settle();
         await click(inDialog('عدّل زيارة', 'visit-edit-save'), 120);
         await settle(60);
+        const toast = globalThis.__rv.toasts.at(-1)?.title;
+        await remountRound();
         const shelf = all().filter((n) => n.getAttribute('data-review') !== null).map((n) => n.textContent);
-        t.same([globalThis.__rv.toasts.at(-1)?.title, shelf.length, shelf.some((entry) => entry.includes(sentence))], [sentence, 1, true], 'L3 ' + label + ': التنبيه والرفّ «' + sentence + '»');
+        t.same([toast, shelf.length, shelf.some((entry) => entry.includes(sentence))], [sentence, 1, true], 'L3 ' + label + ': التنبيه، والرفّ في الجولة «' + sentence + '»');
       });
     }
 
@@ -557,8 +567,7 @@ export default async function (t) {
         round_visits: () => ({ on: TODAY, today: TODAY, flocks: [{ flock_id: LF, hall_id: 'h-l', visits: [LV] }] }),
         save_flock_visit: (args) => ({ status: 'saved', visit: { ...LV, eggs_total: args.p_eggs_total, version: 2 }, day: null }),
       });
-      await mount('/layers/round');
-      await openVisits(LF);
+      await mountVisits({ kind: 'layer', flockId: LF });
       await click(actionIn(clockOf(LV.recorded_at), 'visit-edit'));
       t.eq(inDialog('عدّل زيارة', 'visit-eggsTotal')?.value, '1200', 'L4 ضابط: النافذة ببيض الزيارة 1,200');
       type(inDialog('عدّل زيارة', 'visit-eggsTotal'), '12');
@@ -577,33 +586,22 @@ export default async function (t) {
       t.same([args?.p_eggs_total, args?.p_eggs_cracked, args?.p_eggs_broken], [15, 10, 5], 'L4 ضابط: 15 يُقبل، والمشعور كما هو');
     });
 
-    // ── L7: «زيارات اليوم (n)» على بطاقة مطويّة لا يبقى بعد حفظ زيارة (كان «(1)» وفيها زيارتان)؛ والمفتوحة تعيد عددها بعد قراءتها ──
+    // ── L7 (0036): حفظ الجولة لا يقرأ «زيارات اليوم» ولا يُظهر لها عدداً؛ هلاكات القاعة عمليتها مرّة (set_flock_dead) لا زيارة ──────────────────
     await step('L7', async () => {
-      const added = { [FLOCK]: 0 };
-      const extra = (n) => visitJson('v-l7-' + n, TODAY, { recorded_at: TODAY + 'T0' + (8 + n) + ':00:00+00:00', dead: 1 });
-      fresh({ status: 'ready', workspace: ws('owner', { userId: 'u-l7' }), offline: false }, roundRpcs({
-        round_visits: () => roundVisits(TODAY, [V1, ...Array.from({ length: added[FLOCK] }, (_, n) => extra(n))]),
-        save_flock_visit: (args) => {
-          if (args.p_flock === FLOCK) added[FLOCK] += 1;
-          return { status: 'saved', visit: visitJson(args.p_visit, TODAY, { flock_id: args.p_flock, recorded_at: args.p_recorded_at, dead: args.p_dead ?? 0 }), day: dayJson({ dead: args.p_dead ?? 0 }) };
-        },
+      const rpcLog = fresh({ status: 'ready', workspace: ws('owner', { userId: 'u-l7' }), offline: false }, roundRpcs({
+        round_visits: () => roundVisits(TODAY, [V1]),
+        set_flock_dead: (args) => ({ status: 'saved', day: dayJson({ dead: args.p_dead, version: 1, dead_entered: true }) }),
       }));
       await mount('/broiler/round');
-      const label = () => textOf('round-visits', cardOf(FLOCK) ?? body());
       const deadOf = (flockId) => descendants(cardOf(flockId) ?? body()).find((n) => n.localName === 'input' && n.id.endsWith('-dead')) ?? null;
-      await openVisits();
-      t.eq(label(), 'زيارات اليوم (1)', 'L7 ضابط: زيارة واحدة');
-      await openVisits();
       type(deadOf(FLOCK), '2');
       await settle();
-      await click(byAction('round-save')[0] ?? null, 120);
-      t.same([added[FLOCK], label()], [1, 'زيارات اليوم'], 'L7 بعد حفظ زيارة والبطاقة مطويّة: لا عدد قديم «(1)»');
-      await openVisits();
-      t.eq(label(), 'زيارات اليوم (2)', 'L7 وفتحها يعدّها من جديد');
-      type(deadOf(F2), '1');
-      await settle();
-      await click(byAction('round-save')[0] ?? null, 120);
-      t.same([added[FLOCK], label()], [1, 'زيارات اليوم (2)'], 'L7 والمفتوحة بعد حفظ لقاعة أخرى تعيد عددها بعد قراءتها (لا يضيع)');
+      await click(byAction('round-save')[0] ?? null, 150);
+      t.same(
+        [named(rpcLog, 'set_flock_dead').map((args) => [args.p_flock, args.p_dead, args.p_queued]), named(rpcLog, 'save_flock_visit').length, named(rpcLog, 'round_visits').length, byAction('round-visits').length],
+        [[[FLOCK, 2, true]], 0, 0, 0],
+        'L7 الحفظ عملية set_flock_dead بالطابور، بلا زيارة ولا قراءة «زيارات اليوم» ولا زرّها',
+      );
     });
 
     // ── محلّلات العقد: visit_json وround_visits بشكلها، والغريب يرمي باسم خانته ─────────────────────────────────────────────────

@@ -2,8 +2,12 @@ import { openDatabase, requestResult, transact } from '../idb';
 import {
   QUEUEABLE_FUNCTIONS,
   type DayOp,
+  type DeadOp,
   type FlockDayPayload,
+  type FlockDeadPayload,
+  type FlockGasAddPayload,
   type FlockGasPayload,
+  type GasAddOp,
   type GasOp,
   type FlockVisitPayload,
   type OpState,
@@ -28,9 +32,12 @@ import {
 //   مثله منذ 0035: كان يُحذف من الجهاز بصمت (طلب المالك 2026-11-21: «لا تسقط عملية بصمت»)، فصار يبقى في الرفّ بسببه.
 // - غاز اليوم (set_flock_gas، 0035) عملية لـ«فوج + يوم» بنسخة صفّه هو: يندمج بأحدث عملية غاز منتظرة لليوم وحدها، ونسخته ترتفع لعمليات الغاز بعده
 //   وحدها؛ ولا يقطع دمج مجموع اليوم ولا يدخله.
+// - الجولة (0036): هلاكات اليوم مرّة (set_flock_dead) تحلّ قيمتها الأحدث محلّ أحدث عملية هلاكات منتظرة لليوم، وتقطع دمج مجموع اليوم (تغيّر صفّه) وترفع
+//   نسخته لما بعدها من مجموع اليوم كالزيارة؛ وقناني أُرسلت الآن (add_flock_gas) تُجمع في أحدث إضافة منتظرة لليوم (لم تُرسل قطّ، فمرجعها لم يُستعمل)، وما في
+//   الطريق أو مجهول النتيجة لا يُمسّ: الإضافة التالية عملية بمرجعها، فلا يضيع شيء ولا يُرسل مرّتين؛ وغاز اليوم بعد الإضافة يرفع نسخته لتصحيح الورقة بعدها.
 
 const DB_NAME = 'poultry-outbox';
-const DB_VERSION = 3;
+const DB_VERSION = 4;
 const OPS = 'ops';
 const REVIEW = 'review';
 const OPS_BY_OWNER = 'by_owner_created';
@@ -68,6 +75,10 @@ export function upgradeOutbox(db: IDBDatabase, oldVersion: number) {
     // 0035 (ورقة القاعة): لا مخزن ولا فهرس جديد. الرفع يفصل نافذة الحزمة القديمة: كانت ترسل عملية الغاز بـsave_flock_day بلا خانات (فتُعدّ
     // «حُفظت» ويضيع الغاز) وتحذف المركون من الجهاز بصمت.
   }
+  if (oldVersion < 4) {
+    // 0036 (الجولة): لا مخزن ولا فهرس جديد. الرفع يفصل نافذة الحزمة القديمة: كانت ترسل set_flock_dead وadd_flock_gas بـsave_flock_day (فتكتب هلاكات
+    // اليوم مجموعاً بلا علمها، وتُعدّ الإضافة «حُفظت» بلا خانات ويضيع الغاز)، وتدمج مجموع اليوم فوق هلاكات لم تُرفع.
+  }
 }
 
 export function openOutbox(name: string = DB_NAME): Promise<IDBDatabase> {
@@ -78,8 +89,13 @@ function isQueueable(fn: string): fn is QueueableFunction {
   return (QUEUEABLE_FUNCTIONS as readonly string[]).includes(fn);
 }
 
-/** عملية تعدّ «مجموع اليوم» في الدمج والنسخة: مجموع اليوم والزيارة (لا الغاز: صفّه ونسخته غير صفّ اليوم). */
-const dayLike = (op: OutboxOp): boolean => op.fn !== 'set_flock_gas';
+/** عملية تعدّ «مجموع اليوم» في الدمج والنسخة: مجموع اليوم والزيارة وهلاكات اليوم (لا الغاز بنوعيه: صفّه ونسخته غير صفّ اليوم). */
+const dayLike = (op: OutboxOp): boolean => op.fn !== 'set_flock_gas' && op.fn !== 'add_flock_gas';
+
+/** حدود الخادم: الطيور حتى عشرة ملايين، والقناني حتى 1,000 لليوم. */
+const MAX_BIRDS = 10_000_000;
+const MAX_CYLINDERS = 1000;
+const whole = (value: unknown, min: number, max: number): value is number => typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max;
 
 function mergePayload(older: FlockDayPayload, newer: FlockDayPayload): FlockDayPayload {
   const merged: Record<string, unknown> = { ...older };
@@ -109,7 +125,11 @@ export type EnqueueInput =
        */
       amend?: boolean;
     }
-  | { fn: 'set_flock_gas'; flockId: string; day: string; payload: FlockGasPayload; baseVersion: number | null };
+  | { fn: 'set_flock_gas'; flockId: string; day: string; payload: FlockGasPayload; baseVersion: number | null }
+  /** 0036: هلاكات اليوم مرّة، بلا نسخة. */
+  | { fn: 'set_flock_dead'; flockId: string; day: string; payload: FlockDeadPayload; baseVersion: null }
+  /** 0036: قناني أُرسلت الآن تُضاف إلى مجموع اليوم، بلا نسخة. */
+  | { fn: 'add_flock_gas'; flockId: string; day: string; payload: FlockGasAddPayload; baseVersion: null };
 
 /** معرّف الزيارة لعملية زيارة، وإلا null. */
 export const visitIdOf = (op: OutboxOp): string | null => (op.fn === 'save_flock_visit' ? op.payload.visitId : null);
@@ -128,15 +148,34 @@ export async function enqueue(db: IDBDatabase, stamp: Stamp, input: EnqueueInput
   if (input.fn === 'save_flock_visit' && (typeof input.payload?.visitId !== 'string' || input.payload.visitId === '')) throw new OutboxError('not_queueable');
   if (input.fn === 'set_flock_gas') {
     const cylinders = input.payload?.cylinders;
-    if (cylinders !== null && (typeof cylinders !== 'number' || !Number.isInteger(cylinders) || cylinders < 0 || cylinders > 1000)) throw new OutboxError('not_queueable');
+    if (cylinders !== null && !whole(cylinders, 0, MAX_CYLINDERS)) throw new OutboxError('not_queueable');
   }
+  // 0036: الهلاكات عدد صحيح بحدود الخادم، والإضافة قنينة على الأقلّ وحتى 1,000؛ ولا نسخة لأيّهما.
+  if (input.fn === 'set_flock_dead' && (!whole(input.payload?.dead, 0, MAX_BIRDS) || input.baseVersion !== null)) throw new OutboxError('not_queueable');
+  if (input.fn === 'add_flock_gas' && (!whole(input.payload?.add, 1, MAX_CYLINDERS) || input.baseVersion !== null)) throw new OutboxError('not_queueable');
   if (!stamp.userId || !stamp.orgId) throw new OutboxError('no_identity');
   return transact(db, OPS, 'readwrite', async (tx) => {
     const store = tx.objectStore(OPS);
     const key = { userId: stamp.userId, orgId: stamp.orgId, flockId: input.flockId, day: input.day };
     const existing = await sameKey(store, key);
     let baseVersion = input.baseVersion;
-    if (input.fn === 'set_flock_gas') {
+    if (input.fn === 'set_flock_dead') {
+      // أحدث عملية هلاكات لليوم وحدها، وبس إذا بعدها منتظرة: القيمة الأحدث تحلّ محلّ القديمة (لم تُرسل، فلا شيء يُضاف).
+      const open = newestOf(existing.filter((op) => op.fn === 'set_flock_dead'));
+      if (open?.fn === 'set_flock_dead' && open.state === 'pending') {
+        const merged: DeadOp = { ...open, payload: { dead: input.payload.dead }, updatedAt: now };
+        await requestResult(store.put(merged));
+        return merged;
+      }
+    } else if (input.fn === 'add_flock_gas') {
+      // أحدث إضافة لليوم وحدها، وبس إذا بعدها منتظرة (لم تُرسل قطّ): تُجمع فيها. والمجموع لا يتجاوز 1,000 (حدّ الخادم ليوم)، وإلّا عملية بجنبها.
+      const open = newestOf(existing.filter((op) => op.fn === 'add_flock_gas'));
+      if (open?.fn === 'add_flock_gas' && open.state === 'pending' && open.payload.add + input.payload.add <= MAX_CYLINDERS) {
+        const merged: GasAddOp = { ...open, payload: { add: open.payload.add + input.payload.add }, updatedAt: now };
+        await requestResult(store.put(merged));
+        return merged;
+      }
+    } else if (input.fn === 'set_flock_gas') {
       // أحدث عملية غاز لليوم وحدها، وبس إذا بعدها منتظرة: القيمة الأحدث تحلّ محلّ القديمة، ونسختها كما هي.
       const open = newestOf(existing.filter((op) => op.fn === 'set_flock_gas'));
       if (open?.fn === 'set_flock_gas' && open.state === 'pending') {
@@ -268,12 +307,22 @@ export function visitDayVersion(day: unknown): number | null {
 
 /** النسخة التي ترفعها عملية حُفظت لعملية بعدها لنفس (الفوج، اليوم)، أو null: لا علاقة بين نسختيهما. */
 function versionFor(op: OutboxOp, saved: Extract<SendResult, { kind: 'saved' }>, next: OutboxOp): number | null {
-  if (op.fn === 'set_flock_gas') return next.fn === 'set_flock_gas' ? saved.version : null;
-  if (op.fn === 'save_flock_day') return next.fn === 'save_flock_day' ? saved.version : null;
-  if (visitIdOf(next) === op.payload.visitId) return saved.version;
-  // الزيارة تغيّر صفّ اليوم أيضاً: نسخته بعدها (من جوابها) لعمليات مجموع اليوم بعدها، وإلا رُدّت stale_day وهي كُتبت على ما يراه صاحبها (مراجعة
-  // 0035: زيارة ثمّ هلاكات اليوم من الورقة قبل الرفع).
-  return next.fn === 'save_flock_day' ? visitDayVersion(saved.day) : null;
+  switch (op.fn) {
+    case 'set_flock_gas':
+    case 'add_flock_gas':
+      // غاز اليوم بعد التصحيح أو الإضافة: نسخة صفّه لتصحيح الغاز بعده (الإضافة لا نسخة لها).
+      return next.fn === 'set_flock_gas' ? saved.version : null;
+    case 'save_flock_day':
+      return next.fn === 'save_flock_day' ? saved.version : null;
+    case 'set_flock_dead':
+      // هلاكات اليوم تغيّر صفّه: نسخته بعدها (من جوابها) لمجموع اليوم بعدها، كالزيارة.
+      return next.fn === 'save_flock_day' ? visitDayVersion(saved.day) : null;
+    case 'save_flock_visit':
+      if (visitIdOf(next) === op.payload.visitId) return saved.version;
+      // الزيارة تغيّر صفّ اليوم أيضاً: نسخته بعدها (من جوابها) لعمليات مجموع اليوم بعدها، وإلا رُدّت stale_day وهي كُتبت على ما يراه صاحبها (مراجعة
+      // 0035: زيارة ثمّ هلاكات اليوم من الورقة قبل الرفع).
+      return next.fn === 'save_flock_day' ? visitDayVersion(saved.day) : null;
+  }
 }
 
 function removeSaved(db: IDBDatabase, op: OutboxOp, saved: Extract<SendResult, { kind: 'saved' }>, now: number) {
@@ -295,9 +344,9 @@ function removeSaved(db: IDBDatabase, op: OutboxOp, saved: Extract<SendResult, {
 
 /**
  * يرفع العملية من الطابور إلى رفّ المراجعة بسببها: الرفض برمزه وتلميحه، والنسخة الأقدم (stale_*) بقيمة الخادم، والمركون («parked») وسبب ركنه في hint
- * (flock_closed وout_of_scope وperiod_locked، أو date_too_old من خادم قبل 0035).
+ * (flock_closed وout_of_scope وperiod_locked، أو date_too_old من خادم قبل 0035)، وهلاكات يوم سُجّلت قبلها (dead_recorded، 0036) بصفّ اليوم كما هو.
  */
-function moveToReview(db: IDBDatabase, op: OutboxOp, result: Extract<SendResult, { kind: 'stale_day' | 'stale_visit' | 'stale_gas' | 'rejected' | 'parked' }>, now: number) {
+function moveToReview(db: IDBDatabase, op: OutboxOp, result: Extract<SendResult, { kind: 'stale_day' | 'stale_visit' | 'stale_gas' | 'dead_recorded' | 'rejected' | 'parked' }>, now: number) {
   const entry: ReviewEntry = {
     id: op.id,
     userId: op.userId,
@@ -384,6 +433,7 @@ export async function flush(
       case 'stale_day':
       case 'stale_visit':
       case 'stale_gas':
+      case 'dead_recorded':
       case 'rejected':
         await moveToReview(db, op, result, clock());
         report.review += 1;

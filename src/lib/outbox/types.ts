@@ -1,8 +1,10 @@
 // الطابور بلا نت لفشل الشبكة وحده. ما يدخله إلا كتابات الجولة: save_flock_day (مفتاح طبيعي «فوج + يوم» وbase_version: مجموع اليوم من ورقة القاعة،
-// 0035) وsave_flock_visit (0032: زيارة بمعرّف من الجهاز ونسختها، تُجمع ولا تتعارض) وset_flock_gas (0035: قناني غاز اليوم بنسخة صفّها، «فوج + يوم»).
-// ماكو post_* ولا تسديد، لأن السحب من الدفعات والديون يحتاج الرصيد الحقيقي لحظة الترحيل (وعلف الورقة يُرسل بنت وحده).
+// 0035) وsave_flock_visit (0032: زيارة بمعرّف من الجهاز ونسختها، تُجمع ولا تتعارض) وset_flock_gas (0035: قناني غاز اليوم بنسخة صفّها، «فوج + يوم»)،
+// ومنذ 0036 (الجولة، كلمة المالك 2026-11-24): set_flock_dead (هلاكات اليوم مرّة واحدة: لا نسخة، والخادم يقول «سُجّلت قبل» بـdead_recorded) وadd_flock_gas
+// (قناني أُرسلت الآن تُضاف إلى مجموع اليوم: لا نسخة، وكلّ إضافة بمرجعها).
+// ماكو post_* ولا تسديد، لأن السحب من الدفعات والديون يحتاج الرصيد الحقيقي لحظة الترحيل (وعلف الجولة والورقة يُرسل بنت وحده).
 
-export const QUEUEABLE_FUNCTIONS = ['save_flock_day', 'save_flock_visit', 'set_flock_gas'] as const;
+export const QUEUEABLE_FUNCTIONS = ['save_flock_day', 'save_flock_visit', 'set_flock_gas', 'set_flock_dead', 'add_flock_gas'] as const;
 export type QueueableFunction = (typeof QUEUEABLE_FUNCTIONS)[number];
 
 /** ختم الهويّة: المستخدم والمنشأة اللي أكّدها الخادم لحظة الحفظ. العملية ما ترتفع إلا بهويّتها. */
@@ -50,6 +52,22 @@ export interface FlockGasPayload {
   cylinders: number | null;
 }
 
+/**
+ * خانات مجموع اليوم غائبة (undefined) في حمولتَي 0036، نوعاً فقط: شاشة تقرأ الحمولة بلا تمييز دالّتها (ورقة القاعة: ما ينتظر الرفع وما رُكن) تبقى
+ * تُترجَم؛ ولا تُكتب هذه الخانات في الحمولتين أبداً.
+ */
+type Absent<T> = { [K in keyof T]?: undefined };
+
+/** هلاكات اليوم مرّة واحدة (0036، set_flock_dead): العدد كما كُتب (صفر = «لا هلاكات اليوم»)، ولا تُضاف إلى ما سُجّل. */
+export type FlockDeadPayload = Absent<Omit<FlockDayPayload, 'dead'>> & {
+  dead: number;
+};
+
+/** قناني غاز أُرسلت الآن (0036، add_flock_gas): تُضاف إلى مجموع اليوم (جواب المالك: «2 الصبح + 1 العصر = 3»). */
+export type FlockGasAddPayload = Absent<FlockDayPayload> & {
+  add: number;
+};
+
 export type OpState =
   /** تنتظر الرفع، وتندمج ويّاها التعديلات اللاحقة (لنفس اليوم في save_flock_day، ولنفس الزيارة في save_flock_visit). */
   | 'pending'
@@ -69,7 +87,7 @@ interface OpBase extends Stamp {
   day: string;
   /**
    * save_flock_day: نسخة صفّ اليوم اللي شافها المستخدم (null = «أتوقّع ماكو صفّ»). save_flock_visit: نسخة الزيارة (null = زيارة جديدة).
-   * set_flock_gas: نسخة صفّ غاز اليوم (null = لا صفّ بعد).
+   * set_flock_gas: نسخة صفّ غاز اليوم (null = لا صفّ بعد). set_flock_dead وadd_flock_gas: null دائماً (لا نسخة تُشرط).
    */
   baseVersion: number | null;
   state: OpState;
@@ -97,7 +115,17 @@ export interface GasOp extends OpBase {
   payload: FlockGasPayload;
 }
 
-export type OutboxOp = DayOp | VisitOp | GasOp;
+export interface DeadOp extends OpBase {
+  fn: 'set_flock_dead';
+  payload: FlockDeadPayload;
+}
+
+export interface GasAddOp extends OpBase {
+  fn: 'add_flock_gas';
+  payload: FlockGasAddPayload;
+}
+
+export type OutboxOp = DayOp | VisitOp | GasOp | DeadOp | GasAddOp;
 
 /** رفّ المراجعة: المرفوض من الخادم بالنسختين جنب بعض، وما ينحذف تلقائياً أبداً. */
 export interface ReviewEntry extends Stamp {
@@ -111,10 +139,16 @@ export interface ReviewEntry extends Stamp {
 
 export type SendResult =
   /**
-   * version: نسخة صفّ اليوم (save_flock_day) أو نسخة الزيارة (save_flock_visit). والزيارة ترجع معها الزيارة كما حُفظت (visit_json خاماً
-   * بعد فحص محلّله) وصفّ اليوم بعدها (flock_day_json، أو null حين لا تبقى زيارة حيّة).
+   * version: نسخة صفّ اليوم (save_flock_day وset_flock_dead) أو نسخة الزيارة (save_flock_visit) أو نسخة صفّ الغاز (set_flock_gas وadd_flock_gas).
+   * والزيارة ترجع معها الزيارة كما حُفظت (visit_json خاماً بعد فحص محلّله) وصفّ اليوم بعدها (flock_day_json، أو null حين لا تبقى زيارة حيّة)؛
+   * وset_flock_dead صفّ اليوم بعدها (day)، وadd_flock_gas غاز اليوم بعد الإضافة (gas: {on, cylinders, version}).
    */
-  | { kind: 'saved'; version: number; visit?: unknown; day?: unknown }
+  | { kind: 'saved'; version: number; visit?: unknown; day?: unknown; gas?: unknown }
+  /**
+   * set_flock_dead (0036) ليوم سُجّلت هلاكاته قبلها برقم آخر: لم يُكتب شيء ولا يُضاف إلى ما سُجّل، والجهاز يبقيها في رفّ المراجعة بالرقمين (server =
+   * صفّ اليوم كما هو، flock_day_json).
+   */
+  | { kind: 'dead_recorded'; server: unknown }
   /**
    * الفوج انقفل أو القاعة طلعت من النطاق أو الفترة مقفلة: الخادم ركنها (flock_day_rejects) بسببها (reason)، والجهاز يبقيها في رفّ المراجعة بسببها ولا
    * يحذفها بصمت (طلب المالك 2026-11-21: «لا تسقط عملية بصمت»).

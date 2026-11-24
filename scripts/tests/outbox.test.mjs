@@ -307,13 +307,13 @@ export default async function (t) {
     t.same(server.calls, [op.id, edit.id], 'المسك الميّت انحسم بمرجعه بلا إعادة إرسال');
   }
 
-  // ١١) نسخة أحدث تفتح نفس القاعدة بنسخة 4 والطابور (نسخة 3) مفتوح هنا: اتصالنا يتسكّر لحاله وما يسدّها.
+  // ١١) نسخة أحدث تفتح نفس القاعدة بنسخة 5 والطابور (نسخة 4) مفتوح هنا: اتصالنا يتسكّر لحاله وما يسدّها.
   {
     const name = nextName();
     const db = await q.openOutbox(name);
     const newer = await within(
       new Promise((resolve) => {
-        const request = globalThis.indexedDB.open(name, 4);
+        const request = globalThis.indexedDB.open(name, 5);
         request.onsuccess = () => {
           request.result.close();
           resolve('opened');
@@ -352,13 +352,13 @@ export default async function (t) {
     t.eq(outcome, 'opened', 'الفتح المسدود انتظر وانفتح بعد ما تسكّر التبويب القديم');
   }
 
-  // ١٣) ترقية النسخة الجاية (4) على قاعدة هاي النسخة: ما تعيد بناء المخازن الموجودة، والعمليات تبقى.
+  // ١٣) ترقية النسخة الجاية (5) على قاعدة هاي النسخة: ما تعيد بناء المخازن الموجودة، والعمليات تبقى.
   {
     const name = nextName();
-    const v3 = await q.openOutbox(name);
-    await q.saveRound(v3, ALI, day('f8', '2026-10-15', { dead: 1 }));
-    v3.close();
-    const upgraded = await idb.openDatabase(name, 4, queue.upgradeOutbox).then(
+    const v4 = await q.openOutbox(name);
+    await q.saveRound(v4, ALI, day('f8', '2026-10-15', { dead: 1 }));
+    v4.close();
+    const upgraded = await idb.openDatabase(name, 5, queue.upgradeOutbox).then(
       async (db) => {
         const stores = Array.from(db.objectStoreNames).sort();
         const mine = (await q.summarize(db, ALI)).mine;
@@ -367,7 +367,7 @@ export default async function (t) {
       },
       (error) => `rejected:${error?.name ?? error?.message}`,
     );
-    t.same(upgraded, { stores: ['ops', 'review'], mine: 1 }, 'الترقية لنسخة 4 نجحت والجولة باقية');
+    t.same(upgraded, { stores: ['ops', 'review'], mine: 1 }, 'الترقية لنسخة 5 نجحت والجولة باقية');
   }
 
   // ١٣ب) M1 (مراجعة 0032): الطابور بنسخة 2، فنافذة بحزمة قبل 0032 (تفتحه بنسخة 1 وتعدّ كلّ عملية مجموع يوم: ترفع الزيارة بـsave_flock_day، وتدمج
@@ -379,7 +379,7 @@ export default async function (t) {
     const kept = await q.saveRound(old, ALI, day('f30', '2026-11-16', { dead: 2 }));
     await putOp(old, { ...kept, id: 'old-visit-op', fn: 'save_flock_visit', payload: { visitId: 'v-old', recordedAt: '2026-11-16T09:40:00.000Z', dead: 1, culled: 0, feed_kg: null, eggs_total: null, eggs_cracked: null, eggs_broken: null, note: null, void: false }, createdAt: kept.createdAt + 1 });
     const current = await within(q.openOutbox(name), 1000, 'blocked');
-    t.eq(current === 'blocked' ? 'blocked' : current.version, 3, 'M1 الطابور ينفتح بنسخته (3) والنافذة القديمة مفتوحة (لا انسداد)');
+    t.eq(current === 'blocked' ? 'blocked' : current.version, 4, 'M1 الطابور ينفتح بنسخته (4) والنافذة القديمة مفتوحة (لا انسداد)');
     let oldClosed = false;
     try {
       old.transaction('ops', 'readonly');
@@ -391,7 +391,7 @@ export default async function (t) {
     t.eq(reopen, 'rejected:VersionError', 'M1 فتح الحزمة القديمة بنسخة 1 بعد الترقية يرفض بصوت (لا ترفع ولا تدمج الزيارات)');
     if (current !== 'blocked') {
       const ops = await readOps(current);
-      t.same([Array.from(current.objectStoreNames).sort(), ops.map((op) => [op.fn, op.payload.visitId ?? op.payload.dead]).sort()], [['ops', 'review'], [['save_flock_day', 2], ['save_flock_visit', 'v-old']]], 'M1 الترقية من 1 إلى 3 تُبقي المخزنين وكلّ العمليات كما هي');
+      t.same([Array.from(current.objectStoreNames).sort(), ops.map((op) => [op.fn, op.payload.visitId ?? op.payload.dead]).sort()], [['ops', 'review'], [['save_flock_day', 2], ['save_flock_visit', 'v-old']]], 'M1 الترقية من 1 إلى 4 تُبقي المخزنين وكلّ العمليات كما هي');
       current.close();
     }
   }
@@ -403,7 +403,7 @@ export default async function (t) {
     const old = await idb.openDatabase(name, 2, queue.upgradeOutbox);
     await q.saveRound(old, ALI, day('f31', '2026-11-20', { dead: 4 }));
     const current = await within(q.openOutbox(name), 1000, 'blocked');
-    t.eq(current === 'blocked' ? 'blocked' : current.version, 3, 'S2 الطابور ينفتح بنسخة 3 والنافذة بنسخة 2 مفتوحة');
+    t.eq(current === 'blocked' ? 'blocked' : current.version, 4, 'S2 الطابور ينفتح بنسخة 4 والنافذة بنسخة 2 مفتوحة');
     let oldClosed = false;
     try {
       old.transaction('ops', 'readonly');
@@ -414,7 +414,7 @@ export default async function (t) {
     const reopen = await within(idb.openDatabase(name, 2, queue.upgradeOutbox).then((db) => { db.close(); return 'opened'; }, (error) => `rejected:${error?.name}`), 1000, 'hung');
     t.eq(reopen, 'rejected:VersionError', 'S2 فتح حزمة قبل 0035 بنسخة 2 بعد الترقية يرفض بصوت (لا ترسل الغاز بغير دالّته)');
     if (current !== 'blocked') {
-      t.same((await readOps(current)).map((op) => [op.fn, op.payload.dead]), [['save_flock_day', 4]], 'S2 الترقية من 2 إلى 3 تُبقي العمليات');
+      t.same((await readOps(current)).map((op) => [op.fn, op.payload.dead]), [['save_flock_day', 4]], 'S2 الترقية من 2 إلى 4 تُبقي العمليات');
       current.close();
     }
   }
@@ -484,7 +484,7 @@ export default async function (t) {
   // ١٦) زيارتان لنفس (الفوج، اليوم) عمليتان منفصلتان (تُجمعان بالخادم)، وتعديل زيارة لم تُرفع يحلّ محلّ محتواها كاملاً، وإلغاؤها يحذف عمليتها.
   {
     const db = await open();
-    t.eq(db.version, 3, 'V16 قاعدة الطابور بنسختها (3 منذ 0035)، والحقول داخل payload بلا مخزن جديد');
+    t.eq(db.version, 4, 'V16 قاعدة الطابور بنسختها (4 منذ 0036)، والحقول داخل payload بلا مخزن جديد');
     const a = await q.saveRound(db, ALI, visit('f20', '2026-11-17', visitContent('va', { dead: 3, feed_kg: '50.000' })));
     const b = await q.saveRound(db, ALI, visit('f20', '2026-11-17', visitContent('vb', { dead: 2 })));
     t.same([a.fn, b.fn, a.id !== b.id, (await readOps(db)).length], ['save_flock_visit', 'save_flock_visit', true, 2], 'V16 زيارتان مختلفتان لليوم نفسه: عمليتان (لا دمج بين زيارتين)');
@@ -689,5 +689,148 @@ export default async function (t) {
     t.eq(await q.removeReview(db, HASAN, shelf[0].id), false, 'G3 غير صاحبه لا يحذف من رفّه');
     t.eq(await q.removeReview(db, ALI, shelf[0].id), true, 'G3 «احذفه» لصاحبه');
     t.same((await q.reviewEntries(db, ALI)).map((entry) => entry.op.fn), ['save_flock_day'], 'G3 حُذف ما اختاره وحده');
+  }
+
+  // ─── 0036 (الجولة): هلاكات اليوم مرّة (set_flock_dead) وقناني تُضاف (add_flock_gas) ─────────────────────────────────────────────
+  const dead = (flockId, onDate, n) => ({ fn: 'set_flock_dead', flockId, day: onDate, payload: { dead: n }, baseVersion: null });
+  const gasAdd = (flockId, onDate, n) => ({ fn: 'add_flock_gas', flockId, day: onDate, payload: { add: n }, baseVersion: null });
+
+  // D1) القائمة والحدود: الدالّتان تدخلان الطابور، والهلاكات عدد صحيح بحدود الخادم، والإضافة قنينة على الأقلّ وحتى 1,000، ولا نسخة لأيّهما.
+  {
+    const db = await open();
+    t.ok(q.QUEUEABLE_FUNCTIONS.includes('set_flock_dead') && q.QUEUEABLE_FUNCTIONS.includes('add_flock_gas'), 'D1 الدالّتان في قائمة الطابور');
+    const refusedOf = async (input) => q.saveRound(db, ALI, input).then(() => 'queued', (error) => error?.code ?? error?.message);
+    t.same(
+      [
+        await refusedOf(dead('d1', '2026-11-24', -1)),
+        await refusedOf(dead('d1', '2026-11-24', 1.5)),
+        await refusedOf(dead('d1', '2026-11-24', '3')),
+        await refusedOf(dead('d1', '2026-11-24', 10_000_001)),
+        await refusedOf({ ...dead('d1', '2026-11-24', 3), baseVersion: 2 }),
+        await refusedOf(gasAdd('d1', '2026-11-24', 0)),
+        await refusedOf(gasAdd('d1', '2026-11-24', 1001)),
+        await refusedOf({ ...gasAdd('d1', '2026-11-24', 1), baseVersion: 1 }),
+        await refusedOf(dead('d1', '2026-11-24', 0)),
+        await refusedOf(gasAdd('d1', '2026-11-24', 1000)),
+      ],
+      ['not_queueable', 'not_queueable', 'not_queueable', 'not_queueable', 'not_queueable', 'not_queueable', 'not_queueable', 'not_queueable', 'queued', 'queued'],
+      'D1 الهلاكات السالبة والكسر والنصّ وفوق عشرة ملايين، والإضافة صفراً وفوق 1,000، وأيّ نسخة: لا تدخل؛ والصفر هلاكاتٍ و1,000 قنينة تدخلان',
+    );
+  }
+
+  // D2) الدمج: هلاكات اليوم الأحدث تحلّ محلّ المنتظرة (لا تُجمع)؛ والإضافات المنتظرة تُجمع في عملية واحدة؛ وما في الطريق أو مجهول النتيجة لا يُمسّ (عملية
+  // بجنبه)؛ والإضافة فوق 1,000 مع المنتظرة عملية بجنبها؛ ولا يندمج نوع بنوع ولا قاعة بقاعة.
+  {
+    const db = await open();
+    const d1 = await q.saveRound(db, ALI, dead('d2', '2026-11-24', 5));
+    const d2 = await q.saveRound(db, ALI, dead('d2', '2026-11-24', 7));
+    const g1 = await q.saveRound(db, ALI, gasAdd('d2', '2026-11-24', 2));
+    const g2 = await q.saveRound(db, ALI, gasAdd('d2', '2026-11-24', 1));
+    const other = await q.saveRound(db, ALI, gasAdd('d2b', '2026-11-24', 4));
+    t.same([d2.id === d1.id, d2.payload, g2.id === g1.id, g2.payload, other.id !== g1.id], [true, { dead: 7 }, true, { add: 3 }, true], 'D2 الهلاكات 7 تحلّ محلّ 5 (عملية واحدة)، والقناني 2 + 1 = 3 في عملية واحدة، وقاعة أخرى عمليتها');
+    await putOp(db, { ...g2, state: 'unknown' });
+    await putOp(db, { ...d2, state: 'sending', claimToken: 'tab-b', claimedAt: Date.now() });
+    const g3 = await q.saveRound(db, ALI, gasAdd('d2', '2026-11-24', 2));
+    const d3 = await q.saveRound(db, ALI, dead('d2', '2026-11-24', 8));
+    t.same([g3.id !== g2.id, g3.payload, d3.id !== d2.id, d3.payload], [true, { add: 2 }, true, { dead: 8 }], 'D2 إضافة بعد إضافة مجهولة النتيجة، وهلاكات بعد هلاكات في الطريق: عمليتان بجنبهما (لا تُمسّ المُرسلة)');
+    const g4 = await q.saveRound(db, ALI, gasAdd('d2', '2026-11-24', 999));
+    t.same([g4.id !== g3.id, g4.payload], [true, { add: 999 }], 'D2 2 + 999 فوق 1,000: عملية بجنبها');
+    const ops = (await readOps(db)).filter((op) => op.flockId === 'd2').sort((a, b) => a.createdAt - b.createdAt);
+    t.same(ops.map((op) => [op.fn, op.payload.dead ?? op.payload.add, op.state]), [['set_flock_dead', 7, 'sending'], ['add_flock_gas', 3, 'unknown'], ['add_flock_gas', 2, 'pending'], ['set_flock_dead', 8, 'pending'], ['add_flock_gas', 999, 'pending']], 'D2 العمليات بترتيبها، ولا شيء ضاع');
+  }
+
+  // D3) هلاكات اليوم تقطع دمج مجموع اليوم (تغيّر صفّه): مجموع اليوم بعدها عملية جديدة لا تندمج بالأقدم فتسبقها؛ والإضافة لا تقطعه.
+  {
+    const db = await open();
+    const day1 = await q.saveRound(db, ALI, day('d3', '2026-11-24', { note: 'صباحاً' }));
+    await q.saveRound(db, ALI, gasAdd('d3', '2026-11-24', 1));
+    const day2 = await q.saveRound(db, ALI, day('d3', '2026-11-24', { note: 'تهوية' }));
+    await q.saveRound(db, ALI, dead('d3', '2026-11-24', 2));
+    const day3 = await q.saveRound(db, ALI, day('d3', '2026-11-24', { dead: 4 }));
+    t.same([day2.id === day1.id, day3.id !== day1.id], [true, true], 'D3 الإضافة بين مجموعَي اليوم لا تقطع دمجهما، وهلاكات اليوم تقطعه');
+  }
+
+  // D4) الرفع: كلّ دالّة بمرجعها؛ dead_recorded إلى رفّ المراجعة بصفّ اليوم كما هو؛ والنسخة بعد الحفظ ترتفع لما يرتبط بها وحده: صفّ اليوم بعد الهلاكات
+  // لمجموع اليوم بعدها، وصفّ الغاز بعد الإضافة لتصحيح الغاز بعدها؛ ولا نسخة لهلاكات ولا لإضافة.
+  {
+    const db = await open();
+    await q.saveRound(db, ALI, dead('d4', '2026-11-24', 6));
+    await q.saveRound(db, ALI, gasAdd('d4', '2026-11-24', 2));
+    await q.saveRound(db, ALI, day('d4', '2026-11-24', { note: 'بعد الهلاكات' }, 1));
+    await q.saveRound(db, ALI, { fn: 'set_flock_gas', flockId: 'd4', day: '2026-11-24', payload: { cylinders: 1 }, baseVersion: null });
+    await q.saveRound(db, ALI, dead('d4b', '2026-11-24', 9));
+    const sent = [];
+    const recorded = { on_date: '2026-11-24', version: 3, dead: 4, culled: 1, dead_entered: true };
+    const report = await q.flush(db, ALI, {
+      currentUserId: async () => ALI.userId,
+      send: async (op) => {
+        sent.push([op.fn, op.flockId, op.baseVersion]);
+        if (op.fn === 'set_flock_dead') return op.flockId === 'd4' ? { kind: 'saved', version: 4, day: { on_date: op.day, version: 4, dead: 6, culled: 0, dead_entered: true } } : { kind: 'dead_recorded', server: recorded };
+        if (op.fn === 'add_flock_gas') return { kind: 'saved', version: 7, gas: { on: op.day, cylinders: 5, version: 7 } };
+        if (op.fn === 'save_flock_day') return op.baseVersion === 4 ? { kind: 'saved', version: 5 } : { kind: 'stale_day', server: { version: 4 } };
+        return op.baseVersion === 7 ? { kind: 'saved', version: 8 } : { kind: 'stale_gas', server: { on: op.day, cylinders: 5, version: 7 } };
+      },
+      lookup: async () => null,
+    });
+    t.same(
+      [sent.filter(([, flockId]) => flockId === 'd4'), sent.filter(([, flockId]) => flockId === 'd4b')],
+      [[['set_flock_dead', 'd4', null], ['add_flock_gas', 'd4', null], ['save_flock_day', 'd4', 4], ['set_flock_gas', 'd4', 7]], [['set_flock_dead', 'd4b', null]]],
+      'D4 ترتيب كلّ يوم كما كُتب: مجموع اليوم بنسخة صفّه بعد الهلاكات (4)، وتصحيح الغاز بنسخة صفّه بعد الإضافة (7)، والهلاكات والإضافة بلا نسخة',
+    );
+    const shelf = await q.reviewEntries(db, ALI);
+    t.same([report.saved, report.review, shelf.map((entry) => [entry.reason, entry.op.fn, entry.op.payload.dead, entry.server?.dead, entry.server?.culled])], [4, 1, [['dead_recorded', 'set_flock_dead', 9, 4, 1]]], 'D4 dead_recorded إلى رفّ المراجعة بما كتبته وصفّ اليوم كما سُجّل، والباقي حُفظ');
+    t.eq((await q.summarize(db, ALI)).mine, 0, 'D4 الطابور فارغ');
+  }
+
+  // D5) الإعادة بالمرجع: إضافة نتيجتها مجهولة تُحسم بمرجعها نفسه (لا تُرسل إضافة ثانية)، ومحفوظةٌ بعد الحسم.
+  {
+    const db = await open();
+    const add = await q.saveRound(db, ALI, gasAdd('d5', '2026-11-24', 2));
+    const refs = new Map();
+    const totals = new Map();
+    const apply = (op) => {
+      if (refs.has(op.id)) return refs.get(op.id);
+      const total = (totals.get(op.flockId) ?? 0) + op.payload.add;
+      totals.set(op.flockId, total);
+      const result = { kind: 'saved', version: 1, gas: { on: op.day, cylinders: total, version: 1 } };
+      refs.set(op.id, result);
+      return result;
+    };
+    let drop = true;
+    const first = await q.flush(db, ALI, {
+      currentUserId: async () => ALI.userId,
+      send: async (op) => {
+        apply(op);
+        if (drop) throw new Error('network');
+        return apply(op);
+      },
+      lookup: async () => null,
+    });
+    drop = false;
+    const second = await q.flush(db, ALI, { currentUserId: async () => ALI.userId, send: async (op) => apply(op), lookup: async () => null });
+    t.same([first.stopped, second.saved, totals.get('d5'), refs.size, (await q.summarize(db, ALI)).mine, add.payload.add], ['network', 1, 2, 1, 0, 2], 'D5 جواب ضاع ثمّ الإعادة بالمرجع نفسه: المجموع 2 لا 4');
+  }
+
+  // ١٣د) S3 (0036): الطابور بنسخة 4، فنافذة بحزمة 0035 (نسخة 3: كانت ترسل set_flock_dead وadd_flock_gas بـsave_flock_day فتكتب هلاكات اليوم مجموعاً
+  // وتُضيع الغاز) لا تشاركه: اتصالها يتسكّر، وفتحها بعده بنسخة 3 يرفض بصوت؛ والعمليات تبقى.
+  {
+    const name = nextName();
+    const old = await idb.openDatabase(name, 3, queue.upgradeOutbox);
+    await q.saveRound(old, ALI, day('s3', '2026-11-24', { dead: 4 }));
+    const current = await within(q.openOutbox(name), 1000, 'blocked');
+    t.eq(current === 'blocked' ? 'blocked' : current.version, 4, 'S3 الطابور ينفتح بنسخة 4 والنافذة بنسخة 3 مفتوحة');
+    let oldClosed = false;
+    try {
+      old.transaction('ops', 'readonly');
+    } catch (error) {
+      oldClosed = error?.name === 'InvalidStateError';
+    }
+    t.ok(oldClosed, 'S3 اتصال النسخة 3 يصله versionchange فيتسكّر');
+    const reopen = await within(idb.openDatabase(name, 3, queue.upgradeOutbox).then((db) => { db.close(); return 'opened'; }, (error) => `rejected:${error?.name}`), 1000, 'hung');
+    t.eq(reopen, 'rejected:VersionError', 'S3 فتح حزمة 0035 بنسخة 3 بعد الترقية يرفض بصوت (لا ترسل الهلاكات ولا الغاز بغير دالّتيهما)');
+    if (current !== 'blocked') {
+      t.same((await readOps(current)).map((op) => [op.fn, op.payload.dead]), [['save_flock_day', 4]], 'S3 الترقية من 3 إلى 4 تُبقي العمليات');
+      current.close();
+    }
   }
 }

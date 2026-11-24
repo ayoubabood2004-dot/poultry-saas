@@ -19,8 +19,10 @@ import VaccinesPage from './VaccinesPage';
 // و«أغلق الدورة» (close/:flockId) في الحزمة نفسها تحتاج الخادم لتُفتح (D9)؛ وبطاقة الفوج (FlockCard) تستوردها صفحة الفوج المحفوظة كسولةً كالتذكير.
 export { default as Reminders } from './Reminders';
 export { default as FlockCard } from './FlockCard';
-// «زيارات اليوم» (0032): تقرأ من الخادم وتعدّل وتلغي، فالجولة المحفوظة تستوردها كسولةً (pages/farm/shared: HallVisitsLazy) وصفحة القاعة منها مباشرةً.
+// «زيارات اليوم» (0032): تقرأ من الخادم وتعدّل وتلغي. خرجت من الجولة في 0036 (كلمة المالك 2026-11-24: التصحيح من ورقة القاعة)، فلا مدخل لها الآن.
 export { default as HallVisits } from './HallVisits';
+// إرسال العلف من بطاقة القاعة في الجولة (0036): يحتاج الخادم، فالجولة المحفوظة تحمّله كسولةً (pages/farm/shared: RoundFeedLazy) كالتذكير.
+export { default as RoundFeed } from '../farm/RoundFeed';
 // نافذة «عدّل الفوج» (0028) هنا لتُحمَّل من حزمة القاعات خارج التثبيت المسبق (pages/farm/flockEditLazy): التعديل يحتاج الخادم كلّه.
 export { FlockEditDialog } from '../farm/FlockEditDialog';
 // صفحة القاعة (كلمة المالك 2026-11-16) هنا أيضاً: كلّها من الخادم (الفوج وأيامه والجولة لأيّ يوم والوزن)، فلا تُثقل التثبيت المسبق؛ ومسارها

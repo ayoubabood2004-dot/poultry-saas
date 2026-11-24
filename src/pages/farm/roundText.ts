@@ -1,6 +1,8 @@
 import { decimalText, parseDecimal, toScale } from '../../domain/decimal';
 import type { RoundError, RoundText } from '../../domain/flocks';
-import { fmtInt, fmtMilli } from '../../lib/format';
+import type { Milli } from '../../domain/money';
+import type { BaseUnit } from '../../domain/units';
+import { countForm, fmtInt, fmtMilli, fmtQty } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import type { OutboxOp } from '../../lib/outbox';
 import { flockDayTransport, type DayValues } from '../../lib/repo/flocks';
@@ -17,6 +19,13 @@ export interface SoFar {
   feedKg: bigint | null;
   eggsTotal: number | null;
   eggsBroken: number | null;
+  /**
+   * 0036: سُجّلت هلاكات اليوم (تُدخل مرّة ثمّ تتضلّل): علم الخادم (dead_entered، وخادم قبل 0036: في اليوم هلاكات، كما ملأته الهجرة)، أو عملية على هذا
+   * الجهاز تحملها (هلاكات اليوم، أو مجموع اليوم أو زيارة بنافق أو مستبعد).
+   */
+  deadEntered: boolean;
+  /** على هذا الجهاز عملية لم تُرفع تحمل هلاكات اليوم. */
+  deadPending: boolean;
 }
 
 const milli = (text: string | null | undefined): bigint | null => {
@@ -31,13 +40,33 @@ const addMilli = (sum: bigint | null, more: bigint | null): bigint | null => (mo
  * (save_flock_day مخزّنة قبل 0032) يحلّ محلّ خاناته المكتوبة، وتعديل زيارة محفوظة أو إلغاؤها لا يُعرف فرقه هنا فيبقى للخادم. والزيارة الجديدة
  * في الطريق (sending) أو المجهولة (unknown) ربّما صارت في المحفوظ بقراءة بعدها، فلا تُضاف: عدّها مرّتين يرفض بالفحص قبل الحفظ رقماً صحيحاً؛
  * والمنتظرة والمعلّقة بالهويّة أو الاشتراك لم تصل الخادم يقيناً.
+ * وهلاكات اليوم مرّة (set_flock_dead، 0036) تُضاف إلى نافق يوم لم تُسجَّل هلاكاته وحده، كما يفعل الخادم (يوم سُجّلت هلاكاته لا يُكتب فيه شيء): فلا تُعدّ
+ * مرّتين ولو كانت في المحفوظ بقراءة بعدها؛ والغاز بنوعيه خارج مجموع اليوم.
  */
-export function soFar(saved: Pick<DayValues, 'dead' | 'culled' | 'feedKg' | 'eggsTotal' | 'eggsBroken'> | null, ops: readonly OutboxOp[]): SoFar {
-  const total: SoFar = { dead: saved?.dead ?? 0, culled: saved?.culled ?? 0, feedKg: saved?.feedKg ?? null, eggsTotal: saved?.eggsTotal ?? null, eggsBroken: saved?.eggsBroken ?? null };
+export function soFar(saved: (Pick<DayValues, 'dead' | 'culled' | 'feedKg' | 'eggsTotal' | 'eggsBroken'> & { deadEntered?: boolean | null }) | null, ops: readonly OutboxOp[]): SoFar {
+  const total: SoFar = {
+    dead: saved?.dead ?? 0,
+    culled: saved?.culled ?? 0,
+    feedKg: saved?.feedKg ?? null,
+    eggsTotal: saved?.eggsTotal ?? null,
+    eggsBroken: saved?.eggsBroken ?? null,
+    deadEntered: saved === null ? false : (saved.deadEntered ?? (saved.dead ?? 0) + (saved.culled ?? 0) > 0),
+    deadPending: false,
+  };
+  const enter = () => {
+    total.deadEntered = true;
+    total.deadPending = true;
+  };
   for (const op of [...ops].sort((a, b) => a.createdAt - b.createdAt)) {
-    if (op.fn === 'set_flock_gas') continue;
+    if (op.fn === 'set_flock_gas' || op.fn === 'add_flock_gas') continue;
+    if (op.fn === 'set_flock_dead') {
+      if (!total.deadEntered) total.dead += op.payload.dead;
+      enter();
+      continue;
+    }
     if (op.fn === 'save_flock_visit') {
       const visit = op.payload;
+      if (!visit.void && (visit.dead !== null || visit.culled !== null)) enter();
       if (op.baseVersion !== null || visit.void || op.state === 'sending' || op.state === 'unknown') continue;
       total.dead += visit.dead ?? 0;
       total.culled += visit.culled ?? 0;
@@ -47,6 +76,7 @@ export function soFar(saved: Pick<DayValues, 'dead' | 'culled' | 'feedKg' | 'egg
       continue;
     }
     const day = op.payload;
+    if ((day.dead ?? null) !== null || (day.culled ?? null) !== null) enter();
     total.dead = day.dead ?? total.dead;
     total.culled = day.culled ?? total.culled;
     total.feedKg = milli(day.feed_kg) ?? total.feedKg;
@@ -54,6 +84,47 @@ export function soFar(saved: Pick<DayValues, 'dead' | 'culled' | 'feedKg' | 'egg
     total.eggsBroken = day.eggs_broken ?? total.eggsBroken;
   }
   return total;
+}
+
+/** غاز اليوم حتى الآن (0036): المحفوظ، أو null، ثمّ عمليات هذا الجهاز لليوم بترتيبها. */
+export interface GasSoFar {
+  /** القناني كما يجب أن تُرى، أو null: لم يُسجَّل غاز اليوم. */
+  cylinders: number | null;
+  /** على هذا الجهاز عملية غاز لم تُرفع. */
+  pending: boolean;
+}
+
+/**
+ * التصحيح (set_flock_gas) يحلّ محلّ المجموع، والإضافة (add_flock_gas) تُضاف إليه؛ والإضافة في الطريق أو المجهولة ربّما صارت في المحفوظ بقراءة بعدها
+ * فلا تُضاف (كالزيارة الجديدة)، والتصحيح يُطبَّق في كلّ حالاته (تطبيقه مرّتين القيمة نفسها).
+ */
+export function gasSoFar(saved: number | null, ops: readonly OutboxOp[]): GasSoFar {
+  const total: GasSoFar = { cylinders: saved, pending: false };
+  for (const op of [...ops].sort((a, b) => a.createdAt - b.createdAt)) {
+    if (op.fn === 'set_flock_gas') {
+      total.cylinders = op.payload.cylinders;
+      total.pending = true;
+    } else if (op.fn === 'add_flock_gas') {
+      total.pending = true;
+      if (op.state !== 'sending' && op.state !== 'unknown') total.cylinders = (total.cylinders ?? 0) + op.payload.add;
+    }
+  }
+  return total;
+}
+
+/**
+ * كمية العلف بوحدة أساسه بالفصحى وبفواصل الآلاف: «2,500 كغم» (الكيلو اختصار ثابت ولو تجاوز الطنّ، كعمود الورقة)، و«لتران»، و«5 لترات». هنا (محفوظ للفتح
+ * بلا نت) لـ«أُرسل اليوم» في الجولة، ولإرسال العلف في حزمة القاعات.
+ */
+export const feedAmount = (qty: Milli, unit: BaseUnit): string => (unit === 'kg' ? t('sheet.feed.kg', '{qty} كغم', { qty: fmtMilli(qty) }) : fmtQty(qty, unit).main);
+
+/** القناني بالفصحى: «قنينة واحدة»، «قنينتان»، «3 قناني»، «11 قنينة»، و«لا قناني» للصفر. */
+export function cylindersText(n: number): string {
+  if (n === 0) return t('round.gas.none_count', 'لا قناني');
+  if (n === 1) return t('round.gas.one', 'قنينة واحدة');
+  if (n === 2) return t('round.gas.two', 'قنينتان');
+  const form = countForm(n);
+  return form === 'few' ? t('round.gas.few', '{n} قناني', { n: fmtInt(n) }) : t('round.gas.many', '{n} قنينة', { n: fmtInt(n) });
 }
 
 /**

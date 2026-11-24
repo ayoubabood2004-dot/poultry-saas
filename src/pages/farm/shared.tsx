@@ -133,16 +133,6 @@ const hallsLazy =
 const remindersLazy = hallsLazy((halls) => halls.Reminders);
 const cardLazy = hallsLazy((halls) => halls.FlockCard);
 
-/** ما يحتاج الخادم في الجولة بلا اتصال (أو فشل تحميل حزمة القاعات): جملة تقول ذلك. */
-export function NeedsConnection() {
-  return (
-    <p className="text-sm text-ink-muted" data-action="visits-offline">
-      {t('visits.offline', 'زيارات اليوم تحتاج اتصالاً بالإنترنت.')}
-    </p>
-  );
-}
-const visitsLazy = hallsLazy((halls) => halls.HallVisits, NeedsConnection);
-
 /** تذكير اللقاحات المستحقّة: شريط الجولة (kind)، وصفّ «شغل اليوم» في الرئيسية (compact، وonCount عدد صفوفه). */
 export function HallReminders(props: HallRemindersProps) {
   const [Lazy] = useState(remindersLazy);
@@ -163,14 +153,28 @@ export function HallFlockCard(props: { flock: FlockDetail['flock']; onChanged: (
   );
 }
 
-/** «زيارات اليوم» لقاعة في الجولة (0032، من حزمة القاعات): بلا نت أو فشل تحميلها «تحتاج اتصالاً». */
-export function HallVisitsLazy(props: ComponentProps<Halls['HallVisits']>) {
-  const [Lazy] = useState(visitsLazy);
+/** إرسال العلف بلا حزمة القاعات (بلا نت، أو فشل تحميلها): جملة تقول إنّه يحتاج اتصالاً. */
+function FeedNeedsConnection() {
   return (
-    <Suspense fallback={null}>
-      <Lazy {...props} />
-    </Suspense>
+    <p className="text-sm text-ink-muted" data-action="round-feed-offline">
+      {t('sheet.feed.offline', 'إرسال العلف يحتاج اتصالاً بالإنترنت: يخرج من «رصيد العلف» لحظة الإرسال. أرسله حين يعود الاتصال.')}
+    </p>
   );
+}
+
+export type RoundFeedProps = ComponentProps<Halls['RoundFeed']>;
+
+/**
+ * مكوّنات الجولة من حزمة القاعات (0036): التذكير، وبطاقات العلف و«أرسل» في كلّ قاعة (الإرسال يحتاج الخادم). استيراد واحد لكلّ فتح للجولة يشتركان فيه (مراجعة
+ * 0026 GR-1: لا استيراد لكلّ مكوّن ولا لكلّ رسم)؛ والجولة تأخذها مرّة بـuseState، فالفشل يبقى لعمرها ويُعاد في الفتح التالي. وبلا الحزمة: لا تذكير، والعلف
+ * جملة «يحتاج اتصالاً» (و«أُرسل اليوم» من قراءة الجولة باقٍ فوقها).
+ */
+export function roundLazies() {
+  let loading: Promise<Halls> | null = null;
+  const once = () => (loading ??= quietly(loadHalls));
+  // حزمة بلا المكوّن (لا تُسقط الجولة كلّها بعنصر غير معرّف) كحزمة لم تُحمَّل.
+  const from = <P,>(pick: (halls: Halls) => ComponentType<P> | undefined, fallback: ComponentType<P>) => lazy<ComponentType<P>>(() => once().then((halls) => ({ default: pick(halls) ?? fallback }), () => ({ default: fallback })));
+  return { Reminders: from((halls) => halls.Reminders, nothing), Feed: from((halls) => halls.RoundFeed, FeedNeedsConnection) };
 }
 
 /** بطاقة مؤشّر: الرقم الصافي بـdir=ltr (الفواصل والإشارة بمكانها)، والجملة العربية ترث RTL. */
