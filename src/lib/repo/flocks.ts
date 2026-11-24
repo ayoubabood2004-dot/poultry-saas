@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Day } from '../../domain/dates';
 import { parseDecimal, toScale } from '../../domain/decimal';
 import type { FlockKind } from '../../domain/flocks';
+import type { Milli } from '../../domain/money';
 import type { BaseUnit } from '../../domain/units';
 import { IdentityError, RejectedError, ZeroRowsError } from '../errors';
 import type { OutboxOp, SendResult, Transport } from '../outbox';
@@ -60,6 +61,31 @@ const kindOf = (row: Row, field = 'kind'): FlockKind => {
   return value;
 };
 
+// ─── مفاتيح الجولة (0036، عقد الجزء D) بقراءة صارمة: الرقم العشري نصّ بأرقام غربية بلا فواصل (كورقة القاعة)، واليوم yyyy-mm-dd ────────────────
+const WIRE_DECIMAL = /^-?[0-9]+(?:\.[0-9]+)?$/u;
+const DAY_TEXT = /^\d{4}-\d{2}-\d{2}$/u;
+/** رقم عشري من السلك بمراتبه حتى scale، أو null للقيمة null؛ وغيرهما شكل غريب. */
+const wire = (row: Row, field: string, scale: number): bigint | null => {
+  if (row[field] === null) return null;
+  const text = str(row, field);
+  const value = WIRE_DECIMAL.test(text) ? parseDecimal(text, scale) : null;
+  if (value === null) throw new FlockShapeError(field);
+  return toScale(value, scale);
+};
+const wireRequired = (row: Row, field: string, scale: number): bigint => {
+  const value = wire(row, field, scale);
+  if (value === null) throw new FlockShapeError(field);
+  return value;
+};
+const BASE_UNITS: readonly BaseUnit[] = ['kg', 'L', 'pc'];
+const pick = <T extends string>(row: Row, field: string, allowed: readonly T[]): T => {
+  if (!allowed.includes(row[field] as T)) throw new FlockShapeError(field);
+  return row[field] as T;
+};
+const unitOf = (row: Row, field: string): BaseUnit => pick(row, field, BASE_UNITS);
+/** مفتاح أضافته 0036 لقارئ قائم: غيابه (خادم قبلها أو نسخة جهاز قديمة) null، ووجوده بشكله وإلّا رُفض. */
+const since0036 = <T>(row: Row, field: string, read: (row: Row, field: string) => T): T | null => (row[field] === undefined ? null : read(row, field));
+
 /**
  * خانات اليوم كما انحفظت: العلف بالآلاف (غرام)، والحرارة بالأعشار؛ null = ما انسجّلت. والماء (water_l) خارج الشاشات (كلمة المالك
  * 2026-11-11: الماء ثابت)، فعموده باقٍ في القاعدة ولا يُقرأ هنا؛ وناقل الطابور يرسل water_l لعملية قديمة تحمله كما هي.
@@ -79,6 +105,11 @@ export interface DayValues {
 export interface DayRow extends DayValues {
   onDate: Day;
   version: number;
+  /**
+   * 0036: «سُجّلت هلاكات اليوم» (الجولة تُدخلها مرّة ثمّ تتضلّل)، أو null: خادم قبل 0036 أو نسخة جهاز منه. والغائب يُقرأ في الجولة كما ملأته الهجرة
+   * القائمة: سُجّلت إن كان في اليوم هلاكات.
+   */
+  deadEntered: boolean | null;
 }
 
 export function parseDayRow(value: unknown): DayRow {
@@ -86,6 +117,7 @@ export function parseDayRow(value: unknown): DayRow {
   return {
     onDate: str(row, 'on_date'),
     version: int(row, 'version'),
+    deadEntered: since0036(row, 'dead_entered', flag),
     dead: optInt(row, 'dead'),
     culled: optInt(row, 'culled'),
     feedKg: scaled(row, 'feed_kg', 3),
@@ -129,9 +161,48 @@ export interface FlockSummary {
   /** بالمئات؛ null = ما انسجّل بيض اليوم («—» مو صفر، القاعدة 32). */
   hdepToday: bigint | null;
   rejectsPending: number;
+  /** 0036 (الجولة): قناني غاز اليوم، أو null: لم يُسجَّل غاز اليوم (أو خادم قبل 0036). */
+  gasToday: number | null;
+  /** نسخة صفّ غاز اليوم، أو null: لا صفّ. */
+  gasTodayVersion: number | null;
+  /** علف اليوم المرسل لهذه القاعة بالكيلو (بالآلاف)، أو null: لم يُرسل علف اليوم (أو خادم قبل 0036). */
+  feedTodayKg: Milli | null;
+  /** علف اليوم لكلّ مادّة بوحدة أساسها، بترتيب أوّل إرسال؛ وخادم قبل 0036: []. */
+  feedToday: FeedTodayLine[];
+  /** مادّة آخر علف حيّ أُرسل لهذه القاعة (تُختار مسبقاً في الجولة)، أو null. */
+  lastFeedItemId: string | null;
+}
+
+/** سطر «أُرسل اليوم» لمادّة: الكمية بوحدة أساسها بالآلاف. */
+export interface FeedTodayLine {
+  itemId: string;
+  itemName: string;
+  qty: Milli;
+  unit: BaseUnit;
 }
 
 const STATUSES = ['preparing', 'active', 'closed'] as const;
+
+/** مفاتيح الجولة في ملخّص الفوج (0036): الغياب كلّه null و[] (خادم قبلها)، والموجود بشكله. */
+function roundKeys(row: Row): Pick<FlockSummary, 'gasToday' | 'gasTodayVersion' | 'feedTodayKg' | 'feedToday' | 'lastFeedItemId'> {
+  const gasToday = since0036(row, 'gas_today', optInt) ?? null;
+  if (gasToday !== null && (gasToday < 0 || gasToday > 1000)) throw new FlockShapeError('gas_today');
+  const gasTodayVersion = since0036(row, 'gas_today_version', optInt) ?? null;
+  if (gasTodayVersion !== null && gasTodayVersion < 1) throw new FlockShapeError('gas_today_version');
+  // الغاز الممسوح يبقى صفّه بنسخة وعدد null (درس ABA)، والعدد بلا نسخة لا.
+  if (gasToday !== null && gasTodayVersion === null) throw new FlockShapeError('gas_today_version');
+  const feedTodayKg = since0036(row, 'feed_today_kg', (r, f) => wire(r, f, 3)) ?? null;
+  if (feedTodayKg !== null && feedTodayKg < 0n) throw new FlockShapeError('feed_today_kg');
+  const feedToday =
+    since0036(row, 'feed_today', (r, f) =>
+      list(r[f], f).map((line) => {
+        const qty = wireRequired(line, 'qty', 3);
+        if (qty <= 0n) throw new FlockShapeError('qty');
+        return { itemId: str(line, 'item_id'), itemName: str(line, 'item_name'), qty, unit: unitOf(line, 'unit') };
+      }),
+    ) ?? [];
+  return { gasToday, gasTodayVersion, feedTodayKg, feedToday, lastFeedItemId: since0036(row, 'last_feed_item_id', optStr) ?? null };
+}
 
 export function parseFlock(value: unknown): FlockSummary {
   const row = record(value, 'flock');
@@ -163,6 +234,7 @@ export function parseFlock(value: unknown): FlockSummary {
     eggsToday: optInt(row, 'eggs_today'),
     hdepToday: scaled(row, 'hdep_today', 2),
     rejectsPending: optInt(row, 'rejects_pending') ?? 0,
+    ...roundKeys(row),
   };
 }
 
@@ -184,16 +256,53 @@ export interface SiteView {
   halls: HallView[];
 }
 
+/** وحدة إرسال لمادّة علف: كم من وحدة الأساس فيها، بالمليون (factor_to_base بستّ مراتب). */
+export interface FeedUnit {
+  id: string;
+  name: string;
+  baseQty: bigint;
+}
+
+/**
+ * علف في «رصيد العلف» (0036، flocks_overview.feed_items = أعلاف ورقة القاعة بلا last): «عندك» أكبر ما يأخذه إرسال واحد (أكبر مخزن علف واحد فيه
+ * المادّة اليوم)، ووحداتها بترتيب الخادم (الكيس أوّلاً). بلا مال.
+ */
+export interface FeedItem {
+  itemId: string;
+  name: string;
+  baseUnit: BaseUnit;
+  /** بوحدة الأساس بالآلاف. */
+  onHand: Milli;
+  units: FeedUnit[];
+}
+
+function feedItemOf(row: Row): FeedItem {
+  return {
+    itemId: str(row, 'item_id'),
+    name: str(row, 'name'),
+    baseUnit: unitOf(row, 'base_unit'),
+    onHand: wireRequired(row, 'on_hand', 3),
+    units: list(row.units, 'units').map((unit) => {
+      const baseQty = wireRequired(unit, 'base_qty', 6);
+      if (baseQty <= 0n) throw new FlockShapeError('base_qty');
+      return { id: str(unit, 'id'), name: str(unit, 'name'), baseQty };
+    }),
+  };
+}
+
 export interface FlocksOverview {
   /** يوم بغداد بالخادم (app_today) لحظة القراءة. */
   today: Day;
   sites: SiteView[];
+  /** أعلاف «رصيد العلف» للجولة (0036)؛ وخادم قبل 0036 أو نسخة جهاز منه: []. */
+  feedItems: FeedItem[];
 }
 
 export function parseOverview(value: unknown): FlocksOverview {
   const json = record(value, 'overview');
   return {
     today: str(json, 'today'),
+    feedItems: since0036(json, 'feed_items', (row, field) => list(row[field], field).map(feedItemOf)) ?? [],
     sites: list(json.sites, 'sites').map((site) => ({
       id: str(site, 'id'),
       name: str(site, 'name'),
@@ -272,11 +381,6 @@ export function parseDetail(value: unknown): FlockDetail {
 
 export type CostKind = 'feed' | 'medicine' | 'vaccine' | 'fuel' | 'other';
 const COST_KINDS: readonly CostKind[] = ['feed', 'medicine', 'vaccine', 'fuel', 'other'];
-const BASE_UNITS: readonly BaseUnit[] = ['kg', 'L', 'pc'];
-const pick = <T extends string>(row: Row, field: string, allowed: readonly T[]): T => {
-  if (!allowed.includes(row[field] as T)) throw new FlockShapeError(field);
-  return row[field] as T;
-};
 const qty3 = (row: Row, field: string): bigint => {
   const value = scaled(row, field, 3);
   if (value === null) throw new FlockShapeError(field);
@@ -525,7 +629,7 @@ export function visitAnswer(value: unknown): SendResult {
   throw new FlockShapeError('status');
 }
 
-// ─── ناقل الطابور: save_flock_day وsave_flock_visit بمرجع العملية ──────────────────────────────────────────────────────────
+// ─── ناقل الطابور: save_flock_day وsave_flock_visit وset_flock_gas، وset_flock_dead وadd_flock_gas (0036) بمرجع العملية ─────────────────────
 
 /** سبب الركن من جواب parked (flock_closed وout_of_scope وperiod_locked، وdate_too_old من خادم قبل 0035)، أو null بلا سبب. */
 const parkReason = (answer: Row): string | null => (typeof answer.reason === 'string' && answer.reason !== '' ? answer.reason : null);
@@ -564,6 +668,36 @@ export function gasAnswer(value: unknown): SendResult {
 }
 
 /**
+ * جواب set_flock_dead (0036، عقد D2) ← نتيجة الطابور: saved بصفّ اليوم بعدها (نسخته لمجموع اليوم بعدها، كالزيارة)، وdead_recorded بصفّ اليوم كما هو
+ * (سُجّلت هلاكاته قبلها برقم آخر: لم يُكتب شيء)، وparked بسببه. صارم: صفّ اليوم بعد الجواب «سُجّلت» دائماً؛ وشكل غريب يرمي فتبقى العملية بالطابور.
+ */
+export function deadAnswer(value: unknown): SendResult {
+  const answer = record(value, 'set_flock_dead');
+  if (answer.status === 'saved' || answer.status === 'dead_recorded') {
+    const day = parseDayRow(answer.day);
+    if (!DAY_TEXT.test(day.onDate) || day.deadEntered !== true) throw new FlockShapeError('dead_entered');
+    return answer.status === 'saved' ? { kind: 'saved', version: day.version, day: answer.day } : { kind: 'dead_recorded', server: answer.day };
+  }
+  if (answer.status === 'parked') return { kind: 'parked', reason: parkReason(answer) };
+  throw new FlockShapeError('status');
+}
+
+/**
+ * جواب add_flock_gas (0036، عقد D3) ← نتيجة الطابور: saved بغاز اليوم بعد الإضافة (نسخته لتصحيح الورقة بعدها، وعدده قنينة على الأقلّ)، وparked بسببه؛ شكل
+ * غريب يرمي فتبقى العملية بالطابور.
+ */
+export function gasAddAnswer(value: unknown): SendResult {
+  const answer = record(value, 'add_flock_gas');
+  if (answer.status === 'saved') {
+    const gas = parseGas(answer.gas);
+    if (gas.cylinders === null || gas.cylinders < 1) throw new FlockShapeError('cylinders');
+    return { kind: 'saved', version: gas.version, gas: answer.gas };
+  }
+  if (answer.status === 'parked') return { kind: 'parked', reason: parkReason(answer) };
+  throw new FlockShapeError('status');
+}
+
+/**
  * يرفع عملية جولة (p_queued = true: فوج انقفل أو قاعة طلعت من النطاق أو تاريخ صار قديماً ← parked بـflock_day_rejects بدل
  * الرفض، فالجهاز يبطّل الإعادة). الرفض المقصود rejected برمزه وتلميحه، والهويّة identity_rejected، والاشتراك المنتهي صنفه. فشل
  * الشبكة والمهلة والتزاحم يرمي: النتيجة مجهولة والطابور يحسمها بنفس المرجع.
@@ -580,6 +714,12 @@ export async function sendFlockDay(op: OutboxOp): Promise<SendResult> {
         p_client_ref: op.id,
         p_queued: true,
       });
+    } else if (op.fn === 'set_flock_dead') {
+      // هلاكات اليوم مرّة (0036): العدد كما كُتب، والمرجع معرّف العملية.
+      answer = await call<unknown>('set_flock_dead', { p_flock: op.flockId, p_on: op.day, p_dead: op.payload.dead, p_client_ref: op.id, p_queued: true });
+    } else if (op.fn === 'add_flock_gas') {
+      // قناني أُرسلت الآن تُضاف إلى مجموع اليوم (0036): كلّ إضافة بمرجعها، فإعادتها لا تضاعفها.
+      answer = await call<unknown>('add_flock_gas', { p_flock: op.flockId, p_on: op.day, p_add: op.payload.add, p_client_ref: op.id, p_queued: true });
     } else if (op.fn === 'save_flock_visit') {
       // الزيارة بمحتواها كاملاً: الإضافة (نسخة null)، والتعديل بنسختها، والإلغاء (p_void) بنسختها.
       const v = op.payload;
@@ -625,7 +765,18 @@ export async function sendFlockDay(op: OutboxOp): Promise<SendResult> {
     if (error instanceof RejectedError) return error.code === 'subscription_expired' ? { kind: 'subscription_expired' } : { kind: 'rejected', code: error.code, hint: error.hint };
     throw error;
   }
-  return op.fn === 'set_flock_gas' ? gasAnswer(answer) : op.fn === 'save_flock_visit' ? visitAnswer(answer) : dayAnswer(answer);
+  switch (op.fn) {
+    case 'set_flock_gas':
+      return gasAnswer(answer);
+    case 'set_flock_dead':
+      return deadAnswer(answer);
+    case 'add_flock_gas':
+      return gasAddAnswer(answer);
+    case 'save_flock_visit':
+      return visitAnswer(answer);
+    case 'save_flock_day':
+      return dayAnswer(answer);
+  }
 }
 
 export const flockDayTransport: Transport = {

@@ -1,0 +1,322 @@
+{
+  "_note": "عيّنة يدوية بأشكال عقد 0036 الجزء D (docs/plans/0036/contract-0036.md: D1 وD2 وD3 وD4) قبل أن تصل عيّنات القاعدة الحقيقية (round-once-0036.json)؛ اليوم المثبَّت 2026-11-24، والفحوص تنقل التواريخ إلى يوم الجهاز. flock_summary بمفاتيح 0029 كلّها ومفاتيح الجولة الجديدة (gas_today وgas_today_version وfeed_today_kg وfeed_today وlast_feed_item_id، وtoday.dead_entered)، وflocks_overview بـfeed_items (أعلاف الورقة بلا last).",
+  "flocks_overview_broiler": {
+    "today": "2026-11-24",
+    "sites": [
+      {
+        "id": "0036a000-0000-4000-8000-0000000000a1",
+        "name": "حقل الأمل",
+        "division_id": "0036a000-0000-4000-8000-0000000000d1",
+        "kind": "broiler",
+        "can_manage": true,
+        "halls": [
+          {
+            "id": "0036a000-0000-4000-8000-0000000000b1",
+            "name": "1",
+            "capacity": 6000,
+            "version": 1,
+            "flock": {
+              "id": "0036a000-0000-4000-8000-0000000000f1",
+              "kind": "broiler",
+              "breed": "روس 308",
+              "status": "active",
+              "version": 1,
+              "placed_on": "2026-11-13",
+              "placed_count": 5000,
+              "age_days_at_placement": 0,
+              "age_days": 11,
+              "days_since_placement": 12,
+              "dead_total": 40,
+              "culled_total": 0,
+              "live": 4960,
+              "live_start_today": 4967,
+              "mortality_pct": "0.80",
+              "feed_kg_total": "1450.000",
+              "feed_days": 12,
+              "feed_span_days": 12,
+              "last_weight": null,
+              "fcr": null,
+              "today": {
+                "on_date": "2026-11-24",
+                "version": 2,
+                "dead": 7,
+                "culled": 0,
+                "feed_kg": null,
+                "water_l": null,
+                "temp_min": null,
+                "temp_max": null,
+                "eggs_total": null,
+                "eggs_cracked": null,
+                "eggs_broken": null,
+                "note": null,
+                "dead_entered": true
+              },
+              "eggs_today": null,
+              "hdep_today": null,
+              "rejects_pending": 0,
+              "sold_birds": 0,
+              "sold_net_kg": "0.000",
+              "count_diff": 0,
+              "ticketed_birds": 0,
+              "closed_on": null,
+              "gas_today": 2,
+              "gas_today_version": 1,
+              "feed_today_kg": "150.000",
+              "feed_today": [
+                { "item_id": "0036a000-0000-4000-8000-0000000000c1", "item_name": "علف بادئ", "qty": "100.000", "unit": "kg" },
+                { "item_id": "0036a000-0000-4000-8000-0000000000c2", "item_name": "علف ناهي", "qty": "50.000", "unit": "kg" }
+              ],
+              "last_feed_item_id": "0036a000-0000-4000-8000-0000000000c2"
+            }
+          },
+          {
+            "id": "0036a000-0000-4000-8000-0000000000b2",
+            "name": "2",
+            "capacity": 6000,
+            "version": 1,
+            "flock": {
+              "id": "0036a000-0000-4000-8000-0000000000f2",
+              "kind": "broiler",
+              "breed": null,
+              "status": "active",
+              "version": 1,
+              "placed_on": "2026-11-13",
+              "placed_count": 4000,
+              "age_days_at_placement": 0,
+              "age_days": 11,
+              "days_since_placement": 12,
+              "dead_total": 0,
+              "culled_total": 0,
+              "live": 4000,
+              "live_start_today": 4000,
+              "mortality_pct": "0.00",
+              "feed_kg_total": "0.000",
+              "feed_days": 0,
+              "feed_span_days": 12,
+              "last_weight": null,
+              "fcr": null,
+              "today": null,
+              "eggs_today": null,
+              "hdep_today": null,
+              "rejects_pending": 0,
+              "sold_birds": 0,
+              "sold_net_kg": "0.000",
+              "count_diff": 0,
+              "ticketed_birds": 0,
+              "closed_on": null,
+              "gas_today": null,
+              "gas_today_version": null,
+              "feed_today_kg": null,
+              "feed_today": [],
+              "last_feed_item_id": null
+            }
+          },
+          {
+            "id": "0036a000-0000-4000-8000-0000000000b3",
+            "name": "قاعة الشرقية",
+            "capacity": 3000,
+            "version": 1,
+            "flock": {
+              "id": "0036a000-0000-4000-8000-0000000000f3",
+              "kind": "broiler",
+              "breed": null,
+              "status": "active",
+              "version": 1,
+              "placed_on": "2026-11-13",
+              "placed_count": 3000,
+              "age_days_at_placement": 0,
+              "age_days": 11,
+              "days_since_placement": 12,
+              "dead_total": 12,
+              "culled_total": 0,
+              "live": 2988,
+              "live_start_today": 2988,
+              "mortality_pct": "0.40",
+              "feed_kg_total": "800.000",
+              "feed_days": 11,
+              "feed_span_days": 12,
+              "last_weight": null,
+              "fcr": null,
+              "today": {
+                "on_date": "2026-11-24",
+                "version": 1,
+                "dead": 0,
+                "culled": 0,
+                "feed_kg": null,
+                "water_l": null,
+                "temp_min": null,
+                "temp_max": null,
+                "eggs_total": null,
+                "eggs_cracked": null,
+                "eggs_broken": null,
+                "note": "تهوية",
+                "dead_entered": false
+              },
+              "eggs_today": null,
+              "hdep_today": null,
+              "rejects_pending": 0,
+              "sold_birds": 0,
+              "sold_net_kg": "0.000",
+              "count_diff": 0,
+              "ticketed_birds": 0,
+              "closed_on": null,
+              "gas_today": null,
+              "gas_today_version": 2,
+              "feed_today_kg": null,
+              "feed_today": [],
+              "last_feed_item_id": "0036a000-0000-4000-8000-0000000000c1"
+            }
+          }
+        ]
+      }
+    ],
+    "feed_items": [
+      {
+        "item_id": "0036a000-0000-4000-8000-0000000000c1",
+        "name": "علف بادئ",
+        "base_unit": "kg",
+        "on_hand": "1860.000",
+        "units": [{ "id": "0036a000-0000-4000-8000-0000000000e1", "name": "كيس 50 كغم", "base_qty": "50.000000" }]
+      },
+      {
+        "item_id": "0036a000-0000-4000-8000-0000000000c2",
+        "name": "علف ناهي",
+        "base_unit": "kg",
+        "on_hand": "950.000",
+        "units": [{ "id": "0036a000-0000-4000-8000-0000000000e2", "name": "كيس 50 كغم", "base_qty": "50" }]
+      }
+    ]
+  },
+  "flocks_overview_layer": {
+    "today": "2026-11-24",
+    "sites": [
+      {
+        "id": "0036a000-0000-4000-8000-0000000000a2",
+        "name": "حقل البيض",
+        "division_id": "0036a000-0000-4000-8000-0000000000d2",
+        "kind": "layer",
+        "can_manage": true,
+        "halls": [
+          {
+            "id": "0036a000-0000-4000-8000-0000000000b9",
+            "name": "قاعة البيّاض",
+            "capacity": 3000,
+            "version": 1,
+            "flock": {
+              "id": "0036a000-0000-4000-8000-0000000000f9",
+              "kind": "layer",
+              "breed": null,
+              "status": "active",
+              "version": 1,
+              "placed_on": "2026-11-13",
+              "placed_count": 1000,
+              "age_days_at_placement": 140,
+              "age_days": 151,
+              "days_since_placement": 12,
+              "dead_total": 0,
+              "culled_total": 0,
+              "live": 1000,
+              "live_start_today": 1000,
+              "mortality_pct": "0.00",
+              "feed_kg_total": "0.000",
+              "feed_days": 0,
+              "feed_span_days": 12,
+              "last_weight": null,
+              "fcr": null,
+              "today": {
+                "on_date": "2026-11-24",
+                "version": 1,
+                "dead": 0,
+                "culled": 0,
+                "feed_kg": null,
+                "water_l": null,
+                "temp_min": null,
+                "temp_max": null,
+                "eggs_total": 400,
+                "eggs_cracked": null,
+                "eggs_broken": 4,
+                "note": null,
+                "dead_entered": false
+              },
+              "eggs_today": 400,
+              "hdep_today": "40.00",
+              "rejects_pending": 0,
+              "sold_birds": 0,
+              "sold_net_kg": "0.000",
+              "count_diff": 0,
+              "ticketed_birds": 0,
+              "closed_on": null,
+              "gas_today": null,
+              "gas_today_version": null,
+              "feed_today_kg": null,
+              "feed_today": [],
+              "last_feed_item_id": null
+            }
+          }
+        ]
+      }
+    ],
+    "feed_items": [
+      {
+        "item_id": "0036a000-0000-4000-8000-0000000000c7",
+        "name": "علف بيّاض",
+        "base_unit": "kg",
+        "on_hand": "700.500",
+        "units": []
+      }
+    ]
+  },
+  "set_flock_dead_saved": {
+    "status": "saved",
+    "day": {
+      "on_date": "2026-11-24",
+      "version": 1,
+      "dead": 5,
+      "culled": 0,
+      "feed_kg": null,
+      "water_l": null,
+      "temp_min": null,
+      "temp_max": null,
+      "eggs_total": null,
+      "eggs_cracked": null,
+      "eggs_broken": null,
+      "note": null,
+      "dead_entered": true
+    }
+  },
+  "set_flock_dead_recorded": {
+    "status": "dead_recorded",
+    "day": {
+      "on_date": "2026-11-24",
+      "version": 2,
+      "dead": 7,
+      "culled": 0,
+      "feed_kg": null,
+      "water_l": null,
+      "temp_min": null,
+      "temp_max": null,
+      "eggs_total": null,
+      "eggs_cracked": null,
+      "eggs_broken": null,
+      "note": null,
+      "dead_entered": true
+    }
+  },
+  "set_flock_dead_parked": { "status": "parked", "reason": "flock_closed" },
+  "add_flock_gas_saved": { "status": "saved", "gas": { "on": "2026-11-24", "cylinders": 3, "version": 2 } },
+  "add_flock_gas_parked": { "status": "parked", "reason": "period_locked" },
+  "send_flock_feed": {
+    "status": "saved",
+    "issue": {
+      "id": "0036a000-0000-4000-8000-0000000000d9",
+      "qty": "100.000",
+      "unit": "kg",
+      "doc_no": "FI-2026-0412",
+      "for_day": "2026-11-24",
+      "item_id": "0036a000-0000-4000-8000-0000000000c2",
+      "issued_on": "2026-11-24",
+      "item_name": "علف ناهي"
+    },
+    "day": { "on": "2026-11-24", "feed_kg": "250.000" }
+  }
+}

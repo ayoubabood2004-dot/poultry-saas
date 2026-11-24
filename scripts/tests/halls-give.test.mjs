@@ -105,7 +105,7 @@ async function bundle() {
     target: 'node20',
     jsx: 'automatic',
     logLevel: 'silent',
-    loader: { '.css': 'empty' },
+    loader: { '.css': 'empty' }, // الأنماط الكسولة (round.css وofficial.css وsheetGrid.css) بلا مخرَج هنا
     define: { 'import.meta.env.DEV': 'false', __APP_VERSION__: '"test"', 'process.env.NODE_ENV': '"production"' },
     plugins,
   });
@@ -740,10 +740,10 @@ export default async function (t) {
       const ops = await m.pendingOps(db, { userId: WORKER.workspace.userId, orgId: 'org-1', displayName: 'علي' });
       t.same(
         ops.map((op) => [op.fn, op.flockId, Object.keys(op.payload).sort()]),
-        [['save_flock_visit', FLOCK, ['culled', 'dead', 'eggs_broken', 'eggs_cracked', 'eggs_total', 'feed_kg', 'note', 'recordedAt', 'visitId', 'void']]],
-        'W حمولة الجولة زيارة (0032) بمحتواها كاملاً، بلا water_l',
+        [['set_flock_dead', FLOCK, ['dead']]],
+        'W هلاكات الجولة مرّة (0036): عملية set_flock_dead بالهلاكات وحدها، بلا water_l',
       );
-      t.eq(named(rpcLog, 'save_flock_visit').length + named(rpcLog, 'save_flock_day').length, 0, 'W ضابط: بلا نت تبقى بالجهاز');
+      t.eq(named(rpcLog, 'set_flock_dead').length + named(rpcLog, 'save_flock_visit').length + named(rpcLog, 'save_flock_day').length, 0, 'W ضابط: بلا نت تبقى بالجهاز');
       m.onlineStore.set(true);
     });
     await step('W بلا نت', async () => {
