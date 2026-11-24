@@ -1313,8 +1313,9 @@ function SheetScreen({ kind, flockId, nav, site, summary, onGone }: { kind: Floc
     <div className="flex flex-col gap-4" data-action="hall-sheet">
       <HallTop kind={kind} nav={nav} />
       <header className="flex flex-col gap-1">
+        {/* عنوان الصفحة اسم القاعة، و«هلاكات قاعة (7)» شريط عنوان الجدول الملوّن تحته (عقد 0036 S1): لا يتكرّر العنوان نفسه مرّتين. */}
         <h1 className="text-2xl font-semibold" data-action="sheet-title">
-          {sheet ? sheetTitle(sheet.flock.hallName) : farmTitle(kind)}
+          {sheet ? hallLabel(sheet.flock.hallName) : farmTitle(kind)}
         </h1>
         {sheet ? (
           <p className="text-ink-muted" data-action="sheet-batch">

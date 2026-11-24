@@ -392,7 +392,7 @@ export default async function (t) {
       await unmount();
       fresh({ hall_sheet: () => clone(REAL.hall_sheet_closed) });
       await mount(`/broiler/flock/${REAL.hall_sheet_closed.flock.id}`);
-      t.same([textOf('sheet-title'), byAction('sheet-pencil').length], ['هلاكات قاعة (9)', 0], 'G1 الوجبة المغلقة (عيّنة القاعدة): بلا قلم، للقراءة فقط');
+      t.same([textOf('sheet-title'), byAction('sheet-pencil').length], ['قاعة 9', 0], 'G1 الوجبة المغلقة (عيّنة القاعدة): بلا قلم، للقراءة فقط');
     });
 
     // ── G2: القلم ─────────────────────────────────────────────────────────────────────────────────────────────────

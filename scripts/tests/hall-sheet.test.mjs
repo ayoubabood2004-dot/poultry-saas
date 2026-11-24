@@ -352,7 +352,7 @@ export default async function (t) {
       const { calls } = fresh('manager', sheetSetup());
       await mount(`/broiler/hall/${H7}`);
       t.same(named(calls, 'hall_sheet'), [[F7]], 'S1 الورقة بقراءة hall_sheet واحدة لفوج القاعة');
-      t.same([textOf('sheet-title'), textOf('sheet-batch')?.startsWith('وجبة 13/11/2026')], ['هلاكات قاعة (7)', true], 'S1 العنوان «هلاكات قاعة (7)» وتحته «وجبة 13/11/2026»');
+      t.same([textOf('sheet-title'), textOf('sheet-batch')?.startsWith('وجبة 13/11/2026')], ['قاعة 7', true], 'S1 عنوان الصفحة اسم القاعة «قاعة 7» وتحته «وجبة 13/11/2026» («هلاكات قاعة (7)» شريط الجدول، لا عنواناً ثانياً فوقه، 0036)');
       t.same(headers(sheetTable()), ['العمر', 'التاريخ', 'الهلاكات', 'الغاز', 'العلف (كغم)', 'الملاحظات'], 'S1 أعمدة الورقة: العمر | التاريخ | الهلاكات | الغاز | العلف | الملاحظات');
       const rows = bodyRows(sheetTable());
       t.same([rows.length, cells(rows[0]).slice(0, 2), cells(rows.at(-1)).slice(0, 2)], [46, ['0', '13/11'], ['45', '28/12']], 'S1 صفّ لكلّ يوم من عمر 0 حتى نهاية الوجبة، ولو بلا شيء (التاريخ يوم/شهر، والسنة في سطر «وجبة»)');
