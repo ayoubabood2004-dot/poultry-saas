@@ -13,6 +13,7 @@
 // R5 أزرار التقرير 44 نقطة: «أرسلها» و«نزّلها» بعد رفض المشاركة، وتنقّل التقرير اليوميّ بين الأيّام.
 // R6 صفحة القاعة عريضةٌ بكلّ حالها (فارغة، وأثناء القراءة، والانتقال من ورقة إلى قاعة فارغة بلا لحظة ضيّقة).
 // R7 «أرسل صورة» من السمة الداكنة صورةٌ فاتحة كالطباعة: خلفية فاتحة ورموز فاتحة على الحاوية، ولا صنف dark: في النسخة، ورموز --ofc- فاتحة على كلّ نسخة.
+// R8 اسم القاعة في جدول التقرير اليوميّ سطرٌ واحد كما كان قبل 0036.
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
@@ -605,6 +606,17 @@ export default async function (t) {
         [captures.length, capture?.options?.backgroundColor ?? null, shownDark > 0, links.length > 0 && links.every((n) => words(n).includes('text-brand-700')), tokens.filter(darkVariant)],
         [1, 'rgb(243, 248, 253)', true, true, []],
         'R7 «أرسل صورة» من السمة الداكنة في التقرير اليوميّ: فاتحةٌ، وروابط القاعات في النسخة brand-700 بلا dark:text-brand-200 (نصٌّ فاتح على ورقة فاتحة)، والصفحة المعروضة كما هي',
+      );
+    });
+
+    await step('R8', async () => {
+      fresh();
+      await mount('/halls/day?on=2026-11-12', reportRoutes());
+      const cells = byAction('day-hall');
+      t.same(
+        [cells.length, cells.every((n) => words(n).includes('whitespace-nowrap'))],
+        [5, true],
+        'R8 اسم القاعة (وحقلها تحته) سطرٌ واحد في جدول التقرير اليوميّ كما كان قبل 0036: «قاعة البيض 1» لا تلتفّ سطرين بالهاتف (whitespace-nowrap صنفٌ في CSS الإقلاع أصلاً)',
       );
     });
 

@@ -243,7 +243,8 @@ function DayReport({ data }: { data: HallsDay }) {
       header: t('halls.day.col.hall', 'القاعة'),
       sticky: true,
       cell: ({ hall, site }) => (
-        <span className="flex flex-col gap-0.5" data-action="day-hall" data-hall={hall.hallId}>
+        // اسم القاعة سطرٌ واحد كما كان في الجدول العاديّ قبل 0036 (مراجعة 0036 R8: «قاعة البيض 1» التفّت سطرين بالهاتف).
+        <span className="flex flex-col gap-0.5 whitespace-nowrap" data-action="day-hall" data-hall={hall.hallId}>
           <HallName hall={hall} />
           {many ? <span className="text-xs text-ink-muted">{site.name}</span> : null}
         </span>
