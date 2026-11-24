@@ -37,6 +37,7 @@ async function bundle(contents) {
     target: 'node20',
     jsx: 'automatic',
     logLevel: 'silent',
+    loader: { '.css': 'empty' },
     // بناء الإنتاج: React بلا تحذيرات الرسم بالخادم (useLayoutEffect) اللي تغطّي النتيجة.
     define: { 'import.meta.env.DEV': 'false', __APP_VERSION__: '"test"', 'process.env.NODE_ENV': '"production"' },
     plugins: [inlinePortal],
