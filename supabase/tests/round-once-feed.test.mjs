@@ -382,6 +382,7 @@ async function scenario(t, db) {
 
   // ── عيّنات الشاشات ─────────────────────────────────────────────────────────────────────────────────────────────────
   samples.flocks_overview = await one(U.owner, 'select public.flocks_overview() as v', []);
+  samples.halls_day = await one(U.owner, 'select public.halls_day($1) as v', [TODAY]);
   samples.flock_feed_p = await one(U.owner, 'select public.flock_feed($1) as v', [F.p]);
   samples.flock_feed_u = await one(U.owner, 'select public.flock_feed($1) as v', [F.u]);
   samples.flock_close_form_p = await one(U.owner, 'select public.flock_close_form($1) as v', [F.p]);
