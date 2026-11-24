@@ -186,8 +186,12 @@ export const printable = (key: KeyLike): boolean => [...key.key].length === 1 &&
 /** عمود الشاشة التالي للسهم: في rtl السهم الأيسر إلى العمود التالي (+1) والأيمن إلى السابق. */
 export const arrowCols = (key: string, rtl: boolean): number => ((key === 'ArrowLeft') === rtl ? 1 : -1);
 
-/** ما يفعله مفتاح والجدول في وضع التعديل بلا خانة تُكتب الآن. */
+/**
+ * ما يفعله مفتاح والجدول في وضع التعديل بلا خانة تُكتب الآن. وكلّ مفتاح مع Alt للمتصفّح والنظام كما هو (Alt+← وAlt+→ رجوعٌ وتقدّم في الصفحات، لا تنقّل
+ * في الخانات؛ المراجعة R12).
+ */
 export function gridKey(sel: Selection, key: KeyLike, shape: Shape): GridIntent {
+  if (key.altKey) return { kind: 'pass' };
   const extend = Boolean(key.shiftKey);
   const from = extend ? sel.end : sel.cursor;
   const move = (target: Pos, keepTab = false): GridIntent => {
@@ -212,17 +216,16 @@ export function gridKey(sel: Selection, key: KeyLike, shape: Shape): GridIntent 
       return move(mod(key) ? { row: shape.rows - 1, col: shape.cols - 1 } : { row: from.row, col: shape.cols - 1 });
     case 'PageUp':
     case 'PageDown':
-      if (key.altKey) return { kind: 'pass' };
       return move({ row: from.row + (key.key === 'PageUp' ? -shape.page : shape.page), col: from.col });
     case 'Tab': {
-      if (mod(key) || key.altKey) return { kind: 'pass' };
+      if (mod(key)) return { kind: 'pass' };
       const selection = tabMove(sel, extend, shape);
       // من آخر خانة تُكتب (أو أوّلها بـShift) يخرج التركيز من الجدول إلى ما بعده في الصفحة (أو قبله: «انتهيت»)، فلوحة المفاتيح لا تُحبس فيه.
       if (samePos(selection.cursor, sel.cursor) && !isRange(sel)) return { kind: 'pass' };
       return { kind: 'move', selection, reveal: selection.cursor };
     }
     case 'Enter': {
-      if (mod(key) || key.altKey) return { kind: 'pass' };
+      if (mod(key)) return { kind: 'pass' };
       if (!isRange(sel) && sel.cursor.col === shape.opener) return { kind: 'open' };
       const selection = enterMove(sel, extend, shape);
       return { kind: 'move', selection, reveal: selection.cursor };
@@ -238,7 +241,7 @@ export function gridKey(sel: Selection, key: KeyLike, shape: Shape): GridIntent 
     default:
       break;
   }
-  if (mod(key) && !key.altKey) {
+  if (mod(key)) {
     if (letter(key, 'z')) return key.shiftKey ? { kind: 'redo' } : { kind: 'undo' };
     if (letter(key, 'y')) return { kind: 'redo' };
     if (letter(key, 'a')) {
@@ -270,13 +273,14 @@ export type EditIntent =
   | { kind: 'pass' };
 
 export function editKey(sel: Selection, key: KeyLike, mode: EditMode, shape: Shape): EditIntent {
+  // Alt مع أيّ مفتاح للمتصفّح (Alt+← رجوع) لا للمحرّر (المراجعة R12).
+  if (key.altKey) return { kind: 'pass' };
   const commit = (then: Selection | null): EditIntent => ({ kind: 'commit', then, reveal: then ? then.cursor : null });
   switch (key.key) {
     case 'Enter':
-      if (key.altKey) return { kind: 'pass' };
       return commit(mod(key) ? null : enterMove(sel, Boolean(key.shiftKey), shape));
     case 'Tab':
-      if (mod(key) || key.altKey) return { kind: 'pass' };
+      if (mod(key)) return { kind: 'pass' };
       return commit(tabMove(sel, Boolean(key.shiftKey), shape));
     case 'Escape':
       return { kind: 'cancel' };
@@ -286,7 +290,7 @@ export function editKey(sel: Selection, key: KeyLike, mode: EditMode, shape: Sha
     case 'ArrowDown':
     case 'ArrowLeft':
     case 'ArrowRight': {
-      if (mode === 'edit' || mod(key) || key.altKey || key.shiftKey) return { kind: 'pass' };
+      if (mode === 'edit' || mod(key) || key.shiftKey) return { kind: 'pass' };
       const dRow = key.key === 'ArrowUp' ? -1 : key.key === 'ArrowDown' ? 1 : 0;
       const dCol = dRow === 0 ? arrowCols(key.key, shape.rtl) : 0;
       return commit(at(clamp({ row: sel.cursor.row + dRow, col: sel.cursor.col + dCol }, shape)));

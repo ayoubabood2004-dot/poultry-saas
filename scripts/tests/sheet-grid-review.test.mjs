@@ -1,0 +1,231 @@
+// المراجعة العدائية لجدول ورقة القاعة في وضع التعديل (عقد 0036 S2: SheetGrid.tsx وgridLogic.ts وuseSheetCells/CellSheet في FlockPage.tsx وsheetGrid.css وقناة
+// النوافذ في outbox/uploader.ts). فحوص المراجع (فرع review-0036-grid، 1185e7d) مكيَّفة للشفرة الحالية، وكلّ فحص R يفشل على cfe9710 وينجح بعد إصلاحه؛
+// والأسطر «ضابط» تنجح قبله وبعده وتثبت أنّ المشهد حدث. والحامل كـsheet-grid.test: صفحة القاعة الحقيقية (FarmRoutes) بـreact-dom/client على DOM صغير
+// (dom.mjs)، والطابور الحقيقي (saveRound وuploadRounds) على fake-indexeddb، والمحلّلات الحقيقية على العيّنة اليدوية؛ وما لا يُرى إلّا بالمتصفّح (التركيز
+// الحقيقي، والطباعة، والألوان المفروضة) يُقاس بـChromium (scratchpad fix-0036-grid). وفحوص M تقتل الطفرات التي عبرت المراجعة (mutations.txt وmutations2.txt).
+// R1 «تراجع» و«أعِد» وهو يكتب: لا يأخذان التركيز، و«تراجع» يلغي ما كُتب و«أعِد» لا يفعل شيئاً. R2 المحرّر تعديلٌ لم يُحفظ، والخروج من الصفحة وإخفاؤها يحفظان.
+// R3 التحديد والمحرّر بيوم الخانة لا برقم صفّها. R4 النقرتان داخل المحرّر لا تعيدانه. R5 لمسة داخل المحرّر لا تحفظ ولا تفتح الورقة. R6 التركيز لا يخرج
+// من المحرّر بنقرة على خانة، ويعود إليه. R7 علامات وضع التعديل لا تُطبع. R8 رفعٌ من نافذة أخرى يصل هذه النافذة. R9 Ctrl+D وCtrl+Enter بتأكيد اللصق.
+// R10 أطراف النطاق ظاهرة، وفي الألوان المفروضة. R11 التصحيح إلى القيمة المحفوظة والرفع قبله في الطريق يُكتب. R12 Alt مع أيّ مفتاح للمتصفّح. R13 ما تحفظه
+// ورقة الخانة (اللمس) في التراجع.
+import 'fake-indexeddb/auto';
+import { build } from 'esbuild';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { descendants, Element, fire, installDom, settle } from './dom.mjs';
+
+const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
+const FIX = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sheet.hand.json'), 'utf8'));
+const REAL_FLOCKS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'flocks.ts'));
+const REAL_SHEET = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'hallSheet.ts'));
+const STUBS = {
+  flocks: `export * from ${REAL_FLOCKS}; import { parseOverview as __parseOverview } from ${REAL_FLOCKS};
+    export const loadOverviewJson = (...a) => globalThis.__sr.call('loadOverviewJson', a);
+    export const loadOverview = async () => __parseOverview(await globalThis.__sr.call('loadOverviewJson', []));
+    export const recordFlockWeight = (...a) => globalThis.__sr.call('record_flock_weight', a);
+    export const flockDayTransport = { currentUserId: async () => globalThis.__sr.userId, send: (op) => globalThis.__sr.send(op), lookup: async () => null };`,
+  hallSheet: `export * from ${REAL_SHEET}; import { parseHallSheet as __sheet, parseFeedSent as __sent } from ${REAL_SHEET};
+    export const loadHallSheet = async (id) => __sheet(await globalThis.__sr.call('hall_sheet', [id]));
+    export const sendFlockFeed = async (request) => __sent(await globalThis.__sr.call('send_flock_feed', [request]));
+    export const voidSheetFeed = (...a) => globalThis.__sr.call('void_flock_issue', a);
+    export const decideFlockReject = async (...a) => globalThis.__sr.call('decide_flock_reject', a);`,
+  session: 'export const useSession = () => globalThis.__sr.session;',
+  Toast: 'export const toast = (spec) => { globalThis.__sr.toasts.push(spec); }; export function Toaster() { return null; }',
+  FlockCard: 'export default function FlockCard() { return null; }',
+  hallsChunk: `import FlockPage, { HallPage } from './src/pages/farm/FlockPage.tsx';
+    const nothing = () => null;
+    export const loadHalls = () => Promise.resolve({ HallPage, FlockPage, FlockCard: nothing, Reminders: nothing, FlockEditDialog: nothing });`,
+};
+
+const BUILD = {
+  bundle: true,
+  write: false,
+  format: 'esm',
+  platform: 'node',
+  target: 'node20',
+  jsx: 'automatic',
+  logLevel: 'silent',
+  loader: { '.css': 'empty' },
+  define: { 'import.meta.env.DEV': 'false', __APP_VERSION__: '"test"', 'process.env.NODE_ENV': '"production"' },
+};
+const load = async (result) => import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString('base64')}`);
+
+async function screens() {
+  const entry = [
+    "export { createElement as h } from 'react';",
+    "export { createRoot } from 'react-dom/client';",
+    "export { flushSync } from 'react-dom';",
+    "export { MemoryRouter, Routes, Route, useNavigate } from 'react-router-dom';",
+    "export { default as FarmRoutes } from './src/pages/farm/FarmRoutes.tsx';",
+    "export { onlineStore } from './src/lib/online.ts';",
+    "export { openOutbox, pendingOps } from './src/lib/outbox/index.ts';",
+    "export { isWindowDirty } from './src/lib/pwa/dirty.ts';",
+  ].join('\n');
+  const result = await build({
+    ...BUILD,
+    stdin: { contents: entry, resolveDir: ROOT, loader: 'tsx' },
+    plugins: [
+      {
+        name: 'review-stubs',
+        setup(b) {
+          b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/flocks$|\/lib\/repo\/hallSheet$|\/Toast$|\/lib\/hallsChunk$|\/halls\/FlockCard$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'review-stub' }));
+          b.onLoad({ filter: /.*/, namespace: 'review-stub' }, (args) => ({ contents: STUBS[args.path], resolveDir: ROOT, loader: 'js' }));
+        },
+      },
+    ],
+  });
+  return load(result);
+}
+
+const body = () => globalThis.document.body;
+const all = () => descendants(body());
+const byAction = (name, root = body()) => descendants(root).filter((n) => n.getAttribute('data-action') === name);
+const clone = (value) => JSON.parse(JSON.stringify(value));
+const cursorAt = () => all().find((n) => n.getAttribute('data-cursor') === 'true')?.getAttribute('data-cell') ?? null;
+const focused = () => globalThis.document.activeElement;
+const click = async (node, rounds = 60) => {
+  if (node) fire(node, 'click', { button: 0, detail: 1 });
+  await settle(rounds);
+};
+const pencil = async () => click(byAction('sheet-pencil')[0] ?? null, 30);
+
+export default async function (t) {
+  const restore = installDom();
+  const savedRect = Object.getOwnPropertyDescriptor(Element.prototype, 'getBoundingClientRect');
+  const savedClient = Object.getOwnPropertyDescriptor(Element.prototype, 'clientHeight');
+  Element.prototype.getBoundingClientRect = function rect() {
+    if (this.localName === 'tr') {
+      const rows = (this.parentNode?.children ?? []).filter((c) => c.localName === 'tr');
+      return { top: 40 + rows.indexOf(this) * 40, height: 40 };
+    }
+    if (this.localName === 'td') return { top: 0, height: 40 };
+    return { top: 0, height: 400 };
+  };
+  Object.defineProperty(Element.prototype, 'clientHeight', { get: () => 400, configurable: true });
+  Object.defineProperty(Element.prototype, 'scrollTop', { value: 0, writable: true, configurable: true });
+  Element.prototype.scrollIntoView = function into() {};
+  Object.defineProperty(Element.prototype, 'isConnected', {
+    get() {
+      for (let n = this; n; n = n.parentNode) if (n === globalThis.document) return true;
+      return false;
+    },
+    configurable: true,
+  });
+  try {
+    // ── المنطق الصافي (gridLogic.ts) ────────────────────────────────────────────────────────────────────────────────
+    const L = await load(await build({ ...BUILD, stdin: { contents: "export * from './src/pages/farm/gridLogic.ts';", resolveDir: ROOT, loader: 'ts' } }));
+    const shape = { rows: 46, cols: 6, stops: [2, 3, 4, 5], opener: 4, rtl: true, page: 8, empty: () => false };
+    const s = (row, col) => L.at({ row, col });
+    {
+      const kinds = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'Home', 'End', 'PageDown', 'Enter', 'Tab', 'F2', 'Delete', 'z', '7'].map((key) => L.gridKey(s(20, 2), { key, altKey: true }, shape).kind);
+      const inEditor = ['ArrowLeft', 'Enter', 'Escape', 'Tab'].map((key) => L.editKey(s(20, 2), { key, altKey: true }, 'enter', shape).kind);
+      t.same([kinds, inEditor], [Array(12).fill('pass'), Array(4).fill('pass')], 'R12 Alt مع أيّ مفتاح للمتصفّح (Alt+← وAlt+→ رجوعٌ وتقدّم): لا يحرّك التحديد ولا يحفظ المحرّر');
+    }
+
+    // ── الحامل ─────────────────────────────────────────────────────────────────────────────────────────────────────
+    const m = await screens();
+    const BROILER = FIX.hall_sheet.broiler;
+    const ws = (role, userId) => ({
+      userId, orgId: 'org-sgr', orgName: 'مزرعة', memberId: 'mm-sgr', displayName: 'علي', phone: null, role, scopes: [], divisions: ['broiler', 'layer'],
+      canSeeCost: true, canSeeAccounts: true, canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1,
+    });
+    const summaryOf = (sheet) => ({
+      id: sheet.flock.id, kind: sheet.flock.kind, breed: null, status: sheet.flock.status, version: 3, placed_on: sheet.flock.placed_on, placed_count: sheet.flock.placed_count,
+      age_days_at_placement: sheet.flock.age0, age_days: 20, days_since_placement: 21, dead_total: 30, culled_total: 2, live: 3968, live_start_today: 3972, mortality_pct: '0.64',
+      feed_kg_total: '0.000', feed_days: 0, feed_span_days: 20, last_weight: null, fcr: null, today: null, eggs_today: null, hdep_today: null, rejects_pending: 0,
+    });
+    const overviewOf = (sheet) => ({
+      today: sheet.today,
+      sites: [
+        {
+          id: 's-1', name: sheet.flock.site_name, division_id: 'd-1', kind: sheet.flock.kind, can_manage: true,
+          halls: [{ id: sheet.flock.hall_id, name: sheet.flock.hall_name, capacity: 6000, version: 1, flock: summaryOf(sheet) }],
+        },
+      ],
+    });
+    let root = null;
+    let userSeq = 0;
+    const nav = { go: null };
+    function NavHook() {
+      nav.go = m.useNavigate();
+      return null;
+    }
+    const fresh = (handlers, { send } = {}) => {
+      const sent = [];
+      userSeq += 1;
+      const userId = `u-sgr-${userSeq}`;
+      globalThis.__sr = {
+        session: { status: 'ready', workspace: ws('hall_worker', userId), offline: false },
+        userId,
+        toasts: [],
+        call(name, args) {
+          const handler = handlers[name];
+          if (!handler) return new Promise(() => {});
+          try {
+            return Promise.resolve(handler(...args));
+          } catch (error) {
+            return Promise.reject(error);
+          }
+        },
+        async send(op) {
+          sent.push(op);
+          return send ? send(op) : { kind: 'saved', version: 99 };
+        },
+      };
+      return { sent, userId };
+    };
+    const mount = async (url) => {
+      const container = globalThis.document.createElement('div');
+      body().appendChild(container);
+      root = m.createRoot(container);
+      m.flushSync(() =>
+        root.render(m.h(m.MemoryRouter, { initialEntries: [url] }, m.h(NavHook), m.h(m.Routes, null, m.h(m.Route, { path: '/broiler/*', element: m.h(m.FarmRoutes, { kind: 'broiler' }) })))),
+      );
+      await settle(90);
+    };
+    const unmount = async () => {
+      if (!root) return;
+      m.flushSync(() => root.unmount());
+      body().textContent = '';
+      globalThis.document.activeElement = null;
+      await settle();
+      root = null;
+    };
+    const step = async (label, fn) => {
+      m.onlineStore.set(true);
+      try {
+        await fn();
+      } catch (error) {
+        t.ok(false, `${label}: رمى ${error?.stack ?? error}`);
+      }
+      await unmount();
+      m.onlineStore.set(true);
+    };
+    const setup = (sheet = BROILER, extra = {}) => ({ loadOverviewJson: () => overviewOf(sheet), hall_sheet: () => clone(sheet), ...extra });
+    const open = async (sheet = BROILER, extra = {}, options = {}) => {
+      const ctx = fresh(setup(sheet, extra), options);
+      await mount(`/broiler/hall/${sheet.flock.hall_id}`);
+      return ctx;
+    };
+    // ── R12: Alt مع أيّ مفتاح في الشاشة ────────────────────────────────────────────────────────────────────────────
+    await step('R12', async () => {
+      await open();
+      await pencil();
+      const before = cursorAt();
+      const events = ['ArrowLeft', 'ArrowRight', 'ArrowDown', 'Home', 'End', 'PageDown'].map((key) => fire(focused(), 'keydown', { key, altKey: true }));
+      await settle(30);
+      t.same([events.map((event) => event.defaultPrevented), cursorAt()], [Array(6).fill(false), before], 'R12 Alt+← وAlt+→ (وكلّ مفتاح مع Alt) تمرّ إلى المتصفّح: لا تُمنع ولا تحرّك الخانة النشطة');
+    });
+  } finally {
+    if (savedRect) Object.defineProperty(Element.prototype, 'getBoundingClientRect', savedRect);
+    else delete Element.prototype.getBoundingClientRect;
+    if (savedClient) Object.defineProperty(Element.prototype, 'clientHeight', savedClient);
+    else delete Element.prototype.clientHeight;
+    delete Element.prototype.scrollTop;
+    delete Element.prototype.scrollIntoView;
+    delete Element.prototype.isConnected;
+    delete globalThis.__sr;
+    restore();
+  }
+}
