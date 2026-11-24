@@ -8,6 +8,7 @@
 //    Num سطرٌ واحد («طُبع في» يومه ووقته كلٌّ في Num، و«أُغلقت يوم» تاريخها). أنّ لا رمز ينكسر بعرض 768–844 والشريط الجانبيّ مفتوح وبـ125٪ مقيسٌ
 //    بـChromium (info-grid.cjs في مجلّد الإصلاح)، لا هنا (لا تخطيط في dom.mjs).
 // R2 جداول التقرير على الشاشة في إطار DataTable بحدّ 70dvh يثبت فيه رأسها (لا قاعدة شاشة ترفع الحدّ)؛ وعلى الورق وفي الصورة بلا حدّ ولا تمرير.
+// R3 شريط الجدول الرسميّ عنوانٌ لقارئ الشاشة (role="heading" بمستواه: 2 لتقرير الوجبة وورقة القاعة وجدول اليوم، و3 في «منذ أن بدأنا»)، وcaption باقٍ.
 // R4 صفحة القاعة: العنوان «قاعة 7»، و«هلاكات قاعة (7)» شريط الجدول وحده مرّةً واحدة.
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
@@ -430,6 +431,34 @@ export default async function (t) {
       );
     });
 
+    await step('R3a', async () => {
+      fresh();
+      await mount(`/halls/report/${SHEET.flock.id}`, reportRoutes());
+      const captions = all().filter((n) => n.localName === 'caption').map((n) => [n.textContent, words(n).includes('sr-only')]);
+      t.same(
+        [bandsOf(), captions],
+        [
+          [['خلاصة الوجبة', 2], ['أيام الوجبة', 2]],
+          [['خلاصة الوجبة', true], ['أيام الوجبة', true]],
+        ],
+        'R3 تقرير الوجبة: شريطا الجدولين («خلاصة الوجبة» و«أيام الوجبة») عنوانان من المستوى الثاني لقارئ الشاشة كما كانا h2 قبل 0036، وcaption كلٍّ باقٍ (على cfe9710: aria-hidden وحده)',
+      );
+    });
+
+    await step('R3b', async () => {
+      fresh();
+      await mount('/halls/day?on=2026-11-12', reportRoutes());
+      const kinds = byAction('hist-kind');
+      t.same(
+        [
+          bandsOf(byAction('day-report')[0] ?? body()),
+          kinds.map((section) => [descendants(section).filter((n) => words(n).includes('ofc-bar')).map((n) => headingLevel(n)), bandsOf(section).map(([, level]) => level)]),
+        ],
+        [[['القاعات — 12/11/2026', 2]], [[[2], [3, 3]], [[2], [3, 3]]]],
+        'R3 التقرير اليوميّ: شريط جدول اليوم عنوانٌ من المستوى الثاني، وفي كلّ نوعٍ من «منذ أن بدأنا» (شريطه h2) شريطا «أيّام الشهر» و«الأشهر من البداية» من المستوى الثالث كما كانا h3 (على cfe9710: صفر عنوان)',
+      );
+    });
+
     await step('R4', async () => {
       fresh();
       await mount(`/broiler/hall/${SHEET.flock.hall_id}`, farmRoutes());
@@ -449,6 +478,7 @@ export default async function (t) {
         [[['sheet-title', 'قاعة 7']], [band], ['band']],
         'R4 صفحة القاعة: عنوانها اسم القاعة «قاعة 7» (h1)، و«هلاكات قاعة (7)» شريط الجدول وحده مرّةً واحدة على الشاشة (أُصلح في دمج 0036)',
       );
+      t.same(bandsOf(), [[band, 2]], 'R3 ورقة القاعة: شريطها «هلاكات قاعة (7)» عنوانٌ من المستوى الثاني تحت عنوان الصفحة (على cfe9710: aria-hidden وحده)');
     });
 
     // ── M: ما عبرته الطفرات في الشاشات (M5 M7 M8 M16) ────────────────────────────────────────────────────────────
