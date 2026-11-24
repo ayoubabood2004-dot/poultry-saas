@@ -207,7 +207,8 @@ async function scenario(t, db) {
     [staleResult.kind, ui.parseDayRow(staleResult.server), ui.dayAnswer(d28.v)],
     [
       'stale_day',
-      { onDate: '2026-10-28', version: 3, dead: 5, culled: 0, feedKg: 450000n, tempMin: null, tempMax: null, eggsTotal: null, eggsCracked: null, eggsBroken: null, note: null },
+      // 0036 (دمج شاشات الجولة): المحلّل يقرأ علامة «سُجّلت هلاكات اليوم» (deadEntered).
+      { onDate: '2026-10-28', version: 3, dead: 5, culled: 0, feedKg: 450000n, tempMin: null, tempMax: null, eggsTotal: null, eggsCracked: null, eggsBroken: null, note: null, deadEntered: true },
       { kind: 'saved', version: 1 },
     ],
     'محلّل الشاشات (dayAnswer): stale_day لرفّ المراجعة بصفّ الخادم (العلف 450 كغم = 450,000 غرام؛ والماء خارج الشاشات منذ 0026 بكلمة المالك ولو بقي عموده)، وsaved برقم الإصدار',
@@ -257,16 +258,16 @@ async function scenario(t, db) {
       weight: s1.last_weight, fcr: s1.fcr, today_row: s1.today, eggs: s1.eggs_today, hdep: s1.hdep_today,
     },
     {
-      today: TODAY, age: 6, days: 6, dead: 50, culled: 5, live: 9945, liveStart: 9945, mortality: '0.55', feed: '1500.000', feedDays: 4, span: 5,
+      today: TODAY, age: 6, days: 6, dead: 50, culled: 5, live: 9945, liveStart: 9945, mortality: '0.55', feed: '0.000', feedDays: 4, span: 5,
       weight: { on_date: '2026-10-28', sample_count: 60, avg_g: '150.0' }, fcr: null, today_row: null, eggs: null, hdep: null,
     },
-    'مؤشّرات فوج اللحم: العمر (30−25)+1 = 6، والحيّ 9,945، والنفوق 55 ÷ 10,000 = 0.55٪، وFCR «—» لأن جولة أمس (29/10) بلا علف: 4 من 5 (جولة اليوم بس ممكن تتأخّر)',
+    'مؤشّرات فوج اللحم: العمر (30−25)+1 = 6، والحيّ 9,945، والنفوق 55 ÷ 10,000 = 0.55٪؛ و0036 (جواب المالك «عوف سالفة العلف الماكول»): العلف صافي المرسل (لا إرسال هنا: 0) وFCR «—»، وأيّام العلف المأكول (4 من 5) كما هي',
   );
   const p1 = ui.parseOverview(managerView).sites.find((s) => s.id === sites.broiler)?.halls.find((h) => h.id === B1)?.flock ?? null;
   same(
     [p1?.kind, p1?.live, p1?.liveStartToday, p1?.mortalityPct, p1?.feedKgTotal, p1?.feedDays, p1?.feedSpanDays, p1?.fcr, p1?.lastWeight, p1?.ageDays, p1?.today, p1?.hdepToday],
-    ['broiler', 9945, 9945, 55n, 1500000n, 4, 5, null, { onDate: '2026-10-28', sampleCount: 60, avgG: 1500n }, 6, null, null],
-    'محلّل الشاشات يقرأ ملخّص فوج اللحم من القاعدة: النفوق 55 (0.55٪)، والعلف 1,500,000 غرام، وFCR فارغ (4 من 5)، والوزن 1,500 (150.0 غم)',
+    ['broiler', 9945, 9945, 55n, 0n, 4, 5, null, { onDate: '2026-10-28', sampleCount: 60, avgG: 1500n }, 6, null, null],
+    'محلّل الشاشات يقرأ ملخّص فوج اللحم من القاعدة: النفوق 55 (0.55٪)، والعلف المرسل 0 غرام (0036)، وFCR فارغ، والوزن 1,500 (150.0 غم)',
   );
   // يوم ناقص بين أيّام العلف ← FCR «—» (null) مع «5 من 6».
   t.eq((await save(U.worker, F1, TODAY, { dead: 3, feed: '500' })).v?.status, 'saved', 'جولة اليوم (30/10) بلا جولة 29/10');
@@ -312,15 +313,16 @@ async function scenario(t, db) {
   t.ok(liveHint.hint?.includes('9,943') && liveHint.hint?.includes('9,942'), `تلميح live_negative يسمّي العددين بفواصل الآلاف (${liveHint.hint})`);
   t.eq((await save(U.worker, F1, '2026-10-29', { dead: 9000, culled: 942 })).v?.status, 'saved', 'ضابط: النافق والمستبعد = الحيّ بالضبط مقبول (الحيّ صفر)');
   same((await save(U.worker, F1, '2026-10-29', { dead: 0, culled: 0 }, 1)).v, { status: 'saved', version: 2 }, 'التصحيح بالصفر يرجّع الحيّ');
-  // علف 29/10 يكمّل الأيام من التسكين لليوم ← FCR = 2,450 ÷ (9,942 × 0.150) = 1.643 (القاعدة 28)، ومحلّل الشاشات يقرأه بالآلاف.
+  // علف 29/10 يكمّل أيّام العلف المأكول من التسكين لليوم (6 من 6)؛ و0036 (جواب المالك «عوف سالفة العلف الماكول»): المأكول لا يحسب علفاً ولا معامل تحويل،
+  // فالعلف صافي المرسل (لا إرسال هنا: 0) ولا معامل (كان 2,450 ÷ (9,942 × 0.150) = 1.643 بالقاعدة 28).
   same((await save(U.worker, F1, '2026-10-29', { feed: '450' }, 2)).v, { status: 'saved', version: 3 }, 'علف 29/10 انسجّل');
   const fullView = await overview(U.manager);
   const s1c = summary(fullView, sites.broiler, B1);
   const p1c = ui.parseOverview(fullView).sites.find((s) => s.id === sites.broiler)?.halls.find((h) => h.id === B1)?.flock ?? null;
   same(
     [s1c.fcr, s1c.feed_days, s1c.feed_span_days, s1c.feed_kg_total, s1c.live, p1c?.fcr, p1c?.feedSpanDays],
-    ['1.643', 6, 6, '2450.000', 9942, 1643n, 6],
-    'كل الأيام من التسكين لليوم بعلفها: FCR = 2,450 ÷ (9,942 × 0.150) = 1.643، ومحلّل الشاشات 1,643 (1.643)',
+    [null, 6, 6, '0.000', 9942, null, 6],
+    'كل الأيام من التسكين لليوم بعلفها المأكول: لا معامل منه ولا علف (0036: صافي المرسل وحده)، وأيّامه 6 من 6 كما هي، ومحلّل الشاشات يقرأ الفارغ',
   );
 
   // ─── فوج البيّاض F2 (5,000 دجاجة من 27/10): HDEP لكل يوم = بيض اليوم ÷ الحيّ بدايته (القاعدة ٣٢) ────────────────────────
@@ -369,8 +371,8 @@ async function scenario(t, db) {
   );
   same(
     [f2.flock.live, f2.flock.eggs_today, f2.flock.hdep_today, f2.flock.mortality_pct, f2.flock.age_days, f2.flock.hall_name, f2.flock.site_name, f2.can_manage, f2.can_save, f2.flock.fcr, f2.flock.feed_kg_total],
-    [4983, 4100, '82.25', '0.34', 143, 'قاعة البيّاض 1', 'حقل البيض الأوّل', true, true, null, '2150.000'],
-    'ملخّص البيّاض: الحيّ 4,983، وبيض اليوم 4,100 بنسبة 82.25٪، والنفوق 17 ÷ 5,000 = 0.34٪، والعمر 3 + 140 = 143، وبلا وزن ما في FCR؛ وعامل البيض يدير (0034)',
+    [4983, 4100, '82.25', '0.34', 143, 'قاعة البيّاض 1', 'حقل البيض الأوّل', true, true, null, '0.000'],
+    'ملخّص البيّاض: الحيّ 4,983، وبيض اليوم 4,100 بنسبة 82.25٪، والنفوق 17 ÷ 5,000 = 0.34٪، والعمر 3 + 140 = 143، وبلا وزن ما في FCR، والعلف صافي المرسل (0036: لا إرسال هنا)؛ وعامل البيض يدير (0034)',
   );
   t.eq((await detail(U.manager, F1)).v.days.find((d) => d.on_date === '2026-10-26').hdep, null, 'فوج اللحم: HDEP فارغ لكل يوم');
   const d2 = ui.parseDetail(f2);
@@ -383,7 +385,7 @@ async function scenario(t, db) {
     ],
     [
       [[TODAY, 4985, 4983, 4100, 30, 8225n], ['2026-10-29', 4985, 4985, 0, null, 0n], ['2026-10-28', 4990, 4985, 4200, null, 8417n], ['2026-10-27', 5000, 4990, 4000, 40, 8000n]],
-      [4100, 8225n, 2150000n, 'قاعة البيّاض 1', true, true],
+      [4100, 8225n, 0n, 'قاعة البيّاض 1', true, true],
       [false, 245n, 310n, null, null],
     ],
     'محلّل الشاشات يقرأ الأيّام من القاعدة: HDEP بالمئات (8,225 = 82.25٪) والصفر 0 مو «—»، ويوم اللحم بلا بيض null («—»)، والماء لا يُقرأ (0026: خارج الشاشات) والحرارة 24.5 و31 بالأعشار',

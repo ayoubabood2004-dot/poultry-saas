@@ -68,6 +68,11 @@ const NEW_KEYS = {
 };
 // ومفاتيح 0035 (القاعة كالورقة، العقد 0034 «الجزء ب»): الغاز في اليوم وفي المجاميع والمؤشّرات، وتاريخ خروج الصرف من المخزن في سطوره (يومه في القاعة issue_day).
 const NEW_KEYS_35 = { dayFlock: ['gas'], issue: ['issued_on'], totals: ['gas'], reportDay: ['gas'], kpis: ['gas'], line: ['issued_on'] };
+// ومفاتيح غيّر 0036 معناها (جواب المالك «عوف سالفة العلف الماكول»): معامل التحويل وEPEF والعلف لكلّ طير وغراماته لكلّ طير في الأسبوع من صافي العلف
+// المرسل لا من المأكول؛ تُنزع من الطرفين في مقارنة 0027، وتُفحص بتعريفها الجديد من أيّام التقرير نفسه.
+const CHANGED_36 = { dayFlock: ['fcr'], kpis: ['fcr', 'epef', 'feed_per_bird_kg'], week: ['fcr', 'feed_g_per_bird_day'] };
+const report36 = (v) => (v && typeof v === 'object' ? { ...v, kpis: without(v.kpis, CHANGED_36.kpis), weeks: v.weeks.map((w) => without(w, CHANGED_36.week)) } : v);
+const site36 = (s) => (s ? { ...s, halls: s.halls.map((h) => ({ ...h, flock: h.flock ? without(h.flock, CHANGED_36.dayFlock) : h.flock })) } : s);
 const without = (object, keys) => (object && typeof object === 'object' ? Object.fromEntries(Object.entries(object).filter(([k]) => !keys.includes(k))) : object);
 const pick = (object, keys) => Object.fromEntries(keys.map((k) => [k, object?.[k]]));
 /** جواب halls_day بلا مفاتيح 0028. */
@@ -900,9 +905,9 @@ async function scenario(t, db) {
       // صاحب صفّ نطاق الحقل يرى المنشأة كلّها منذ 0034، فالمقارنة بحقله (وفي غيره بيع وإغلاق لا يعرفهما 0027).
       const now = await hallsDay(on, U.plain);
       const plainSite = now.sites.find((s) => s.id === S.p);
-      compare(`halls_day ${on}`, dayAs0027({ sites: [plainSite], totals: {} }).sites[0], old.day[on]);
+      compare(`halls_day ${on}`, site36(dayAs0027({ sites: [plainSite], totals: {} }).sites[0]), site36(old.day[on]));
       const managerSite = (await hallsDay(on)).sites.find((s) => s.id === S.p);
-      compare(`halls_day للمدير ${on}`, dayAs0027({ sites: [managerSite], totals: {} }).sites[0], old.managerDay[on]);
+      compare(`halls_day للمدير ${on}`, site36(dayAs0027({ sites: [managerSite], totals: {} }).sites[0]), site36(old.managerDay[on]));
       const p1 = hallOf({ sites: [plainSite] }, H.p1);
       if (p1.flock) {
         // بلا إغلاق: ما في القاعة = الباقي القديم (feed_left_kg) وسطوره بلا كتلة = النازلة بلا كتلة، وكلّ يوم ينتظر جولة، ولا فرق عدّ.
@@ -916,8 +921,8 @@ async function scenario(t, db) {
       compare(`carry ${on}`, plainSite.halls.map((h) => h.carry), [[], []]);
     }
     const r = await report(F.p);
-    compare('flock_cycle_report', reportAs0027(r), old.report);
-    compare('flock_cycle_report لعامل القاعة', reportAs0027(await report(F.p, U.plain)), old.reportPlain);
+    compare('flock_cycle_report', report36(reportAs0027(r)), report36(old.report));
+    compare('flock_cycle_report لعامل القاعة', report36(reportAs0027(await report(F.p, U.plain))), report36(old.reportPlain));
     compare('flock_cycles', cyclesAs0027({ cycles: (await one(U.plain, 'select public.flock_cycles()')).cycles.filter((c) => c.site_id === S.p) }).cycles, old.cycles);
     const lastDay = r.days.at(-1);
     compare('مفاتيح 0035 في تقرير الدورة', [r.kpis.gas, r.days.map((d) => d.gas), r.feed.lines.map((l) => l.issued_on === l.on)],
@@ -929,6 +934,31 @@ async function scenario(t, db) {
       { returned: '0', carried_in: '0', carried_out: '0', revenue: '0' }, null, [], { sold: 0, sold_net_kg: '0.000', count_diff: 0, count_reason: null },
       { left_in_hall_kg: r.kpis.feed_left_kg, left_in_hall_unweighed: lastDay.feed_given_cum_unweighed }, [], r.days.map(() => true), r.weeks.map((w) => w.days)]);
     same(problems, [], 'قرّاء 0027 (halls_day لعشرة أيّام بنطاقين، وflock_cycle_report بالمال وبلاه، وflock_cycles) لفوج بلا بيع ولا إغلاق: جواب 0027 نفسه حرفاً بحرف بعد نزع مفاتيح 0028، ومفاتيحها بقيم الصفر');
+    // 0036: المفاتيح التي تغيّر معناها بتعريفها الجديد من أيّام التقرير نفسه (بالغرام): الصافي = النازل − الخارج (لا شيء بسطر بلا كتلة)، والمعامل في كلّ
+    // يوم = الصافي حتى اليوم ÷ (الحيّ آخره × آخر وزن حتى اليوم + صافي المباع)، والعلف لكلّ طير = الصافي ÷ المسكَّن، وغرامات الأسبوع = صافيه ÷ أيّام طيوره الحيّة.
+    const grams = (x) => Math.round(Number(x ?? 0) * 1000);
+    const fcrOf = (netG, unweighed, live, weightG, soldG) => {
+      const den = (live > 0 && weightG !== null ? live * weightG : 0) + soldG;
+      return unweighed === 0 && netG > 0 && den > 0 && (live <= 0 || weightG !== null) ? (Math.round((netG * 1000) / den) / 1000).toFixed(3) : null;
+    };
+    let lastWeight = null;
+    const dayFcr = r.days.map((d) => {
+      if (d.weight) lastWeight = Number(d.weight.avg_g);
+      return fcrOf(grams(d.feed_given_cum_kg) - grams(d.feed_out_cum_kg), d.feed_given_cum_unweighed + d.feed_out_cum_unweighed, d.live_end, lastWeight, grams(d.sold_cum_net_kg));
+    });
+    const weekOf = (age) => Math.max(1, Math.floor((age + 6) / 7));
+    const weeks36 = r.weeks.map((w) => {
+      const days = r.days.filter((d) => weekOf(d.age) === w.week);
+      const net = days.reduce((a, d) => a + grams(d.feed_given_kg) - grams(d.feed_out_kg), 0);
+      const unweighed = days.reduce((a, d) => a + d.feed_given_unweighed + d.feed_out_unweighed, 0);
+      const birdDays = days.reduce((a, d) => a + Math.max(d.live_start, 0), 0);
+      return { fcr: dayFcr[r.days.indexOf(days.at(-1))], feed_g_per_bird_day: unweighed > 0 || net <= 0 || birdDays <= 0 ? null : (Math.round((net * 10) / birdDays) / 10).toFixed(1) };
+    });
+    const netAll = grams(lastDay.feed_given_cum_kg) - grams(lastDay.feed_out_cum_kg);
+    const unweighedAll = lastDay.feed_given_cum_unweighed + lastDay.feed_out_cum_unweighed;
+    same([pick(r.kpis, ['fcr', 'feed_per_bird_kg']), r.weeks.map((w) => pick(w, CHANGED_36.week))],
+      [{ fcr: dayFcr.at(-1), feed_per_bird_kg: unweighedAll === 0 && netAll > 0 ? (Math.round(netAll / r.kpis.placed) / 1000).toFixed(3) : null }, weeks36],
+      `0036: معامل التحويل والعلف لكلّ طير وغرامات كلّ أسبوع من صافي العلف المرسل بتعريفه، لا من المأكول (${JSON.stringify([r.kpis.fcr, r.kpis.feed_per_bird_kg, r.weeks.map((w) => w.feed_g_per_bird_day)])})`);
     // ضابط المقارنة: جسم 0028 يغيّر مفتاحاً قديماً (الباقي في القاعة ينقص كيلوغراماً) فتبين المقارنة على أيّام الفوج كلّها.
     const drift = await broken([[SIG.reportDay, [["'feed_left_kg', (r.given_cum_kg - e.out_cum_kg - r.feed_cum_kg)::text", "'feed_left_kg', (r.given_cum_kg - e.out_cum_kg - r.feed_cum_kg - 1)::text"]]]],
       async ({ attempt }) => {

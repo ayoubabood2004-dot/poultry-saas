@@ -865,12 +865,14 @@ async function scenario(t, db) {
         correct: (v) => JSON.stringify(v) === JSON.stringify(['stale_reject', null]),
       },
       ...[
-        ['الجولة', SIG.day, async ({ attempt }) => inside(attempt, U.owner, DAY, dayParams({ flock: F.c, on: day(-5), dead: 4, queued: true })), () => rejectIds.day],
-        ['الزيارة', SIG.visit, async ({ attempt }) => inside(attempt, U.owner, VISIT, visitParams({ id: rejectIds.visitId, flock: F.c, on: day(-6), dead: 4, queued: true })), () => rejectIds.visit],
-        ['الغاز', SIG.gas, async ({ attempt }) => inside(attempt, U.owner, GAS, gasParams({ flock: F.c, on: day(-5), n: 9, queued: true })), () => rejectIds.gas],
-      ].map(([label, sig, park, rejectId]) => ({
+        ['الجولة', SIG.day, async ({ attempt }) => inside(attempt, U.owner, DAY, dayParams({ flock: F.c, on: day(-5), dead: 4, queued: true })), () => rejectIds.day, ''],
+        // 0036: في save_flock_visit ركن ثانٍ (dead_recorded) بالجملة نفسها، فالمرساة من سطر قيم ركن الأسباب الثلاثة (v_park).
+        ['الزيارة', SIG.visit, async ({ attempt }) => inside(attempt, U.owner, VISIT, visitParams({ id: rejectIds.visitId, flock: F.c, on: day(-6), dead: 4, queued: true })), () => rejectIds.visit,
+          'v_payload, v_park, auth.uid(), p_visit)\n    on conflict (org_id, visit_id) where visit_id is not null do update\n      set client_ref = excluded.client_ref, payload = excluded.payload, reason = excluded.reason, created_at = now(),\n'],
+        ['الغاز', SIG.gas, async ({ attempt }) => inside(attempt, U.owner, GAS, gasParams({ flock: F.c, on: day(-5), n: 9, queued: true })), () => rejectIds.gas, ''],
+      ].map(([label, sig, park, rejectId, lead]) => ({
         name: `${label} المركونة من جديد بلا نسخة أكبر (مراجعة 0035)`,
-        fns: [[sig, [['          version = public.flock_day_rejects.version + 1, decision = null', '          version = public.flock_day_rejects.version, decision = null']]]],
+        fns: [[sig, [[`${lead}          version = public.flock_day_rejects.version + 1, decision = null`, `${lead}          version = public.flock_day_rejects.version, decision = null`]]]],
         run: async (kit) => {
           const versionOf = async () => (await kit.oq('select version from public.flock_day_rejects where id = $1', [rejectId()])).rows[0].version;
           const before = await versionOf();

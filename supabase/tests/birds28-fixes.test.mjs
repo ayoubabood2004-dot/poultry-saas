@@ -374,11 +374,15 @@ async function scenario(t, db) {
 
   // ── O7: بعد بيع الكلّ يبدأ اليوم بلا طير حيّ: لا جولة ولا علف ينتظره، فمعامل التحويل يُحسب ─────────────────────────────────────────────
   // S: 100 طير يوم −6، وجولات −6 و−5 و−4 بعلف 10 كغم لكلّ منها ووزن 2,300 غم، وتذكرة يوم −4 بـ100 طير وصافٍ 230 كغم تُفوتر: الحيّ صفر بعدها. الأيّام
-  // اللازمة 3 (لا 6)، والمعامل 30 كغم × 1,000 ÷ (230 كغم × 1,000) = 0.1304 ← 0.130، والأيّام −3 إلى اليوم لا تنتظر جولة.
+  // اللازمة 3 (لا 6)، والأيّام −3 إلى اليوم لا تنتظر جولة. و0036 (جواب المالك «عوف سالفة العلف الماكول»): المعامل من صافي العلف المرسل لا المأكول،
+  // فأُرسلت 20 كغم كلّ يوم من الثلاثة: 60 كغم × 1,000 ÷ (230 كغم × 1,000) = 0.2609 ← 0.261 (والمأكول 30 كان يعطي 0.130)، وأيّام المأكول (3 من 3) كما هي.
   const h10 = await hall(siteA, 'قاعة البيع الكلّيّ');
   const S = await place(h10, day(-6), 100);
   await section('O7: يوم بلا طير حيّ', async () => {
-    for (const on of [day(-6), day(-5), day(-4)]) await round(S, on, 0, '10');
+    for (const on of [day(-6), day(-5), day(-4)]) {
+      await round(S, on, 0, '10');
+      await issue(S, I.x, '20', on, W.feed);
+    }
     await weigh(S, day(-4), 50, '2300.0');
     const tk = await ticket(siteA, day(-4), [[h10, 100, '230']]);
     await one(U.accountant, SELL, sellArgs(tk));
@@ -393,9 +397,9 @@ async function scenario(t, db) {
     same([pick(r.kpis, ['feed_days', 'feed_span', 'fcr', 'live']), r.days.map((d) => [d.on, d.expects_round]), r.weeks.map((w) => [w.days, w.round_days, w.expected_days]),
       pick(detail, ['feed_days', 'feed_span_days', 'fcr']), [hallOf(v, h10).flock.expects_round, siteRow.totals.rounds_expected === expected,
         siteRow.totals.rounds_expected === siteRow.totals.flocks - 1], [f.feed.feed_days, f.feed.feed_span]],
-    [{ feed_days: 3, feed_span: 3, fcr: '0.130', live: 0 }, [[day(-6), true], [day(-5), true], [day(-4), true], [day(-3), false], [day(-2), false], [day(-1), false], [TODAY, false]],
-      [[7, 3, 3]], { feed_days: 3, feed_span_days: 3, fcr: '0.130' }, [false, true, true], [3, 3]],
-    'O7: بعد بيع الكلّ الأيّام بلا طير حيّ لا تنتظر جولة ولا علفاً: أيّام العلف اللازمة 3 = المسجّلة فمعامل التحويل 0.130 (التقرير وصفحة الفوج والنموذج)، والأسبوع ينتظر 3 من 7، والتقرير اليوميّ لا يعدّه');
+    [{ feed_days: 3, feed_span: 3, fcr: '0.261', live: 0 }, [[day(-6), true], [day(-5), true], [day(-4), true], [day(-3), false], [day(-2), false], [day(-1), false], [TODAY, false]],
+      [[7, 3, 3]], { feed_days: 3, feed_span_days: 3, fcr: '0.261' }, [false, true, true], [3, 3]],
+    'O7: بعد بيع الكلّ الأيّام بلا طير حيّ لا تنتظر جولة ولا علفاً: أيّام العلف اللازمة 3 = المسجّلة، ومعامل التحويل من صافي المرسل 0.261 (0036؛ التقرير وصفحة الفوج)، والأسبوع ينتظر 3 من 7، والتقرير اليوميّ لا يعدّه');
   });
 
   // ── O8/C6: اليوم المقترح للإغلاق لا يسبق أقدم يوم مسموح (آخر نشاط قبل عشرة أيّام) ────────────────────────────────────────────────

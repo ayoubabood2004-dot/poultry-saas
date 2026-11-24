@@ -14,7 +14,7 @@
        "id": "a879ac60-81f0-45bd-9543-c6a3928197fa",
        "fcr": null,
        "kind": "broiler",
-       "live": 958,
+       "live": 953,
        "breed": null,
        "today": {
         "dead": 2,
@@ -39,24 +39,27 @@
        "gas_today": 3,
        "placed_on": "2026-11-04",
        "count_diff": 0,
-       "dead_total": 41,
+       "dead_total": 46,
        "eggs_today": null,
        "feed_today": [
         {
          "qty": "120.000",
          "unit": "kg",
+         "carry": false,
          "item_id": "30aa7674-14b9-4c9f-9d33-2908ffc73812",
          "item_name": "علف بادئ"
         },
         {
          "qty": "50.000",
          "unit": "kg",
+         "carry": false,
          "item_id": "b9e2820b-9a3d-4bb8-9e59-b8f0a936d41a",
          "item_name": "علف ناهي"
         },
         {
          "qty": "10.000",
          "unit": "kg",
+         "carry": false,
          "item_id": "e15191fe-7212-4e56-9f37-e3d01996ce02",
          "item_name": "ذرة صفراء"
         }
@@ -67,13 +70,13 @@
        "sold_net_kg": "0.000",
        "culled_total": 1,
        "placed_count": 1000,
-       "feed_kg_total": "0.000",
+       "feed_kg_total": "210.000",
        "feed_today_kg": "180.000",
-       "mortality_pct": "4.20",
+       "mortality_pct": "4.70",
        "feed_span_days": 20,
        "ticketed_birds": 0,
        "rejects_pending": 0,
-       "live_start_today": 960,
+       "live_start_today": 955,
        "gas_today_version": 2,
        "last_feed_item_id": "b9e2820b-9a3d-4bb8-9e59-b8f0a936d41a",
        "days_since_placement": 21,
