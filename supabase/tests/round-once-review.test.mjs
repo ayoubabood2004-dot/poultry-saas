@@ -193,6 +193,11 @@ async function scenario(t, db) {
     same([reparked.value, (await db.admin("select version, payload ->> 'dead' as dead, reason, decision from public.flock_day_rejects where visit_id = $1", [zeroId])).rows],
       [{ status: 'parked', reason: 'dead_recorded' }, [{ version: 2, dead: '4', reason: 'dead_recorded', decision: null }]],
       'Q1: الزيارة المركونة نفسها تُركن من جديد بآخر ما أرسله الجهاز ونسختها أكبر (صفّ واحد بمعرّفها)');
+    // ورقة القاعة تعرض المركونتين بسببهما في رفّ المراجعة، وتُحسمان كغيرهما (decide_flock_reject بالنسخة المعروضة).
+    const shelf = (await one(U.owner, SHEET, [F.a3])).rejects.filter((r) => r.reason === 'dead_recorded').map((r) => [r.payload.dead, r.version]);
+    const rejectId = (await db.admin('select id from public.flock_day_rejects where visit_id = $1', [zeroId])).rows[0].id;
+    const decided = await one(U.owner, 'select public.decide_flock_reject($1, $2, $3) as v', [rejectId, 'handled', 2]);
+    same([shelf, decided.status, decided.decision], [[[2, 1], [4, 2]], 'saved', 'handled'], 'Q1: رفّ المراجعة في الورقة يعرض المركونتين بسبب dead_recorded، وتُحسمان كغيرهما');
     // (ب) زيارة تطبيق قديم «زرت ولا هلاكات» (صفر) لا تقفل اليوم، فتُسجَّل هلاكات الجولة الحقيقية.
     t.eq((await visit(U.worker, { flock: F.a4, dead: 0, feed: '40', queued: true })).value?.status, 'saved', 'Q1 بذرة: زيارة قديمة «لا هلاكات» (صفر) وعلف في القاعة 4');
     const after = await dead(U.manager, { flock: F.a4, n: 4 });
