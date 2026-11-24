@@ -259,7 +259,7 @@ export default async function (t) {
     t.same(
       coloured.map((selector) => [selector, valueOf(css, selector, 'print-color-adjust'), valueOf(css, selector, '-webkit-print-color-adjust')]),
       coloured.map((selector) => [selector, 'exact', 'exact']),
-      'M1/M2 كلّ خلفية ملوّنة تُطبع بلونها بالخاصيّتين: print-color-adjust (فايرفوكس وسفاري الحديث) و-webkit-print-color-adjust (كروم)، كلٌّ في قاعدته',
+      'M1/M2 كلّ خلفية ملوّنة تُطبع بلونها بالخاصيّتين، كلٌّ في قاعدته: print-color-adjust و-webkit-print-color-adjust (متصفّحٌ أقدم يقرأ إحداهما وحدها)',
     );
     const reset = ['background', 'border', 'border-radius', 'padding', 'box-shadow'];
     t.same(
