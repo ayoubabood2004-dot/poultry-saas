@@ -2,24 +2,24 @@
  "_note": "عيّنات القاعدة الحقيقية (supabase/tests/round-once-feed.test.mjs بـROUND_FEED_SAMPLES_OUT=1، اليوم المثبَّت 2026-11-24)؛ المحلّلات الحقيقية تقرؤها في فحوص الشاشات. «قاعة الصافي» P قائمة بمعامل تحويل، و«قاعة بلا كتلة» U بسطر بلا كتلة، و«قاعة الإغلاق» C مغلقة بإرجاع ونقل ومحسوب مستهلَكاً ثمّ N فيها اليوم بالمنقول والمرسل، وقاعة بيض.",
  "ids": {
   "flocks": {
-   "p": "ebcafe8c-5106-490c-b7a4-bea9e4e43691",
-   "u": "d69c8b84-874a-4a04-9a75-3badc152ec82",
-   "c": "bdd64e77-60b7-41e5-9ceb-a82a8603f566",
-   "l": "b6b5e754-1e05-4688-b096-c1bd0e0ccf99",
-   "n": "dfdf4bb5-7961-43f4-84e0-ff47e0d97234"
+   "p": "9f7218b0-fc69-4235-b18b-87837c6c5d5f",
+   "u": "470d2783-b7da-4a3a-8eb5-04d33b845741",
+   "c": "cc0feb39-db6c-4d0f-82e9-cdeac6d5774e",
+   "l": "de5dd5fa-da98-4061-9971-ef02346a2568",
+   "n": "ff6ae5b5-bc86-4e5f-8f00-1718e35f0fdc"
   },
   "halls": {
-   "p": "d7164f4e-25fd-46d8-92ec-0bd14730fede",
-   "u": "019824f4-e1a5-4299-a278-82a71903c5f7",
-   "c": "0bca2fdf-e937-4072-b20f-c34ba38b5474",
-   "l": "4dfdfd83-28da-428b-8a3c-7c5ab35497b6"
+   "p": "47fc0c73-057f-4903-a35c-fdc1d8ee1e5f",
+   "u": "d3dacbfe-c7e6-40f2-85a2-1ba0394ac92d",
+   "c": "68d93115-6060-4687-a6fe-9b48c4c7f30d",
+   "l": "fb0a887e-a285-4278-9c61-ba9e272499ef"
   },
   "items": {
-   "starter": "42d2ab44-9f6a-45ab-bf1c-87feb5721e8c",
-   "finisher": "0d485978-2813-4dab-8f8b-bf0fb4d11449",
-   "mash": "38bf74c8-37ad-416f-b977-65ef3ef7c667",
-   "piece": "53c548e7-f88e-4315-92c5-c210d3ca4ba3",
-   "medicine": "5a828def-b588-4d46-9937-3b789f8008ea"
+   "starter": "7e3fb88c-393a-4c5c-a089-7a04f5d08a6c",
+   "finisher": "e200dcca-dd8a-4997-bff4-452669111aa4",
+   "mash": "06de3e5f-dca7-4272-ba6e-5681120997a6",
+   "piece": "aa31eea2-f83f-4ee2-aa36-03ff27f44809",
+   "medicine": "1427e67b-e93d-4648-baf5-2b4bbb714e05"
   }
  },
  "halls_history": {
@@ -1090,8 +1090,8 @@
       "qty": "300",
       "name": "علف بادئ",
       "doc_no": "FI-2026-0001",
-      "item_id": "42d2ab44-9f6a-45ab-bf1c-87feb5721e8c",
-      "issue_id": "8cdf15ff-9ad3-481a-98fe-c870c5c40a42",
+      "item_id": "7e3fb88c-393a-4c5c-a089-7a04f5d08a6c",
+      "issue_id": "f748290c-a271-4ebe-b31a-9a756d49a3c6",
       "base_unit": "kg",
       "cost_kind": "feed",
       "issued_on": "2026-11-14"
@@ -1214,8 +1214,8 @@
       "qty": "50",
       "name": "علف ناهي",
       "doc_no": "FI-2026-0010",
-      "item_id": "0d485978-2813-4dab-8f8b-bf0fb4d11449",
-      "issue_id": "09771a1e-1293-4ed8-a1cd-7f3c65fcb776",
+      "item_id": "e200dcca-dd8a-4997-bff4-452669111aa4",
+      "issue_id": "d5b3475a-6728-4ccf-8c9f-f53dc21c5dca",
       "base_unit": "kg",
       "cost_kind": "feed",
       "issued_on": "2026-11-24"
@@ -1258,8 +1258,8 @@
       "qty": "200",
       "name": "علف ناهي",
       "doc_no": "FI-2026-0008",
-      "item_id": "0d485978-2813-4dab-8f8b-bf0fb4d11449",
-      "issue_id": "0717d4b2-21a3-4403-af4a-f2db4af489c5",
+      "item_id": "e200dcca-dd8a-4997-bff4-452669111aa4",
+      "issue_id": "1ed7b4a6-6004-4a18-93a0-77e719c1a7d5",
       "base_unit": "kg",
       "cost_kind": "feed",
       "issued_on": "2026-11-23"
@@ -1286,8 +1286,8 @@
       "qty": "5",
       "name": "فيتامين العلف",
       "doc_no": "FI-2026-0011",
-      "item_id": "5a828def-b588-4d46-9937-3b789f8008ea",
-      "issue_id": "0defe95c-cef2-475a-8f2d-798733a6461d",
+      "item_id": "1427e67b-e93d-4648-baf5-2b4bbb714e05",
+      "issue_id": "ada72fab-5d99-40e4-baf2-21c6fb6bd8e4",
       "base_unit": "kg",
       "cost_kind": "medicine",
       "issued_on": "2026-11-24"
@@ -1398,13 +1398,13 @@
   "next": false,
   "prev": false,
   "flock": {
-   "id": "ebcafe8c-5106-490c-b7a4-bea9e4e43691",
+   "id": "9f7218b0-fc69-4235-b18b-87837c6c5d5f",
    "age0": 0,
    "kind": "broiler",
    "end_on": null,
    "status": "active",
    "end_age": null,
-   "hall_id": "d7164f4e-25fd-46d8-92ec-0bd14730fede",
+   "hall_id": "47fc0c73-057f-4903-a35c-fdc1d8ee1e5f",
    "closed_on": null,
    "hall_name": "قاعة الصافي",
    "placed_on": "2026-11-04",
@@ -1732,8 +1732,8 @@
       "qty": "100",
       "name": "علف بادئ",
       "doc_no": "FI-2026-0002",
-      "item_id": "42d2ab44-9f6a-45ab-bf1c-87feb5721e8c",
-      "issue_id": "1a5c4c8c-7ce2-46d3-8f37-c4be9c190c2d",
+      "item_id": "7e3fb88c-393a-4c5c-a089-7a04f5d08a6c",
+      "issue_id": "ede1bf90-83d7-41d7-b5d0-8dfce3503514",
       "base_unit": "kg",
       "cost_kind": "feed",
       "issued_on": "2026-11-19"
@@ -1743,8 +1743,8 @@
       "qty": "2",
       "name": "علف بالقطعة",
       "doc_no": "FI-2026-0003",
-      "item_id": "53c548e7-f88e-4315-92c5-c210d3ca4ba3",
-      "issue_id": "2cfdb097-2097-4d02-827b-346d3b2dd797",
+      "item_id": "aa31eea2-f83f-4ee2-aa36-03ff27f44809",
+      "issue_id": "b6ca86ee-6f3a-4e72-bb09-35f515ed9bf7",
       "base_unit": "pc",
       "cost_kind": "feed",
       "issued_on": "2026-11-19"
@@ -1935,13 +1935,13 @@
   "next": false,
   "prev": false,
   "flock": {
-   "id": "d69c8b84-874a-4a04-9a75-3badc152ec82",
+   "id": "470d2783-b7da-4a3a-8eb5-04d33b845741",
    "age0": 0,
    "kind": "broiler",
    "end_on": null,
    "status": "active",
    "end_age": null,
-   "hall_id": "019824f4-e1a5-4299-a278-82a71903c5f7",
+   "hall_id": "d3dacbfe-c7e6-40f2-85a2-1ba0394ac92d",
    "closed_on": null,
    "hall_name": "قاعة بلا كتلة",
    "placed_on": "2026-11-04",
@@ -2285,8 +2285,8 @@
       "qty": "200",
       "name": "علف بادئ",
       "doc_no": "FI-2026-0004",
-      "item_id": "42d2ab44-9f6a-45ab-bf1c-87feb5721e8c",
-      "issue_id": "8132099f-0909-4fbe-9530-f0f562a082c0",
+      "item_id": "7e3fb88c-393a-4c5c-a089-7a04f5d08a6c",
+      "issue_id": "a4d796c4-09ce-45b2-a08b-3650ee97a573",
       "base_unit": "kg",
       "cost_kind": "feed",
       "issued_on": "2026-11-20"
@@ -2296,8 +2296,8 @@
       "qty": "30",
       "name": "علف ناهي",
       "doc_no": "FI-2026-0005",
-      "item_id": "0d485978-2813-4dab-8f8b-bf0fb4d11449",
-      "issue_id": "05abbae4-54d4-4f9b-a2d3-745fa2c40987",
+      "item_id": "e200dcca-dd8a-4997-bff4-452669111aa4",
+      "issue_id": "ba377722-328d-4c54-886d-643d870b5725",
       "base_unit": "kg",
       "cost_kind": "feed",
       "issued_on": "2026-11-20"
@@ -2307,8 +2307,8 @@
       "qty": "20",
       "name": "علف ناعم",
       "doc_no": "FI-2026-0006",
-      "item_id": "38bf74c8-37ad-416f-b977-65ef3ef7c667",
-      "issue_id": "ae378d30-1eae-4b58-8a07-707141941dd7",
+      "item_id": "06de3e5f-dca7-4272-ba6e-5681120997a6",
+      "issue_id": "36fd0f8b-d82f-47d6-98b8-b933e5eab87e",
       "base_unit": "kg",
       "cost_kind": "feed",
       "issued_on": "2026-11-20"
@@ -2508,13 +2508,13 @@
   "next": false,
   "prev": false,
   "flock": {
-   "id": "bdd64e77-60b7-41e5-9ceb-a82a8603f566",
+   "id": "cc0feb39-db6c-4d0f-82e9-cdeac6d5774e",
    "age0": 0,
    "kind": "broiler",
    "end_on": null,
    "status": "closed",
    "end_age": null,
-   "hall_id": "0bca2fdf-e937-4072-b20f-c34ba38b5474",
+   "hall_id": "68d93115-6060-4687-a6fe-9b48c4c7f30d",
    "closed_on": "2026-11-22",
    "hall_name": "قاعة الإغلاق",
    "placed_on": "2026-11-04",
@@ -2874,8 +2874,8 @@
       "qty": "100",
       "name": "علف بادئ",
       "doc_no": "FI-2026-0007",
-      "item_id": "42d2ab44-9f6a-45ab-bf1c-87feb5721e8c",
-      "issue_id": "60a40fa1-2f77-4181-acf1-d9e7ded4a702",
+      "item_id": "7e3fb88c-393a-4c5c-a089-7a04f5d08a6c",
+      "issue_id": "870add46-d542-4579-a179-d6c394f01b84",
       "base_unit": "kg",
       "cost_kind": "feed",
       "issued_on": "2026-11-21"
@@ -3034,13 +3034,13 @@
   "next": false,
   "prev": false,
   "flock": {
-   "id": "b6b5e754-1e05-4688-b096-c1bd0e0ccf99",
+   "id": "de5dd5fa-da98-4061-9971-ef02346a2568",
    "age0": 0,
    "kind": "layer",
    "end_on": null,
    "status": "active",
    "end_age": null,
-   "hall_id": "4dfdfd83-28da-428b-8a3c-7c5ab35497b6",
+   "hall_id": "fb0a887e-a285-4278-9c61-ba9e272499ef",
    "closed_on": null,
    "hall_name": "قاعة بيض العلف",
    "placed_on": "2026-11-14",
@@ -3448,8 +3448,8 @@
       "qty": "40",
       "name": "علف ناهي",
       "doc_no": "FI-2026-0009",
-      "item_id": "0d485978-2813-4dab-8f8b-bf0fb4d11449",
-      "issue_id": "fc48dd75-4fe4-4491-9afe-6029c67ed7fd",
+      "item_id": "e200dcca-dd8a-4997-bff4-452669111aa4",
+      "issue_id": "a07d4933-f6cf-4f26-8941-aaa5385c8598",
       "base_unit": "kg",
       "cost_kind": "feed",
       "issued_on": "2026-11-24"
@@ -3461,7 +3461,7 @@
       "kg": "30.000",
       "qty": "30",
       "name": "علف ناهي",
-      "line_id": "f8a3406a-f2e2-1cfa-7d2f-d2e9224d5b63",
+      "line_id": "5179f5ae-c267-05d5-d341-37f92ea7dafc",
       "base_unit": "kg"
      }
     ],
@@ -3568,13 +3568,13 @@
   "next": false,
   "prev": false,
   "flock": {
-   "id": "dfdf4bb5-7961-43f4-84e0-ff47e0d97234",
+   "id": "ff6ae5b5-bc86-4e5f-8f00-1718e35f0fdc",
    "age0": 0,
    "kind": "broiler",
    "end_on": null,
    "status": "active",
    "end_age": null,
-   "hall_id": "0bca2fdf-e937-4072-b20f-c34ba38b5474",
+   "hall_id": "68d93115-6060-4687-a6fe-9b48c4c7f30d",
    "closed_on": null,
    "hall_name": "قاعة الإغلاق",
    "placed_on": "2026-11-24",
@@ -4420,7 +4420,7 @@
      "kg": "300.000",
      "qty": "300",
      "name": "علف بادئ",
-     "item_id": "42d2ab44-9f6a-45ab-bf1c-87feb5721e8c",
+     "item_id": "7e3fb88c-393a-4c5c-a089-7a04f5d08a6c",
      "base_unit": "kg",
      "unweighed": 0
     },
@@ -4428,7 +4428,7 @@
      "kg": "250.000",
      "qty": "250",
      "name": "علف ناهي",
-     "item_id": "0d485978-2813-4dab-8f8b-bf0fb4d11449",
+     "item_id": "e200dcca-dd8a-4997-bff4-452669111aa4",
      "base_unit": "kg",
      "unweighed": 0
     }
@@ -4491,13 +4491,13 @@
   },
   "close": null,
   "flock": {
-   "id": "ebcafe8c-5106-490c-b7a4-bea9e4e43691",
+   "id": "9f7218b0-fc69-4235-b18b-87837c6c5d5f",
    "age0": 0,
    "kind": "broiler",
    "end_on": null,
    "status": "active",
    "end_age": null,
-   "hall_id": "d7164f4e-25fd-46d8-92ec-0bd14730fede",
+   "hall_id": "47fc0c73-057f-4903-a35c-fdc1d8ee1e5f",
    "closed_on": null,
    "hall_name": "قاعة الصافي",
    "placed_on": "2026-11-04",
@@ -5430,7 +5430,7 @@
      "kg": "100.000",
      "qty": "100",
      "name": "علف بادئ",
-     "item_id": "42d2ab44-9f6a-45ab-bf1c-87feb5721e8c",
+     "item_id": "7e3fb88c-393a-4c5c-a089-7a04f5d08a6c",
      "base_unit": "kg",
      "unweighed": 0
     },
@@ -5438,7 +5438,7 @@
      "kg": null,
      "qty": "2",
      "name": "علف بالقطعة",
-     "item_id": "53c548e7-f88e-4315-92c5-c210d3ca4ba3",
+     "item_id": "aa31eea2-f83f-4ee2-aa36-03ff27f44809",
      "base_unit": "pc",
      "unweighed": 1
     }
@@ -5497,13 +5497,13 @@
   },
   "close": null,
   "flock": {
-   "id": "d69c8b84-874a-4a04-9a75-3badc152ec82",
+   "id": "470d2783-b7da-4a3a-8eb5-04d33b845741",
    "age0": 0,
    "kind": "broiler",
    "end_on": null,
    "status": "active",
    "end_age": null,
-   "hall_id": "019824f4-e1a5-4299-a278-82a71903c5f7",
+   "hall_id": "d3dacbfe-c7e6-40f2-85a2-1ba0394ac92d",
    "closed_on": null,
    "hall_name": "قاعة بلا كتلة",
    "placed_on": "2026-11-04",
@@ -6354,7 +6354,7 @@
      "kg": "200.000",
      "qty": "200",
      "name": "علف بادئ",
-     "item_id": "42d2ab44-9f6a-45ab-bf1c-87feb5721e8c",
+     "item_id": "7e3fb88c-393a-4c5c-a089-7a04f5d08a6c",
      "base_unit": "kg",
      "unweighed": 0
     },
@@ -6362,7 +6362,7 @@
      "kg": "20.000",
      "qty": "20",
      "name": "علف ناعم",
-     "item_id": "38bf74c8-37ad-416f-b977-65ef3ef7c667",
+     "item_id": "06de3e5f-dca7-4272-ba6e-5681120997a6",
      "base_unit": "kg",
      "unweighed": 0
     },
@@ -6370,7 +6370,7 @@
      "kg": "30.000",
      "qty": "30",
      "name": "علف ناهي",
-     "item_id": "0d485978-2813-4dab-8f8b-bf0fb4d11449",
+     "item_id": "e200dcca-dd8a-4997-bff4-452669111aa4",
      "base_unit": "kg",
      "unweighed": 0
     }
@@ -6428,23 +6428,23 @@
    "mortality_pct": "0.00"
   },
   "close": {
-   "id": "6136cd25-b99c-4cb9-ab6d-45f3a0b03f9c",
+   "id": "0af5885b-15f1-41bc-a089-ba9ce838afb5",
    "note": null,
    "lines": [
     {
      "kg": "150.000",
      "qty": "150",
      "action": "return",
-     "item_id": "42d2ab44-9f6a-45ab-bf1c-87feb5721e8c",
-     "line_id": "853a44af-dd9d-55df-28a0-4b10eb144909",
+     "item_id": "7e3fb88c-393a-4c5c-a089-7a04f5d08a6c",
+     "line_id": "4de5094d-aa50-a5ac-39ae-d8977768d8e3",
      "line_no": 1,
      "base_unit": "kg",
      "item_name": "علف بادئ",
-     "return_id": "a7cd583b-d730-a7d3-9ddb-1e40f0e58842",
+     "return_id": "b6faa409-663c-ec15-fe76-79b581cd6a17",
      "applied_on": null,
      "to_flock_id": null,
      "carry_status": null,
-     "warehouse_id": "b57fb337-4303-44fe-a2bc-dfed2b10ed39",
+     "warehouse_id": "f7f7f652-730a-4830-ab9c-ef10b7a8efe5",
      "return_doc_no": "FR-2026-0001",
      "warehouse_name": "رصيد العلف"
     },
@@ -6452,14 +6452,14 @@
      "kg": "30.000",
      "qty": "30",
      "action": "carry",
-     "item_id": "0d485978-2813-4dab-8f8b-bf0fb4d11449",
-     "line_id": "f8a3406a-f2e2-1cfa-7d2f-d2e9224d5b63",
+     "item_id": "e200dcca-dd8a-4997-bff4-452669111aa4",
+     "line_id": "5179f5ae-c267-05d5-d341-37f92ea7dafc",
      "line_no": 2,
      "base_unit": "kg",
      "item_name": "علف ناهي",
      "return_id": null,
      "applied_on": "2026-11-24",
-     "to_flock_id": "dfdf4bb5-7961-43f4-84e0-ff47e0d97234",
+     "to_flock_id": "ff6ae5b5-bc86-4e5f-8f00-1718e35f0fdc",
      "carry_status": "applied",
      "warehouse_id": null,
      "return_doc_no": null,
@@ -6469,8 +6469,8 @@
      "kg": "10.000",
      "qty": "10",
      "action": "consumed",
-     "item_id": "38bf74c8-37ad-416f-b977-65ef3ef7c667",
-     "line_id": "a1c947be-047a-df8c-8a59-0242c8696006",
+     "item_id": "06de3e5f-dca7-4272-ba6e-5681120997a6",
+     "line_id": "84b45491-2a0c-255e-eeb8-66787537ceaa",
      "line_no": 3,
      "base_unit": "kg",
      "item_name": "علف ناعم",
@@ -6484,8 +6484,8 @@
     }
    ],
    "status": "closed",
-   "hall_id": "0bca2fdf-e937-4072-b20f-c34ba38b5474",
-   "flock_id": "bdd64e77-60b7-41e5-9ceb-a82a8603f566",
+   "hall_id": "68d93115-6060-4687-a6fe-9b48c4c7f30d",
+   "flock_id": "cc0feb39-db6c-4d0f-82e9-cdeac6d5774e",
    "closed_on": "2026-11-22",
    "hall_name": "قاعة الإغلاق",
    "count_diff": -300,
@@ -6495,13 +6495,13 @@
    "count_reason": "بيعت خارج النظام"
   },
   "flock": {
-   "id": "bdd64e77-60b7-41e5-9ceb-a82a8603f566",
+   "id": "cc0feb39-db6c-4d0f-82e9-cdeac6d5774e",
    "age0": 0,
    "kind": "broiler",
    "end_on": null,
    "status": "closed",
    "end_age": null,
-   "hall_id": "0bca2fdf-e937-4072-b20f-c34ba38b5474",
+   "hall_id": "68d93115-6060-4687-a6fe-9b48c4c7f30d",
    "closed_on": "2026-11-22",
    "hall_name": "قاعة الإغلاق",
    "placed_on": "2026-11-04",
@@ -6667,7 +6667,7 @@
      "kg": "40.000",
      "qty": "40",
      "name": "علف ناهي",
-     "item_id": "0d485978-2813-4dab-8f8b-bf0fb4d11449",
+     "item_id": "e200dcca-dd8a-4997-bff4-452669111aa4",
      "base_unit": "kg",
      "unweighed": 0
     }
@@ -6726,13 +6726,13 @@
   },
   "close": null,
   "flock": {
-   "id": "dfdf4bb5-7961-43f4-84e0-ff47e0d97234",
+   "id": "ff6ae5b5-bc86-4e5f-8f00-1718e35f0fdc",
    "age0": 0,
    "kind": "broiler",
    "end_on": null,
    "status": "active",
    "end_age": null,
-   "hall_id": "0bca2fdf-e937-4072-b20f-c34ba38b5474",
+   "hall_id": "68d93115-6060-4687-a6fe-9b48c4c7f30d",
    "closed_on": null,
    "hall_name": "قاعة الإغلاق",
    "placed_on": "2026-11-24",
@@ -6791,29 +6791,46 @@
     "money": {
      "value": "18000.00"
     },
-    "item_id": "0d485978-2813-4dab-8f8b-bf0fb4d11449",
-    "line_id": "f8a3406a-f2e2-1cfa-7d2f-d2e9224d5b63",
+    "item_id": "e200dcca-dd8a-4997-bff4-452669111aa4",
+    "line_id": "5179f5ae-c267-05d5-d341-37f92ea7dafc",
     "base_unit": "kg",
     "applied_on": "2026-11-24",
-    "from_flock_id": "bdd64e77-60b7-41e5-9ceb-a82a8603f566"
+    "from_flock_id": "cc0feb39-db6c-4d0f-82e9-cdeac6d5774e"
    }
   ],
   "vaccines": [],
   "medicines": [],
   "count_diffs": []
  },
+ "send_flock_feed_carry": {
+  "day": {
+   "on": "2026-11-24",
+   "feed_kg": "70.000"
+  },
+  "issue": {
+   "id": "a07d4933-f6cf-4f26-8941-aaa5385c8598",
+   "qty": "40.000",
+   "unit": "kg",
+   "doc_no": "FI-2026-0009",
+   "for_day": "2026-11-24",
+   "item_id": "e200dcca-dd8a-4997-bff4-452669111aa4",
+   "issued_on": "2026-11-24",
+   "item_name": "علف ناهي"
+  },
+  "status": "saved"
+ },
  "flocks_overview": {
   "sites": [
    {
-    "id": "1e2d36c8-9640-4dba-b210-f5f565ab03b9",
+    "id": "32910e41-9250-4bae-b565-c4de2c0432ac",
     "kind": "broiler",
     "name": "حقل العلف المرسل",
     "halls": [
      {
-      "id": "0bca2fdf-e937-4072-b20f-c34ba38b5474",
+      "id": "68d93115-6060-4687-a6fe-9b48c4c7f30d",
       "name": "قاعة الإغلاق",
       "flock": {
-       "id": "dfdf4bb5-7961-43f4-84e0-ff47e0d97234",
+       "id": "ff6ae5b5-bc86-4e5f-8f00-1718e35f0fdc",
        "fcr": null,
        "kind": "broiler",
        "live": 300,
@@ -6834,14 +6851,14 @@
          "qty": "30.000",
          "unit": "kg",
          "carry": true,
-         "item_id": "0d485978-2813-4dab-8f8b-bf0fb4d11449",
+         "item_id": "e200dcca-dd8a-4997-bff4-452669111aa4",
          "item_name": "علف ناهي"
         },
         {
          "qty": "40.000",
          "unit": "kg",
          "carry": false,
-         "item_id": "0d485978-2813-4dab-8f8b-bf0fb4d11449",
+         "item_id": "e200dcca-dd8a-4997-bff4-452669111aa4",
          "item_name": "علف ناهي"
         }
        ],
@@ -6859,7 +6876,7 @@
        "rejects_pending": 0,
        "live_start_today": 300,
        "gas_today_version": null,
-       "last_feed_item_id": "0d485978-2813-4dab-8f8b-bf0fb4d11449",
+       "last_feed_item_id": "e200dcca-dd8a-4997-bff4-452669111aa4",
        "days_since_placement": 1,
        "age_days_at_placement": 0
       },
@@ -6867,10 +6884,10 @@
       "capacity": null
      },
      {
-      "id": "d7164f4e-25fd-46d8-92ec-0bd14730fede",
+      "id": "47fc0c73-057f-4903-a35c-fdc1d8ee1e5f",
       "name": "قاعة الصافي",
       "flock": {
-       "id": "ebcafe8c-5106-490c-b7a4-bea9e4e43691",
+       "id": "9f7218b0-fc69-4235-b18b-87837c6c5d5f",
        "fcr": "0.463",
        "kind": "broiler",
        "live": 990,
@@ -6905,7 +6922,7 @@
        "rejects_pending": 0,
        "live_start_today": 990,
        "gas_today_version": null,
-       "last_feed_item_id": "0d485978-2813-4dab-8f8b-bf0fb4d11449",
+       "last_feed_item_id": "e200dcca-dd8a-4997-bff4-452669111aa4",
        "days_since_placement": 21,
        "age_days_at_placement": 0
       },
@@ -6913,10 +6930,10 @@
       "capacity": null
      },
      {
-      "id": "019824f4-e1a5-4299-a278-82a71903c5f7",
+      "id": "d3dacbfe-c7e6-40f2-85a2-1ba0394ac92d",
       "name": "قاعة بلا كتلة",
       "flock": {
-       "id": "d69c8b84-874a-4a04-9a75-3badc152ec82",
+       "id": "470d2783-b7da-4a3a-8eb5-04d33b845741",
        "fcr": null,
        "kind": "broiler",
        "live": 500,
@@ -6947,7 +6964,7 @@
        "rejects_pending": 0,
        "live_start_today": 500,
        "gas_today_version": null,
-       "last_feed_item_id": "53c548e7-f88e-4315-92c5-c210d3ca4ba3",
+       "last_feed_item_id": "aa31eea2-f83f-4ee2-aa36-03ff27f44809",
        "days_since_placement": 21,
        "age_days_at_placement": 0
       },
@@ -6956,18 +6973,18 @@
      }
     ],
     "can_manage": true,
-    "division_id": "5a379359-7763-4c02-81d4-aad8783b68f5"
+    "division_id": "616d3bff-e646-43b3-8ad8-d50d3974de0b"
    },
    {
-    "id": "dc3bfd9d-76c9-4ada-bf28-b70443dd5df0",
+    "id": "9a8fe038-1ded-4b8f-93d8-d3f94effa218",
     "kind": "layer",
     "name": "حقل بيض العلف",
     "halls": [
      {
-      "id": "4dfdfd83-28da-428b-8a3c-7c5ab35497b6",
+      "id": "fb0a887e-a285-4278-9c61-ba9e272499ef",
       "name": "قاعة بيض العلف",
       "flock": {
-       "id": "b6b5e754-1e05-4688-b096-c1bd0e0ccf99",
+       "id": "de5dd5fa-da98-4061-9971-ef02346a2568",
        "fcr": null,
        "kind": "layer",
        "live": 2000,
@@ -6998,7 +7015,7 @@
        "rejects_pending": 0,
        "live_start_today": 2000,
        "gas_today_version": null,
-       "last_feed_item_id": "42d2ab44-9f6a-45ab-bf1c-87feb5721e8c",
+       "last_feed_item_id": "7e3fb88c-393a-4c5c-a089-7a04f5d08a6c",
        "days_since_placement": 11,
        "age_days_at_placement": 0
       },
@@ -7007,7 +7024,7 @@
      }
     ],
     "can_manage": true,
-    "division_id": "30bdee38-c690-4da4-865a-015b29a5cabb"
+    "division_id": "2951cfe8-c83a-4085-b5ab-38080960f06d"
    }
   ],
   "today": "2026-11-24",
@@ -7015,28 +7032,28 @@
    {
     "name": "علف بادئ",
     "units": [],
-    "item_id": "42d2ab44-9f6a-45ab-bf1c-87feb5721e8c",
+    "item_id": "7e3fb88c-393a-4c5c-a089-7a04f5d08a6c",
     "on_hand": "4450.000",
     "base_unit": "kg"
    },
    {
     "name": "علف بالقطعة",
     "units": [],
-    "item_id": "53c548e7-f88e-4315-92c5-c210d3ca4ba3",
+    "item_id": "aa31eea2-f83f-4ee2-aa36-03ff27f44809",
     "on_hand": "8.000",
     "base_unit": "pc"
    },
    {
     "name": "علف ناعم",
     "units": [],
-    "item_id": "38bf74c8-37ad-416f-b977-65ef3ef7c667",
+    "item_id": "06de3e5f-dca7-4272-ba6e-5681120997a6",
     "on_hand": "480.000",
     "base_unit": "kg"
    },
    {
     "name": "علف ناهي",
     "units": [],
-    "item_id": "0d485978-2813-4dab-8f8b-bf0fb4d11449",
+    "item_id": "e200dcca-dd8a-4997-bff4-452669111aa4",
     "on_hand": "4680.000",
     "base_unit": "kg"
    }
@@ -7050,14 +7067,14 @@
   "today": "2026-11-24",
   "issues": [
    {
-    "id": "0defe95c-cef2-475a-8f2d-798733a6461d",
+    "id": "ada72fab-5d99-40e4-baf2-21c6fb6bd8e4",
     "qty": "5",
     "money": {
      "value": "5000.00"
     },
     "doc_no": "FI-2026-0011",
     "status": "posted",
-    "item_id": "5a828def-b588-4d46-9937-3b789f8008ea",
+    "item_id": "1427e67b-e93d-4648-baf5-2b4bbb714e05",
     "can_void": true,
     "base_unit": "kg",
     "cost_kind": "medicine",
@@ -7065,18 +7082,18 @@
     "item_name": "فيتامين العلف",
     "voided_on": null,
     "void_reason": null,
-    "warehouse_id": "92aceed1-a343-4fa9-9c85-d0fad0e07603",
+    "warehouse_id": "8dd04559-5586-404d-b30d-c6ee43ee1445",
     "warehouse_name": "مخزن الأدوية"
    },
    {
-    "id": "09771a1e-1293-4ed8-a1cd-7f3c65fcb776",
+    "id": "d5b3475a-6728-4ccf-8c9f-f53dc21c5dca",
     "qty": "50",
     "money": {
      "value": "30000.00"
     },
     "doc_no": "FI-2026-0010",
     "status": "posted",
-    "item_id": "0d485978-2813-4dab-8f8b-bf0fb4d11449",
+    "item_id": "e200dcca-dd8a-4997-bff4-452669111aa4",
     "can_void": true,
     "base_unit": "kg",
     "cost_kind": "feed",
@@ -7084,18 +7101,18 @@
     "item_name": "علف ناهي",
     "voided_on": null,
     "void_reason": null,
-    "warehouse_id": "b57fb337-4303-44fe-a2bc-dfed2b10ed39",
+    "warehouse_id": "f7f7f652-730a-4830-ab9c-ef10b7a8efe5",
     "warehouse_name": "رصيد العلف"
    },
    {
-    "id": "0717d4b2-21a3-4403-af4a-f2db4af489c5",
+    "id": "1ed7b4a6-6004-4a18-93a0-77e719c1a7d5",
     "qty": "200",
     "money": {
      "value": "120000.00"
     },
     "doc_no": "FI-2026-0008",
     "status": "posted",
-    "item_id": "0d485978-2813-4dab-8f8b-bf0fb4d11449",
+    "item_id": "e200dcca-dd8a-4997-bff4-452669111aa4",
     "can_void": true,
     "base_unit": "kg",
     "cost_kind": "feed",
@@ -7103,18 +7120,18 @@
     "item_name": "علف ناهي",
     "voided_on": null,
     "void_reason": null,
-    "warehouse_id": "b57fb337-4303-44fe-a2bc-dfed2b10ed39",
+    "warehouse_id": "f7f7f652-730a-4830-ab9c-ef10b7a8efe5",
     "warehouse_name": "رصيد العلف"
    },
    {
-    "id": "8cdf15ff-9ad3-481a-98fe-c870c5c40a42",
+    "id": "f748290c-a271-4ebe-b31a-9a756d49a3c6",
     "qty": "300",
     "money": {
      "value": "150000.00"
     },
     "doc_no": "FI-2026-0001",
     "status": "posted",
-    "item_id": "42d2ab44-9f6a-45ab-bf1c-87feb5721e8c",
+    "item_id": "7e3fb88c-393a-4c5c-a089-7a04f5d08a6c",
     "can_void": true,
     "base_unit": "kg",
     "cost_kind": "feed",
@@ -7122,13 +7139,13 @@
     "item_name": "علف بادئ",
     "voided_on": null,
     "void_reason": null,
-    "warehouse_id": "b57fb337-4303-44fe-a2bc-dfed2b10ed39",
+    "warehouse_id": "f7f7f652-730a-4830-ab9c-ef10b7a8efe5",
     "warehouse_name": "رصيد العلف"
    }
   ],
-  "hall_id": "d7164f4e-25fd-46d8-92ec-0bd14730fede",
+  "hall_id": "47fc0c73-057f-4903-a35c-fdc1d8ee1e5f",
   "can_void": true,
-  "flock_id": "ebcafe8c-5106-490c-b7a4-bea9e4e43691",
+  "flock_id": "9f7218b0-fc69-4235-b18b-87837c6c5d5f",
   "hall_name": "قاعة الصافي",
   "net_feed_kg": "550.000",
   "out_feed_kg": "0.000",
@@ -7149,14 +7166,14 @@
   "today": "2026-11-24",
   "issues": [
    {
-    "id": "2cfdb097-2097-4d02-827b-346d3b2dd797",
+    "id": "b6ca86ee-6f3a-4e72-bb09-35f515ed9bf7",
     "qty": "2",
     "money": {
      "value": "2000.00"
     },
     "doc_no": "FI-2026-0003",
     "status": "posted",
-    "item_id": "53c548e7-f88e-4315-92c5-c210d3ca4ba3",
+    "item_id": "aa31eea2-f83f-4ee2-aa36-03ff27f44809",
     "can_void": true,
     "base_unit": "pc",
     "cost_kind": "feed",
@@ -7164,18 +7181,18 @@
     "item_name": "علف بالقطعة",
     "voided_on": null,
     "void_reason": null,
-    "warehouse_id": "b57fb337-4303-44fe-a2bc-dfed2b10ed39",
+    "warehouse_id": "f7f7f652-730a-4830-ab9c-ef10b7a8efe5",
     "warehouse_name": "رصيد العلف"
    },
    {
-    "id": "1a5c4c8c-7ce2-46d3-8f37-c4be9c190c2d",
+    "id": "ede1bf90-83d7-41d7-b5d0-8dfce3503514",
     "qty": "100",
     "money": {
      "value": "50000.00"
     },
     "doc_no": "FI-2026-0002",
     "status": "posted",
-    "item_id": "42d2ab44-9f6a-45ab-bf1c-87feb5721e8c",
+    "item_id": "7e3fb88c-393a-4c5c-a089-7a04f5d08a6c",
     "can_void": true,
     "base_unit": "kg",
     "cost_kind": "feed",
@@ -7183,13 +7200,13 @@
     "item_name": "علف بادئ",
     "voided_on": null,
     "void_reason": null,
-    "warehouse_id": "b57fb337-4303-44fe-a2bc-dfed2b10ed39",
+    "warehouse_id": "f7f7f652-730a-4830-ab9c-ef10b7a8efe5",
     "warehouse_name": "رصيد العلف"
    }
   ],
-  "hall_id": "019824f4-e1a5-4299-a278-82a71903c5f7",
+  "hall_id": "d3dacbfe-c7e6-40f2-85a2-1ba0394ac92d",
   "can_void": true,
-  "flock_id": "d69c8b84-874a-4a04-9a75-3badc152ec82",
+  "flock_id": "470d2783-b7da-4a3a-8eb5-04d33b845741",
   "hall_name": "قاعة بلا كتلة",
   "net_feed_kg": "100.000",
   "out_feed_kg": "0.000",
@@ -7213,9 +7230,9 @@
    "estimate_left_kg": "550.000",
    "left_in_hall_unweighed": 0
   },
-  "plan": "2682b9ea83f2014bc3f36c6ca471b4e7",
+  "plan": "b7c69d2f82eb64e0990b67c081234f32",
   "flock": {
-   "id": "ebcafe8c-5106-490c-b7a4-bea9e4e43691",
+   "id": "9f7218b0-fc69-4235-b18b-87837c6c5d5f",
    "age": 20,
    "age0": 0,
    "dead": 10,
@@ -7225,7 +7242,7 @@
    "end_on": null,
    "status": "active",
    "end_age": null,
-   "hall_id": "d7164f4e-25fd-46d8-92ec-0bd14730fede",
+   "hall_id": "47fc0c73-057f-4903-a35c-fdc1d8ee1e5f",
    "closed_on": null,
    "hall_name": "قاعة الصافي",
    "placed_on": "2026-11-04",
@@ -7246,16 +7263,16 @@
       "name": "رصيد العلف",
       "usable": true,
       "last_on": "2026-11-14",
-      "warehouse_id": "b57fb337-4303-44fe-a2bc-dfed2b10ed39"
+      "warehouse_id": "f7f7f652-730a-4830-ab9c-ef10b7a8efe5"
      }
     ],
-    "item_id": "42d2ab44-9f6a-45ab-bf1c-87feb5721e8c",
+    "item_id": "7e3fb88c-393a-4c5c-a089-7a04f5d08a6c",
     "pool_kg": "300.000",
     "pool_qty": "300",
     "base_unit": "kg",
     "cost_kind": "feed",
     "carry_in_qty": "0",
-    "default_store": "b57fb337-4303-44fe-a2bc-dfed2b10ed39"
+    "default_store": "f7f7f652-730a-4830-ab9c-ef10b7a8efe5"
    },
    {
     "kind": "feed",
@@ -7269,16 +7286,16 @@
       "name": "رصيد العلف",
       "usable": true,
       "last_on": "2026-11-24",
-      "warehouse_id": "b57fb337-4303-44fe-a2bc-dfed2b10ed39"
+      "warehouse_id": "f7f7f652-730a-4830-ab9c-ef10b7a8efe5"
      }
     ],
-    "item_id": "0d485978-2813-4dab-8f8b-bf0fb4d11449",
+    "item_id": "e200dcca-dd8a-4997-bff4-452669111aa4",
     "pool_kg": "250.000",
     "pool_qty": "250",
     "base_unit": "kg",
     "cost_kind": "feed",
     "carry_in_qty": "0",
-    "default_store": "b57fb337-4303-44fe-a2bc-dfed2b10ed39"
+    "default_store": "f7f7f652-730a-4830-ab9c-ef10b7a8efe5"
    },
    {
     "kind": "medicine",
@@ -7292,16 +7309,16 @@
       "name": "مخزن الأدوية",
       "usable": true,
       "last_on": "2026-11-24",
-      "warehouse_id": "92aceed1-a343-4fa9-9c85-d0fad0e07603"
+      "warehouse_id": "8dd04559-5586-404d-b30d-c6ee43ee1445"
      }
     ],
-    "item_id": "5a828def-b588-4d46-9937-3b789f8008ea",
+    "item_id": "1427e67b-e93d-4648-baf5-2b4bbb714e05",
     "pool_kg": "5.000",
     "pool_qty": "5",
     "base_unit": "kg",
     "cost_kind": "medicine",
     "carry_in_qty": "0",
-    "default_store": "92aceed1-a343-4fa9-9c85-d0fad0e07603"
+    "default_store": "8dd04559-5586-404d-b30d-c6ee43ee1445"
    }
   ],
   "sales": {
@@ -7329,9 +7346,9 @@
    "estimate_left_kg": "100.000",
    "left_in_hall_unweighed": 1
   },
-  "plan": "282e3369bd40c489dfe96baf777b6575",
+  "plan": "0b0cfa45d2e81e39b466f0c1771be606",
   "flock": {
-   "id": "d69c8b84-874a-4a04-9a75-3badc152ec82",
+   "id": "470d2783-b7da-4a3a-8eb5-04d33b845741",
    "age": 20,
    "age0": 0,
    "dead": 0,
@@ -7341,7 +7358,7 @@
    "end_on": null,
    "status": "active",
    "end_age": null,
-   "hall_id": "019824f4-e1a5-4299-a278-82a71903c5f7",
+   "hall_id": "d3dacbfe-c7e6-40f2-85a2-1ba0394ac92d",
    "closed_on": null,
    "hall_name": "قاعة بلا كتلة",
    "placed_on": "2026-11-04",
@@ -7362,16 +7379,16 @@
       "name": "رصيد العلف",
       "usable": true,
       "last_on": "2026-11-19",
-      "warehouse_id": "b57fb337-4303-44fe-a2bc-dfed2b10ed39"
+      "warehouse_id": "f7f7f652-730a-4830-ab9c-ef10b7a8efe5"
      }
     ],
-    "item_id": "42d2ab44-9f6a-45ab-bf1c-87feb5721e8c",
+    "item_id": "7e3fb88c-393a-4c5c-a089-7a04f5d08a6c",
     "pool_kg": "100.000",
     "pool_qty": "100",
     "base_unit": "kg",
     "cost_kind": "feed",
     "carry_in_qty": "0",
-    "default_store": "b57fb337-4303-44fe-a2bc-dfed2b10ed39"
+    "default_store": "f7f7f652-730a-4830-ab9c-ef10b7a8efe5"
    },
    {
     "kind": "feed",
@@ -7385,16 +7402,16 @@
       "name": "رصيد العلف",
       "usable": true,
       "last_on": "2026-11-19",
-      "warehouse_id": "b57fb337-4303-44fe-a2bc-dfed2b10ed39"
+      "warehouse_id": "f7f7f652-730a-4830-ab9c-ef10b7a8efe5"
      }
     ],
-    "item_id": "53c548e7-f88e-4315-92c5-c210d3ca4ba3",
+    "item_id": "aa31eea2-f83f-4ee2-aa36-03ff27f44809",
     "pool_kg": null,
     "pool_qty": "2",
     "base_unit": "pc",
     "cost_kind": "feed",
     "carry_in_qty": "0",
-    "default_store": "b57fb337-4303-44fe-a2bc-dfed2b10ed39"
+    "default_store": "f7f7f652-730a-4830-ab9c-ef10b7a8efe5"
    }
   ],
   "sales": {

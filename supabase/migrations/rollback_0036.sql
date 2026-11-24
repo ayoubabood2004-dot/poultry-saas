@@ -1,6 +1,6 @@
 -- rollback_0036 — تراجع «الجولة: الهلاكات مرّة والغاز يُضاف» (0036_round_once؛ مشغّل التراجع بالحزمة FOUNDATION ٨٢٠، ٨٧٦): يرجّع private.flock_day_json
 --   وpublic.flocks_overview كما في 0012، وprivate.flock_day_rebuild كما في 0032، وprivate.flock_summary كما في 0029، وpublic.save_flock_visit
---   وpublic.save_flock_day وprivate.report_days وpublic.flock_cycle_report وpublic.halls_history وpublic.flock_month كما في 0035، حرفاً بحرف (md5 نفسه
+--   وpublic.save_flock_day وprivate.report_days وpublic.flock_cycle_report وpublic.halls_history وpublic.flock_month وprivate.hall_feed_kg كما في 0035، حرفاً بحرف (md5 نفسه
 --   بالكتالوج)، وقيد أسباب الركن
 --   flock_day_rejects_reason_check كما في 0012؛ ويُسقط set_flock_dead وadd_flock_gas وverify_round_once، ثمّ عمودي flock_visits.dead_entry
 --   وflock_daily.dead_entered (بعد الأجسام التي تقرؤهما).
@@ -1092,6 +1092,15 @@ begin
       'culled', (select coalesce(sum(y.culled), 0)::int from public.flock_daily y where y.org_id = f.org_id and y.flock_id = f.id and y.on_date between v_first and v_last),
       'gas', (select coalesce(sum(g.cylinders), 0)::int from public.flock_day_gas g where g.org_id = f.org_id and g.flock_id = f.id and g.on_date between v_first and v_last)));
 end
+$$;
+
+-- private.hall_feed_kg كما في 0035_hall_sheet.sql.
+create or replace function private.hall_feed_kg(p_flock uuid, p_on date) returns numeric
+language sql stable security definer set search_path = public, pg_temp as $$
+  select round(sum(private.issue_mass_kg(l.qty_base, l.base_unit, l.density_kg_per_l, l.piece_mass_kg)), 3)
+  from public.flock_issues x
+  join public.flock_issue_lines l on l.org_id = x.org_id and l.issue_id = x.id
+  where x.org_id = public.auth_org() and x.flock_id = p_flock and x.status = 'posted' and l.cost_kind = 'feed' and private.issue_day(x) = p_on
 $$;
 
 -- قيد أسباب الركن كما في 0012_flocks_daily.sql (لا زيارة مركونة بسبب dead_recorded بعد طريق الرفض).

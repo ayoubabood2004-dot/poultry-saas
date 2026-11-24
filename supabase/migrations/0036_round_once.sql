@@ -27,7 +27,7 @@
 --     ومعامل التحويل في الملخّص (جدول الحقل)، ومعامل التحويل في private.report_days (0035: التقرير اليوميّ وأسابيع تقرير الدورة ومؤشّراه FCR وEPEF)،
 --     والعلف لكلّ طير وغراماته لكلّ طير في اليوم في public.flock_cycle_report (0035، ومعه النازل في كلّ أسبوع والباقي الفعليّ عند الإغلاق للمغلقة)،
 --     وعلف كلّ يوم وشهر و«منذ البداية» في public.halls_history (0035: صافي المرسل لكلّ فوج يومه، ومعه سطوره بلا كتلة)، وعلف كلّ يوم في
---     public.flock_month (0035: المرسل يوم القاعة = خانة الورقة). والمفاتيح بأسمائها وأنواعها، وما اسمه «مأكول» (feed_eaten_*) أو «باقٍ»
+--     public.flock_month (0035: المرسل يوم القاعة = خانة الورقة)، وعلف اليوم في جواب «أرسل علفاً» (private.hall_feed_kg، 0035: ومعه المنقول إليها). والمفاتيح بأسمائها وأنواعها، وما اسمه «مأكول» (feed_eaten_*) أو «باقٍ»
 --     (feed_left_kg وleft_in_hall_*) أو «مستهلَك» (consumed_*) ومعه feed_days وfeed_span بقيمه القديمة للواجهة المنشورة، ولا تعرضه الشاشات بعد 0036.
 --   • public.verify_round_once (مفتاح الخادم): لا يوم فيه نافق أو مستبعد بلا العلامة، وعلامة كلّ يوم = اشتقاقها من زياراته الحيّة، ولا زيارة حيّة بنافق أو
 --     مستبعد بلا علامة، ولا غاز يوم فوق ألف قنينة.
@@ -43,7 +43,7 @@
 --   • معامل التحويل أثناء الدورة = صافي المرسل ÷ (الحيّ × آخر وزن + صافي المباع) بقاعدة 0028 (من بقي حيّاً بلا وزن لا معامل له)، فيساوي معامل الورقة
 --     (الصافي ÷ صافي المباع) حين لا يبقى حيّ (بيع الكلّ أو الإغلاق)، ومعه الشرط نفسه: سطر بلا كتلة في المرسل أو المنقول أو الراجع لا معامل معه.
 --   • ما يُقدَّر به «الباقي في القاعة» (hall_left وfeed_left_kg وremaining_kg وتقدير نافذة الإغلاق) كما هو: المرسل − المأكول، وhall_left يقرؤه الإغلاق.
--- تراجع: rollback_0036.sql — يرجّع save_flock_visit وsave_flock_day وreport_days وflock_cycle_report وhalls_history وflock_month كما في 0035،
+-- تراجع: rollback_0036.sql — يرجّع save_flock_visit وsave_flock_day وreport_days وflock_cycle_report وhalls_history وflock_month وhall_feed_kg كما في 0035،
 --   وflock_day_rebuild كما في 0032،
 --   وflock_summary كما في 0029، وflocks_overview وflock_day_json كما في 0012، حرفاً بحرف، وقيد أسباب الركن كما في 0012، ويُسقط set_flock_dead
 --   وadd_flock_gas وverify_round_once وعمودي flock_visits.dead_entry وflock_daily.dead_entered. **طريق رفض**: يوم معلَّم بلا هلاكات (زيارة معلَّمة
@@ -1412,6 +1412,20 @@ begin
       'culled', (select coalesce(sum(y.culled), 0)::int from public.flock_daily y where y.org_id = f.org_id and y.flock_id = f.id and y.on_date between v_first and v_last),
       'gas', (select coalesce(sum(g.cylinders), 0)::int from public.flock_day_gas g where g.org_id = f.org_id and g.flock_id = f.id and g.on_date between v_first and v_last)));
 end
+$$;
+
+-- علف يوم في القاعة (الجسم الأخير من 0035) كخانة يوم الورقة: ومعه المنقول إليها يوم تطبيقه (يوم التسكين)، فجواب «أرسل علفاً» (feed_send_result) يقول
+-- علف اليوم بعد الإرسال كما تقوله الورقة و«أُرسل اليوم» في الجولة، لا المرسل وحده (كانت الجولة تعرض بعد الإرسال يوم التسكين مجموعاً بلا المنقول).
+create or replace function private.hall_feed_kg(p_flock uuid, p_on date) returns numeric
+language sql stable security definer set search_path = public, pg_temp as $$
+  select round(case when s.kg is not null or c.kg is not null then coalesce(s.kg, 0) + coalesce(c.kg, 0) end, 3)
+  from (select sum(private.issue_mass_kg(l.qty_base, l.base_unit, l.density_kg_per_l, l.piece_mass_kg)) as kg
+      from public.flock_issues x
+      join public.flock_issue_lines l on l.org_id = x.org_id and l.issue_id = x.id
+      where x.org_id = public.auth_org() and x.flock_id = p_flock and x.status = 'posted' and l.cost_kind = 'feed' and private.issue_day(x) = p_on) as s
+  cross join (select sum(private.issue_mass_kg(l.qty_base, l.base_unit, l.density_kg_per_l, l.piece_mass_kg)) as kg
+      from public.flock_close_lines l
+      where l.org_id = public.auth_org() and l.to_flock_id = p_flock and l.carry_status = 'applied' and l.cost_kind = 'feed' and l.applied_on = p_on) as c
 $$;
 
 -- ─── ز. الثابت (مفتاح الخادم) ───────────────────────────────────────────────────────────────────────────────────────

@@ -4,7 +4,8 @@
 // بلا كتلة (feed_unweighed)، والأشهر و«منذ البداية» مجموع الأيّام، وقيم باليد؛ (٢) public.flock_month: علف كلّ يوم = خانة يوم الورقة نفسها حرفاً (ومنها
 // الصرف ليوم سابق والمنقول يوم التسكين)؛ (٣) public.flock_cycle_report: النازل في كلّ أسبوع (feed_given_kg وسطوره بلا كتلة) = مجموع أيّامه، والباقي
 // الفعليّ عند الإغلاق للمغلقة (feed_close_left_kg: الراجع والمنقول والمحسوب مستهلَكاً) وفارغ للقائمة؛ (٤) الأجسام القبلية حرفاً من 0035 تفشل كلّها؛
-// (٥) طفرات داخل معاملة صاحب الجداول ترجع: كلّ قاعدة مكسورة يمسكها فحصها. وعيّنات القاعدة الحقيقية للشاشات: ROUND_FEED_SAMPLES_OUT=1 يكتب
+// (٥) طفرات داخل معاملة صاحب الجداول ترجع: كلّ قاعدة مكسورة يمسكها فحصها؛ و(٦) علف اليوم في جواب «أرسل علفاً» (private.hall_feed_kg) = خانة الورقة ومعها
+// المنقول إليها (كان المرسل وحده، فتعرض الجولة بعد الإرسال يوم التسكين مجموعاً بلا المنقول). وعيّنات القاعدة الحقيقية للشاشات: ROUND_FEED_SAMPLES_OUT=1 يكتب
 // scripts/tests/fixtures/round-feed-0036.json (الجولة بسطر منقول اليوم، والسجلّ، والتقويم، وتقرير الدورة القائمة والمغلقة وبسطر بلا كتلة، وعلف القاعة،
 // ونموذج الإغلاق).
 // منشأة هذا الملفّ: المعرّفات d3639000-… والهواتف 96477036390xx (مفحوصة بـgrep على كلّ ملفّات الفحص).
@@ -133,7 +134,7 @@ async function scenario(t, db) {
   });
   // اليوم: الوجبة التالية في «قاعة الإغلاق» يدخلها المنقول، ويُرسل لها 40 ناهياً؛ و50 ناهياً لـP ليوم قبل ثلاثة أيّام (يومه في القاعة لا تاريخ خروجه).
   F.n = await place(H.c, TODAY, 300);
-  await one(U.owner, SEND, [uid(), uid(), uid(), F.n, I.finisher, '40', TODAY]);
+  const sentN = await one(U.owner, SEND, [uid(), uid(), uid(), F.n, I.finisher, '40', TODAY]);
   await one(U.owner, SEND, [uid(), uid(), uid(), F.p, I.finisher, '50', day(-3)]);
   await issue(F.p, I.medicine, 5, TODAY, W.medicine);
 
@@ -264,6 +265,12 @@ async function scenario(t, db) {
         correct: (v) => v === '300.000',
       },
       {
+        name: 'hall_feed_kg كما في 0035',
+        body: bodyOf('0035_hall_sheet.sql', 'private.hall_feed_kg'),
+        run: async ({ attempt }) => (await inside(attempt, U.owner, SEND, [uid(), uid(), uid(), F.n, I.finisher, '5', TODAY]))?.day?.feed_kg,
+        correct: (v) => v === '75.000',
+      },
+      {
         name: 'flock_cycle_report كما في 0035',
         body: bodyOf('0035_hall_sheet.sql', 'public.flock_cycle_report'),
         run: async ({ attempt }) => {
@@ -360,6 +367,17 @@ async function scenario(t, db) {
     }
     t.same(outcomes.filter((o) => !o.real).map((o) => `${o.name}: ${o.shown}`), [], `الطفرات (${CASES.length}): الشفرة الحقيقية بالصحيح في كلّ حالة`);
     t.same(outcomes.filter((o) => !o.caught).map((o) => `${o.name}: ${o.broken}`), [], `الطفرات: ${outcomes.filter((o) => o.caught).length} من ${CASES.length} مُسكت`);
+  });
+
+  // ── ٦) جواب «أرسل علفاً» يوم التسكين: علف اليوم كخانة الورقة ومعه المنقول ────────────────────────────────────────────────────
+  await section('جواب الإرسال', async () => {
+    const nDay = sheets.n.days.find((d) => d.on === TODAY);
+    same([sentN.day.on, sentN.day.feed_kg, nDay.feed_kg, nDay.carry_in_kg], [TODAY, '70.000', '70.000', '30.000'],
+      'إرسال 40 لـN يوم تسكينها: علف اليوم في الجواب 70 (المنقول 30 والمرسل) = خانة الورقة، لا 40');
+    // داخل معاملة ترجع (فلا تتغيّر عيّنات الشاشات بعدها).
+    const p = await mutant(db, U.owner, [], ({ attempt }) => inside(attempt, U.owner, SEND, [uid(), uid(), uid(), F.p, I.finisher, '10', day(-1)]));
+    same([p.day.on, p.day.feed_kg], [day(-1), '210.000'], 'وبلا منقول: علف يوم الإرسال المرسل وحده (200 + 10)');
+    samples.send_flock_feed_carry = sentN;
   });
 
   // ── عيّنات الشاشات ─────────────────────────────────────────────────────────────────────────────────────────────────

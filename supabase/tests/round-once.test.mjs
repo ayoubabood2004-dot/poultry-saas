@@ -897,7 +897,7 @@ async function scenario(t, db) {
       ['0035_hall_sheet.sql', 'public.flock_cycle_report'], ['0032_round_visits.sql', 'private.flock_day_rebuild'], ['0029_bird_sales_close.sql', 'private.flock_summary'],
       ['0012_flocks_daily.sql', 'public.flocks_overview'], ['0012_flocks_daily.sql', 'private.flock_day_json'],
       // جواب المالك «عوف سالفة العلف الماكول»: السجلّ والتقويم بالعلف المرسل (round-once-feed.test).
-      ['0035_hall_sheet.sql', 'public.halls_history'], ['0035_hall_sheet.sql', 'public.flock_month']];
+      ['0035_hall_sheet.sql', 'public.halls_history'], ['0035_hall_sheet.sql', 'public.flock_month'], ['0035_hall_sheet.sql', 'private.hall_feed_kg']];
     const missing = BODIES.filter(([file, head]) => !rollback.includes(bodyOf(file, head))).map(([, head]) => head);
     same(missing, [], `ملفّ التراجع يرجّع الأجسام (${BODIES.length}) كما في آخر هجرة عرّفتها حرفاً`);
     const later = BODIES.map(([, head]) => head)
