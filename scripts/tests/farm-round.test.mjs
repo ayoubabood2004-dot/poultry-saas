@@ -26,6 +26,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const REAL_FLOCKS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'flocks.ts'));
 const REAL_SHEET = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'hallSheet.ts'));
 const HAND = readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'round-once.hand.json'), 'utf8');
+// عيّنات القاعدة الحقيقية (round-once.test بـROUND_ONCE_SAMPLES_OUT=1، يومها المثبَّت 2026-11-24): تكامل 0036، جواب القاعدة بمحلّلات الشاشة الحقيقية.
+const REAL36 = readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'round-once-0036.json'), 'utf8');
 const OVERRIDES = ['loadOverviewJson', 'loadFlockDetail', 'createHall', 'updateHall', 'archiveHall', 'openFlock', 'recordFlockWeight'];
 const STUBS = {
   // loadOverview مثل الحقيقي بالضبط (parseOverview(await loadOverviewJson())) بس عبر البديل، حتى الرئيسية القديمة تقرا من نفس الخادم المزيّف.
@@ -837,6 +839,66 @@ export default async function (t) {
         ['dead_entered', 'gas_today', 'gas_today_version', 'feed_today_kg', 'qty', 'unit', 'feed_today', 'on_hand', 'base_qty', 'feed_items', 'parsed'],
         'P الصرامة: كلّ مفتاح جديد بنوعه حين يوجد (الرقم العشري نصّ بلا فواصل، والغاز ونسخته معاً)، والعيّنة كما هي تُقرأ',
       );
+    });
+
+    // ── Q36: عيّنات القاعدة الحقيقية (fixtures/round-once-0036.json) بالمحلّلات الحقيقية وفي الجولة (تكامل 0036) ─────────────────────────────
+    await step('Q36', async () => {
+      const real = JSON.parse(REAL36);
+      // أجوبة الكاتبين كما أرجعتها القاعدة.
+      const kinds = (result) => [result.kind, result.reason ?? null, result.version ?? null];
+      t.same(
+        [
+          kinds(m.repo.deadAnswer(clone(real.set_flock_dead_saved))),
+          kinds(m.repo.deadAnswer(clone(real.set_flock_dead_recorded))),
+          kinds(m.repo.deadAnswer(clone(real.set_flock_dead_parked))),
+          kinds(m.repo.gasAddAnswer(clone(real.add_flock_gas_saved))),
+          kinds(m.repo.gasAddAnswer(clone(real.add_flock_gas_parked))),
+        ],
+        [['saved', null, 1], ['dead_recorded', null, null], ['parked', 'flock_closed', null], ['saved', null, 1], ['parked', 'flock_closed', null]],
+        'Q36 أجوبة set_flock_dead وadd_flock_gas الحقيقية تُقرأ: حُفظ بنسخته، وسُجّلت قبل، ورُكن بسببه',
+      );
+      // القارئ كما أرجعته القاعدة.
+      const parsed = m.repo.parseOverview(clone(real.flocks_overview));
+      const broiler = parsed.sites.find((site) => site.kind === 'broiler');
+      const [h1, h2, h3] = broiler.halls;
+      t.same(
+        [
+          h1.flock.today.deadEntered, h1.flock.gasToday, h1.flock.gasTodayVersion, h1.flock.feedTodayKg, h1.flock.feedToday.map((line) => [line.itemName, line.qty]), h1.flock.lastFeedItemId,
+          h2.flock.today, h2.flock.gasToday, h2.flock.feedToday, h3.flock,
+          parsed.feedItems.map((item) => [item.name, item.onHand, item.units.map((unit) => unit.name)]),
+        ],
+        [
+          true, 3, 2, 180000n, [['علف بادئ', 120000n], ['علف ناهي', 50000n], ['ذرة صفراء', 10000n]], 'b9e2820b-9a3d-4bb8-9e59-b8f0a936d41a',
+          null, null, [], null,
+          [['علف بادئ', 1880000n, ['كيس 50 كغم']], ['علف ناهي', 1500000n, ['كيس 25 كغم', 'كيس 50 كغم']]],
+        ],
+        'Q36 flocks_overview الحقيقيّ: هلاكات «قاعة 1» مسجّلة وغازها 3 بنسختها وعلفها 180 كغم بثلاث موادّ وآخر علفها؛ و«قاعة 2» بلا شيء؛ والمغلقة بلا فوج؛ وfeed_items بـ«عندك»',
+      );
+      // الجولة نفسها بالعيّنة (اليوم المثبَّت يُزاح إلى يوم الفحص).
+      const shifted = () => JSON.parse(REAL36.replaceAll('2026-11-24', TODAY).replaceAll('2026-11-23', m.addDays(TODAY, -1))).flocks_overview;
+      fresh(owner('u-q36'), { loadOverviewJson: shifted });
+      await mount('/broiler/round');
+      await settle(60);
+      const F1 = 'a879ac60-81f0-45bd-9543-c6a3928197fa';
+      const F2 = 'ea737821-87eb-47dd-8b06-8118a53db54e';
+      t.same(
+        [textIn(F1, 'round-dead-value'), Boolean(inCard(F1, '-dead')), Boolean(inCard(F2, '-dead')), textIn(F1, 'round-gas-today'), textIn(F2, 'round-gas-today')],
+        ['2', false, true, 'اليوم: 3 قناني', 'اليوم: لم يُسجَّل غاز'],
+        'Q36 «قاعة 1» هلاكاتها مقفولة (2) وغازها اليوم 3؛ و«قاعة 2» بخانة هلاكات وبلا غاز',
+      );
+      t.eq(textIn(F1, 'round-feed-today'), 'أُرسل اليوم: 180 كغم«علف بادئ»: 120 كغم«علف ناهي»: 50 كغم«ذرة صفراء»: 10 كغم', 'Q36 «أُرسل اليوم» بموادّه الثلاث كما عدّتها القاعدة');
+      const checked = (flockId) => actionIn(flockId, 'round-feed-item').find((n) => n.getAttribute('aria-checked') === 'true')?.getAttribute('data-item') ?? null;
+      t.same(
+        [actionIn(F1, 'round-feed-item').map((n) => n.textContent), checked(F1), checked(F2)],
+        [['علف بادئعندك 1,880 كغم', 'علف ناهيعندك 1,500 كغم'], 'b9e2820b-9a3d-4bb8-9e59-b8f0a936d41a', '30aa7674-14b9-4c9f-9d33-2908ffc73812'],
+        'Q36 بطاقات العلف بـ«عندك» من القاعدة، وآخر علف القاعة مختار (وبلا آخر: الأوّل)',
+      );
+      await unmount();
+      fresh(owner('u-q36'), { loadOverviewJson: shifted });
+      await mount('/layers/round');
+      await settle(60);
+      const LF = 'c672387c-e2e1-43ed-8aa6-f008dbbcde48';
+      t.same([Boolean(inCard(LF, '-dead')), Boolean(inCard(LF, '-eggsTotal'))], [true, true], 'Q36 البيّاض الحقيقيّ: بيض اليوم لا يقفل الهلاكات (dead_entered false)، وخانة البيض قائمة');
     });
 
     // ── R2: بلا نت تُحفظ بالجهاز («تنتظر الإرسال») بلا إرسال، ولمّا يرجع الاتصال ترتفع لحالها ─────────────────────────────────────
