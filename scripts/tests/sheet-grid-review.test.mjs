@@ -223,6 +223,15 @@ export default async function (t) {
       const kinds = ['ArrowLeft', 'ArrowRight', 'ArrowUp', 'Home', 'End', 'PageDown', 'Enter', 'Tab', 'F2', 'Delete', 'z', '7'].map((key) => L.gridKey(s(20, 2), { key, altKey: true }, shape).kind);
       const inEditor = ['ArrowLeft', 'Enter', 'Escape', 'Tab'].map((key) => L.editKey(s(20, 2), { key, altKey: true }, 'enter', shape).kind);
       t.same([kinds, inEditor], [Array(12).fill('pass'), Array(4).fill('pass')], 'R12 Alt مع أيّ مفتاح للمتصفّح (Alt+← وAlt+→ رجوعٌ وتقدّم): لا يحرّك التحديد ولا يحفظ المحرّر');
+      const range = { ...s(18, 2), end: { row: 20, col: 3 } };
+      const down = L.fillDown ? L.fillDown(range).map(({ pos, from }) => [pos.row, pos.col, from.row, from.col]) : null;
+      const one = L.fillDown ? L.fillDown(s(19, 3)).map(({ pos, from }) => [pos.row, pos.col, from.row, from.col]) : null;
+      const top = L.fillDown ? L.fillDown(s(0, 3)) : null;
+      t.same(
+        [L.gridKey(range, { key: 'd', code: 'KeyD', ctrlKey: true }, shape).kind, L.gridKey(range, { key: 'ي', code: 'KeyD', ctrlKey: true }, shape).kind, down, one, top, L.editKey(range, { key: 'Enter', ctrlKey: true }, 'enter', shape).kind],
+        ['fill', 'fill', [[19, 2, 18, 2], [19, 3, 18, 3], [20, 2, 18, 2], [20, 3, 18, 3]], [[19, 3, 18, 3]], [], 'fill'],
+        'R9 Ctrl+D (وبلوحة عربية) ملء، ومن صفّ النطاق الأوّل في كلّ عمود، والخانة وحدها من التي فوقها، ولا شيء فوق أوّل يوم؛ وCtrl+Enter في المحرّر والمحدّد نطاق ملء',
+      );
     }
 
     // ── الأنماط (sheetGrid.css) ──────────────────────────────────────────────────────────────────────────────────────
@@ -365,6 +374,7 @@ export default async function (t) {
       await settle(10);
     };
     const ops = (sent) => sent.map((op) => [op.fn, op.day, op.payload, op.baseVersion]);
+    const sorted = (list) => [...list].sort((a, b) => `${a[0]}:${a[1]}`.localeCompare(`${b[0]}:${b[1]}`));
     const stampOf = (userId) => ({ userId, orgId: 'org-sgr', displayName: 'علي' });
     /** الورقة بيوم زائد في أوّلها (التسكين أُزيح يوماً إلى الوراء من جهاز آخر): كلّ يوم في الصفّ الذي بعد صفّه. */
     const earlier = () => {
@@ -633,6 +643,59 @@ export default async function (t) {
         ['7', ['save_flock_day', TODAY, { note: 'تهوية' }, 2]],
         'R8 رفع النافذة الأخرى يصل هذه النافذة: الخانة بلا «بانتظار الرفع»، والتعديل التالي لليوم نفسه بنسخة صفّه 2 (لا 1 فيُردّ stale_day)',
       );
+    });
+
+    // ── R9: Ctrl+D وCtrl+Enter ──────────────────────────────────────────────────────────────────────────────────────
+    await step('R9 Ctrl+D', async () => {
+      const { sent } = await open();
+      await pencil();
+      await moveTo(19, 2);
+      await press('ArrowDown', { shift: true });
+      await press('ArrowLeft', { shift: true });
+      const event = fire(focused(), 'keydown', { key: 'd', code: 'KeyD', ctrlKey: true, shiftKey: false, metaKey: false, altKey: false });
+      await settle(60);
+      const rows = bodyRows(tableBy('املأ الخانات المحدّدة')).map(cells);
+      t.same([event.defaultPrevented, dialogs().length, sent.length], [true, 1, 0], 'R9 Ctrl+D على نطاق: لا يصل المتصفّح (إشارته المرجعية)، وتأكيد ملء ولا شيء يُكتب قبله');
+      t.same(rows, [['03/12/2026', 'الهلاكات', '4', '1', 'يُكتب'], ['03/12/2026', 'الغاز', 'فارغة', '1', 'يُكتب']], 'R9 Ctrl+D يملأ النطاق من صفّه الأوّل (02/12: هلاكات 1، غاز 1)، كلّ يوم وقيمته في التأكيد');
+      await click(byAction('grid-batch-go')[0], 200);
+      t.same(sorted(ops(sent)), [['save_flock_day', TODAY, { dead: 1, culled: null }, 1], ['set_flock_gas', TODAY, { cylinders: 1 }, null]], 'R9 بعد «املأ» وحده: عملية لكلّ خانة بنسخة صفّها');
+    });
+
+    await step('R9 Ctrl+Enter', async () => {
+      const { sent } = await open();
+      await pencil();
+      await moveTo(18, 3);
+      await press('ArrowDown', { shift: true });
+      await press('ArrowDown', { shift: true });
+      await press('2');
+      const typing = input()?.value;
+      await press('Enter', { ctrl: true }, 60);
+      const rows = bodyRows(tableBy('املأ الخانات المحدّدة')).map(cells);
+      t.same(
+        [typing, sent.length, rows],
+        ['2', 0, [['01/12/2026', 'الغاز', 'فارغة', '2', 'يُكتب'], ['02/12/2026', 'الغاز', '1', '2', 'يُكتب'], ['03/12/2026', 'الغاز', 'فارغة', '2', 'يُكتب']]],
+        'R9 Ctrl+Enter وهو يكتب والمحدّد نطاق: ما كُتب يملأ النطاق كلّه بتأكيد اللصق نفسه، ولا شيء يُكتب قبله',
+      );
+      await click(byAction('grid-batch-go')[0], 200);
+      t.same(sorted(ops(sent)), [18, 19, 20].map((row) => ['set_flock_gas', dayOf(row), { cylinders: 2 }, BROILER.days[row].gas_version]), 'R9 بعد «املأ»: الغاز 2 في الأيام الثلاثة بنسخة صفّ كلّ يوم');
+    });
+
+    // ── R10: أطراف النطاق ───────────────────────────────────────────────────────────────────────────────────────────
+    await step('R10', async () => {
+      await open();
+      await pencil();
+      await moveTo(18, 2);
+      await press('ArrowDown', { shift: true });
+      await press('ArrowDown', { shift: true });
+      await press('ArrowLeft', { shift: true });
+      const edges = ['17:2', '18:2', '18:3', '19:2', '19:3', '20:2', '20:3', '18:4', '21:2'].map((name) => [name, td(...name.split(':').map(Number))?.getAttribute('data-edge') ?? null]);
+      t.same(
+        edges,
+        [['17:2', null], ['18:2', 'top first'], ['18:3', 'top last'], ['19:2', 'first'], ['19:3', 'last'], ['20:2', 'bottom first'], ['20:3', 'bottom last'], ['18:4', null], ['21:2', null]],
+        'R10 خانات أطراف النطاق معلَّمة بأطرافها (أعلى، أسفل، أوّل الأعمدة، آخرها) فيُرسم خطّه، وما خارجه بلا علامة',
+      );
+      await press('Escape');
+      t.eq(all().filter((n) => n.getAttribute?.('data-edge')).length, 0, 'R10 الخانة وحدها بلا أطراف نطاق (إطارها إطار الخانة النشطة)');
     });
 
     // ── R11: التصحيح إلى القيمة المحفوظة والرفع قبله في الطريق ────────────────────────────────────────────────────────

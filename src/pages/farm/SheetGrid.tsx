@@ -11,14 +11,14 @@ import { fmtDay, fmtInt, fmtMilli } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { useDirtyForm } from '../../lib/pwa/dirty';
 import type { SheetDay } from '../../lib/repo/hallSheet';
-import { at, cellsOf, digitKey, editKey, enterMove, gridKey, isRange, parseCount, parseTsv, pasteTargets, rangeOf, samePos, selectionTsv, within, type EditMode, type Pos, type Selection, type Shape } from './gridLogic';
+import { at, cellsOf, digitKey, editKey, enterMove, fillDown, gridKey, isRange, parseCount, parseTsv, pasteTargets, rangeOf, samePos, selectionTsv, within, type EditMode, type Pos, type Range, type Selection, type Shape } from './gridLogic';
 
 // ورقة القاعة مقفولة وفوقها قلم، وبعده جدول كإكسل (عقد 0036 الجزء S2؛ كلمة المالك 2026-11-24: «يكون مقفول… بس اكو شعار قلم مال تعديل فوك الجدول… بعد ما
 // اضغط زر التعديل… اريد الجدول يكون التحكم بي مثل جداول الاكسل يعني لمن ادوس ازرار الاسهم اكدر اتحرك بين الجداول وبين الخلايا… حتى الي يستخدم انظمة اكسل
 // ما يحس بالفرق… حاول توفر كل وسائل الراحة وسهولة الاستخدام الي تعرفها حتى لو ما اذكرها الك»). الجدول نفسه (DataTable بأعمدة الورقة) في الوضعين، وهذا
 // المكوّن يلفّه: مقفولاً لا خانة تُلمس ولا زرّ فيها، وفي وضع التعديل شبكة (role="grid") بخانة نشطة ونطاق، والأسهم بموضعها على الشاشة، وEnter وTab والكتابة
 // فوق القيمة وF2 والنقرتان وEsc وDelete وHome/End وCtrl+Home/End وPageUp/PageDown وCtrl مع سهم، والنسخ واللصق بنصّ إكسل بعد تأكيد يسمّي كلّ يوم وقيمته،
-// والتراجع والإعادة، ومجموع النطاق كشريط حال إكسل. واللمس (أو شاشة اللمس): لمسة الخانة تفتح ورقتها السفلية القائمة،
+// والملء (Ctrl+D وCtrl+Enter) بالتأكيد نفسه، والتراجع والإعادة، ومجموع النطاق كشريط حال إكسل. واللمس (أو شاشة اللمس): لمسة الخانة تفتح ورقتها السفلية القائمة،
 // وما تحفظه يدخل التراجع كالمكتوب. وخانة العلف تفتح نافذة العلف ولا يُصرف شيء بضغطة (جواب المالك). والكتابة كلّها من الورقة نفسها (commit: save_flock_day
 // بنسخة صفّ اليوم وset_flock_gas بالطابور والرافع الواحد)، والقيمة تظهر فور الحفظ («بانتظار الرفع» حتى يُعرف مصيرها)، وما رُدّ يُقال في خانته. والتحديد
 // والمحرّر بيوم الخانة وعمودها لا برقم صفّها (المراجعة العدائية R3)، والمحرّر المفتوح تعديلٌ لم يُحفظ (R2) لا يفقد تركيزه بنقرة (R1، R6).
@@ -156,7 +156,7 @@ interface BatchEntry {
 }
 
 interface Batch {
-  kind: 'paste' | 'clear';
+  kind: 'paste' | 'clear' | 'fill';
   entries: BatchEntry[];
   outside: number;
 }
@@ -186,6 +186,12 @@ const selIn = (days: readonly SheetDay[], fields: readonly GridField[], sel: Sel
   end: posIn(days, fields, sel.end),
   tabStart: sel.tabStart,
 });
+
+/** أطراف النطاق التي تقع عليها الخانة (أعلاه وأسفله وأوّل أعمدته وآخرها): خطّها بلون العلامة (sheetGrid.css، المراجعة R10). */
+function edgesOf(range: Range, pos: Pos): string | undefined {
+  const sides = [pos.row === range.top ? 'top' : '', pos.row === range.bottom ? 'bottom' : '', pos.col === range.first ? 'first' : '', pos.col === range.last ? 'last' : ''].filter((side) => side !== '');
+  return sides.length > 0 ? sides.join(' ') : undefined;
+}
 
 /** خانة الجدول بموضعها (data-cell)، في المتصفّح وفي DOM الفحوص. */
 function findCell(root: HTMLElement | null, pos: Pos): HTMLElement | null {
@@ -285,6 +291,8 @@ function KeyGuide() {
     { keys: ['Delete'], text: t('sheet.grid.k.delete', 'للمسح') },
     { keys: ['Esc'], text: t('sheet.grid.k.esc', 'للإلغاء') },
     { keys: ['Ctrl+C', 'Ctrl+V'], text: t('sheet.grid.k.copy', 'للنسخ واللصق من إكسل وإليه') },
+    { keys: ['Ctrl+D'], text: t('sheet.grid.k.fill_down', 'لملء المحدّد من صفّه الأوّل') },
+    { keys: ['Ctrl+Enter'], text: t('sheet.grid.k.fill_typed', 'لملء المحدّد بما كُتب') },
     { keys: ['Ctrl+Z', 'Ctrl+Y'], text: t('sheet.grid.k.undo', 'للتراجع والإعادة') },
     { keys: ['Shift'], text: t('sheet.grid.k.shift', 'مع الأسهم لتحديد عدّة خانات') },
   ];
@@ -602,9 +610,9 @@ export function SheetGrid(props: SheetGridProps) {
     return true;
   };
 
-  // ─── المسح والنسخ واللصق والتراجع ────────────────────────────────────────────────────────────────────────────────
+  // ─── المسح والنسخ واللصق والملء والتراجع ────────────────────────────────────────────────────────────────────────
 
-  /** دفعة (لصق أو مسح نطاق) قبل تأكيدها: كلّ خانة بما سيصير أو لماذا لا يُكتب. */
+  /** دفعة (لصق أو ملء أو مسح نطاق) قبل تأكيدها: كلّ خانة بما سيصير أو لماذا لا يُكتب. */
   const plan = (kind: Batch['kind'], targets: readonly { pos: Pos; raw: string | null }[], outside: number) => {
     const entries: BatchEntry[] = [];
     for (const { pos, raw } of targets) {
@@ -703,6 +711,24 @@ export function SheetGrid(props: SheetGridProps) {
       return;
     }
     void submit([change], { kind: 'fresh' }, 'quiet');
+  };
+
+  /** Ctrl+D كإكسل (المراجعة R9): المحدّد يُملأ من صفّه الأوّل (أو من الصفّ فوقه) بتأكيد اللصق نفسه، ولا شيء يُكتب قبله. */
+  const fillSelection = () => {
+    const pairs = fillDown(selNow());
+    if (pairs.length === 0) {
+      say(t('sheet.grid.fill_none', 'لا صفّ فوق المحدّد يُملأ منه.'));
+      return;
+    }
+    plan('fill', pairs.map(({ pos, from }) => ({ pos, raw: copyAtPos(from) })), 0);
+  };
+
+  /** Ctrl+Enter والمحدّد نطاق: ما كُتب في الخانة يملأ النطاق كلّه بتأكيد اللصق، ولا شيء يُكتب قبله (كإكسل، المراجعة R9). */
+  const fillTyped = () => {
+    const edit = editingRef.current;
+    if (!edit) return;
+    writeEdit(null);
+    plan('fill', cellsOf(rangeOf(selNow())).map((pos) => ({ pos, raw: edit.text })), 0);
   };
 
   const copyText = (): string => selectionTsv(selNow(), copyAtPos);
@@ -865,6 +891,9 @@ export function SheetGrid(props: SheetGridProps) {
       if (intent.kind === 'commit') {
         event.preventDefault();
         commitEditor(intent.then, intent.reveal);
+      } else if (intent.kind === 'fill') {
+        event.preventDefault();
+        fillTyped();
       } else if (intent.kind === 'cancel') {
         event.preventDefault();
         writeEdit(null);
@@ -937,6 +966,11 @@ export function SheetGrid(props: SheetGridProps) {
       case 'redo':
         event.preventDefault();
         replay(intent.kind);
+        return;
+      case 'fill':
+        // Ctrl+D لا يصل المتصفّح (إشارته المرجعية) في وضع التعديل.
+        event.preventDefault();
+        fillSelection();
         return;
       case 'escape':
         event.preventDefault();
@@ -1064,6 +1098,7 @@ export function SheetGrid(props: SheetGridProps) {
 
   const view = selIn(days, fields, sel);
   const range = rangeOf(view);
+  const multi = isRange(view);
   const copiedRange = copied ? rangeOf({ cursor: posIn(days, fields, copied.anchor), anchor: posIn(days, fields, copied.anchor), end: posIn(days, fields, copied.end), tabStart: null }) : null;
   /** المحرّر ما دام يومه في الورقة؛ ومحرّر يومٍ اختفى بقراءة جديدة لا يُرسم، وشريط الحال يقول لماذا (يُلغى مع أوّل مفتاح أو نقرة: editNow). */
   const editingLive = editing && days.some((day) => day.on === editing.at.on) ? editing : null;
@@ -1251,14 +1286,16 @@ export function SheetGrid(props: SheetGridProps) {
           const pos = { row, col };
           const info = props.cell(day, field);
           const isCursor = samePos(view.cursor, pos);
+          const inRange = within(range, pos);
           return {
             role: field === 'date' ? 'rowheader' : 'gridcell',
-            'aria-selected': within(range, pos),
+            'aria-selected': inRange,
             'aria-readonly': info.access === 'read' ? true : undefined,
             'aria-label': spokenOf(day, field, info),
             tabIndex: isCursor ? 0 : -1,
             'data-cell': `${row}:${col}`,
             'data-cursor': isCursor ? 'true' : undefined,
+            'data-edge': multi && inRange ? edgesOf(range, pos) : undefined,
             'data-rowsel': (field === 'age' || field === 'date') && row >= range.top && row <= range.bottom ? 'true' : undefined,
             'data-copied': copiedRange && within(copiedRange, pos) ? 'true' : undefined,
             'data-locked': info.access === 'read' && STOP_FIELDS.includes(field) ? 'true' : undefined,
@@ -1381,13 +1418,19 @@ export function SheetGrid(props: SheetGridProps) {
   );
 }
 
-/** تأكيد اللصق أو مسح النطاق: جدول بكلّ يوم وخانته وما فيها الآن وما سيصير أو لماذا لا يُكتب، ولا شيء يُكتب قبل الزرّ. */
+/** تأكيد اللصق أو الملء أو مسح النطاق: جدول بكلّ يوم وخانته وما فيها الآن وما سيصير أو لماذا لا يُكتب، ولا شيء يُكتب قبل الزرّ. */
 function BatchDialog({ batch, label, onCancel, onConfirm }: { batch: Batch; label: (field: GridField) => string; onCancel: () => void; onConfirm: () => void }) {
   const ok = batch.entries.filter((entry) => entry.status === 'ok').length;
   const same = batch.entries.filter((entry) => entry.status === 'same').length;
   const skipped = batch.entries.filter((entry) => entry.status === 'skip').length;
-  const title = batch.kind === 'paste' ? t('sheet.grid.paste.title', 'الصق في الجدول') : t('sheet.grid.clear.title', 'امسح الخانات المحدّدة');
-  const go = batch.kind === 'paste' ? t('sheet.grid.paste.go', 'الصق: {n}', { n: fmtInt(ok) }) : t('sheet.grid.clear.go', 'امسح: {n}', { n: fmtInt(ok) });
+  const title =
+    batch.kind === 'paste' ? t('sheet.grid.paste.title', 'الصق في الجدول') : batch.kind === 'fill' ? t('sheet.grid.fill.title', 'املأ الخانات المحدّدة') : t('sheet.grid.clear.title', 'امسح الخانات المحدّدة');
+  const go =
+    batch.kind === 'paste'
+      ? t('sheet.grid.paste.go', 'الصق: {n}', { n: fmtInt(ok) })
+      : batch.kind === 'fill'
+        ? t('sheet.grid.fill.go', 'املأ: {n}', { n: fmtInt(ok) })
+        : t('sheet.grid.clear.go', 'امسح: {n}', { n: fmtInt(ok) });
   const columns: Column<BatchEntry>[] = [
     { key: 'day', header: t('sheet.grid.col.day', 'اليوم'), cell: (entry) => <Num>{fmtDay(entry.day.on)}</Num> },
     { key: 'field', header: t('sheet.grid.col.field', 'الخانة'), cell: (entry) => label(entry.field) },

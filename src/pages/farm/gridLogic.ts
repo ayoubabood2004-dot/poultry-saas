@@ -173,6 +173,8 @@ export type GridIntent =
   | { kind: 'backspace' }
   | { kind: 'undo' }
   | { kind: 'redo' }
+  /** Ctrl+D كإكسل: املأ النطاق من صفّه الأوّل (أو الخانة من التي فوقها)، بتأكيد اللصق نفسه. */
+  | { kind: 'fill' }
   | { kind: 'escape' }
   /** ليس للجدول (النسخ واللصق أحداثهما من المتصفّح، وغيرها يمرّ). */
   | { kind: 'pass' };
@@ -244,6 +246,7 @@ export function gridKey(sel: Selection, key: KeyLike, shape: Shape): GridIntent 
   if (mod(key)) {
     if (letter(key, 'z')) return key.shiftKey ? { kind: 'redo' } : { kind: 'undo' };
     if (letter(key, 'y')) return { kind: 'redo' };
+    if (letter(key, 'd')) return { kind: 'fill' };
     if (letter(key, 'a')) {
       const selection = { cursor: sel.cursor, anchor: { row: 0, col: 0 }, end: { row: shape.rows - 1, col: shape.cols - 1 }, tabStart: null };
       return { kind: 'move', selection, reveal: sel.cursor };
@@ -267,6 +270,8 @@ export type EditMode = 'enter' | 'edit';
 export type EditIntent =
   /** احفظ ثمّ انتقل إلى then (أو ابقَ: then = null). */
   | { kind: 'commit'; then: Selection | null; reveal: Pos | null }
+  /** Ctrl+Enter والمحدّد نطاق: ما كُتب يملأ النطاق كلّه (كإكسل)، بتأكيد اللصق نفسه. */
+  | { kind: 'fill' }
   | { kind: 'cancel' }
   /** F2 يبدّل بين الوضعين. */
   | { kind: 'toggle' }
@@ -278,7 +283,8 @@ export function editKey(sel: Selection, key: KeyLike, mode: EditMode, shape: Sha
   const commit = (then: Selection | null): EditIntent => ({ kind: 'commit', then, reveal: then ? then.cursor : null });
   switch (key.key) {
     case 'Enter':
-      return commit(mod(key) ? null : enterMove(sel, Boolean(key.shiftKey), shape));
+      if (mod(key)) return isRange(sel) ? { kind: 'fill' } : commit(null);
+      return commit(enterMove(sel, Boolean(key.shiftKey), shape));
     case 'Tab':
       if (mod(key)) return { kind: 'pass' };
       return commit(tabMove(sel, Boolean(key.shiftKey), shape));
@@ -408,4 +414,14 @@ export function pasteTargets(block: readonly (readonly string[])[], sel: Selecti
     }),
   );
   return { targets, outside };
+}
+
+/**
+ * Ctrl+D كإكسل (المراجعة R9): كلّ خانة في النطاق تحت صفّه الأوّل تأخذ قيمة خانة صفّه الأوّل في عمودها؛ وتحديدٌ بصفّ واحد (خانة أو صفّ) يأخذ قيم الصفّ الذي
+ * فوقه. لا شيء فوق أوّل صفّ في الورقة.
+ */
+export function fillDown(sel: Selection): { pos: Pos; from: Pos }[] {
+  const range = rangeOf(sel);
+  if (range.top === range.bottom) return range.top === 0 ? [] : cellsOf(range).map((pos) => ({ pos, from: { row: pos.row - 1, col: pos.col } }));
+  return cellsOf({ ...range, top: range.top + 1 }).map((pos) => ({ pos, from: { row: range.top, col: pos.col } }));
 }
