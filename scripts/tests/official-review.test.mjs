@@ -12,6 +12,7 @@
 // R4 صفحة القاعة: العنوان «قاعة 7»، و«هلاكات قاعة (7)» شريط الجدول وحده مرّةً واحدة.
 // R5 أزرار التقرير 44 نقطة: «أرسلها» و«نزّلها» بعد رفض المشاركة، وتنقّل التقرير اليوميّ بين الأيّام.
 // R6 صفحة القاعة عريضةٌ بكلّ حالها (فارغة، وأثناء القراءة، والانتقال من ورقة إلى قاعة فارغة بلا لحظة ضيّقة).
+// R7 «أرسل صورة» من السمة الداكنة صورةٌ فاتحة كالطباعة: خلفية فاتحة ورموز فاتحة على الحاوية، ولا صنف dark: في النسخة، ورموز --ofc- فاتحة على كلّ نسخة.
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
@@ -150,6 +151,16 @@ function valueOf(rules, selector, property, media = null) {
   return value;
 }
 
+/** رموز --ofc- على المحدِّد بعينه في الشاشة: الاسم ← القيمة. */
+function ofcTokens(rules, selector) {
+  const out = {};
+  for (const rule of rules) {
+    if (rule.media !== null || !rule.selectors.includes(selector)) continue;
+    for (const [name, value] of rule.decls) if (name.startsWith('--ofc-')) out[name] = value;
+  }
+  return out;
+}
+
 // ── أدوات الشاشة ─────────────────────────────────────────────────────────────────────────────────────────────────
 const body = () => globalThis.document.body;
 const all = () => descendants(body());
@@ -180,6 +191,8 @@ const bandsOf = (root = body()) =>
     .map((n) => [n.textContent, hiddenFromReaders(n) ? null : headingLevel(n)]);
 /** بلا h-9 (36 نقطة) وبـh-11 أو أكبر (44 نقطة فأكثر). */
 const tall = (node) => Boolean(node) && !words(node).includes('h-9') && words(node).some((cls) => /^(?:h|min-h)-(?:11|12|13|14)$/u.test(cls));
+/** صنفٌ بمتغيّر Tailwind الداكن (dark:… وhover:dark:…). */
+const darkVariant = (token) => token.split(':').slice(0, -1).includes('dark');
 /** نصوص bdi في قيمة مربّع البيانات key. */
 const infoBdi = (key) => {
   const box = all().find((n) => n.getAttribute('data-info') === key);
@@ -224,6 +237,18 @@ export default async function (t) {
       lifts.map((rule) => [rule.media, rule.selectors.join(', ')]),
       [],
       'R2 لا قاعدة شاشة ترفع حدّ إطار الجدول الرسميّ (max-h-[70dvh] من DataTable): رأس الجدول ثابتٌ فيه وأنت تمرّ على آخر الوجبة (على cfe9710: «.ofc-paper .ofc-frame { max-height: none }»)',
+    );
+  }
+
+  // ── R7 (CSS): رموز --ofc- على كلّ نسخة صورة هي رموز :root (فتغلب .dark على <html>) ─────────────────────────────────────────────
+  {
+    const root = ofcTokens(css, ':root');
+    const dark = ofcTokens(css, '.dark');
+    const capture = ofcTokens(css, '[data-capture]');
+    t.same(
+      [Object.keys(root).length >= 9, Object.keys(dark).every((name) => name in root), Object.fromEntries(Object.keys(root).map((name) => [name, capture[name] ?? null]))],
+      [true, true, root],
+      'R7 الصورة فاتحةٌ من السمة الداكنة: كلّ رمز --ofc- على [data-capture] بقيمته في :root (رأس الجدول ومربّعات البيانات وصفّ المجاميع واسم المنشأة)، وكلّ ما تغيّره .dark منها',
     );
   }
 
@@ -548,6 +573,38 @@ export default async function (t) {
         [byAction('hall-empty').length, Math.min(...seen) > 0, m.wideStore.get()],
         [1, true, 1],
         `R6 من ورقة «قاعة 7» إلى «قاعة 8» الفارغة بـ«التالية»: الصفحة عريضةٌ في كلّ لحظة (العدّاد ${seen.join(' ← ')}؛ على cfe9710 يهبط صفراً فتضيق)`,
+      );
+    });
+
+    await step('R7a', async () => {
+      const { captures } = fresh();
+      globalThis.document.documentElement.setAttribute('class', 'dark');
+      await mount(`/halls/report/${SHEET.flock.id}`, reportRoutes());
+      fire(byAction('batch-image')[0], 'click', { button: 0 });
+      await settle(80);
+      const capture = captures[0] ?? null;
+      const tokens = capture ? [capture.node, ...descendants(capture.node)].flatMap((n) => words(n)) : [];
+      t.same(
+        [captures.length, capture?.options?.backgroundColor ?? null, capture?.node.parentNode?.style['--surface'] ?? null, capture?.node.parentNode?.style['--ink'] ?? null, tokens.filter(darkVariant)],
+        [1, 'rgb(243, 248, 253)', '243 248 253', '15 30 53', []],
+        'R7 «أرسل صورة» من السمة الداكنة في تقرير الوجبة: الورقة فاتحة كالطباعة (reportImage بـlight: خلفية سطح الفاتحة ورموزها على الحاوية، ولا صنف dark: في النسخة؛ على cfe9710: rgb(8, 13, 23))',
+      );
+    });
+
+    await step('R7b', async () => {
+      const { captures } = fresh();
+      globalThis.document.documentElement.setAttribute('class', 'dark');
+      await mount('/halls/day?on=2026-11-12', reportRoutes());
+      const shownDark = byAction('day-hall-link').filter((n) => words(n).some(darkVariant)).length;
+      fire(byAction('send-image')[0], 'click', { button: 0 });
+      await settle(80);
+      const capture = captures[0] ?? null;
+      const links = capture ? descendants(capture.node).filter((n) => n.getAttribute('data-action') === 'day-hall-link') : [];
+      const tokens = capture ? [capture.node, ...descendants(capture.node)].flatMap((n) => words(n)) : [];
+      t.same(
+        [captures.length, capture?.options?.backgroundColor ?? null, shownDark > 0, links.length > 0 && links.every((n) => words(n).includes('text-brand-700')), tokens.filter(darkVariant)],
+        [1, 'rgb(243, 248, 253)', true, true, []],
+        'R7 «أرسل صورة» من السمة الداكنة في التقرير اليوميّ: فاتحةٌ، وروابط القاعات في النسخة brand-700 بلا dark:text-brand-200 (نصٌّ فاتح على ورقة فاتحة)، والصفحة المعروضة كما هي',
       );
     });
 

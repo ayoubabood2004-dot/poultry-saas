@@ -15,7 +15,7 @@ import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
 import { sheetHallName } from '../farm/FlockPage';
 import { BackLink, backLabel, backTarget, flockPath, pct, printAs } from './parts';
-import { downloadFile, reportImage, sendFile } from './reportImage';
+import { downloadFile, IMAGE_WIDTH, reportImage, sendFile } from './reportImage';
 
 // «تقرير الوجبة» (طلب المالك 2026-11-21: «تقارير مبسّطة بجداول أرقام مثل ورقته»؛ عقد 0034/0035 S2، docs/HALLS_SHEET_PLAN.md المرحلة ٣):
 // /halls/report/:flockId بقراءة hall_sheet واحدة. خلاصة الوجبة جدولاً (الداخل، والهلاكات ونسبتها، والباقي، والعلف المرسل بالكيلو والأكياس، والغاز،
@@ -218,7 +218,8 @@ function BatchView({ flockId }: { flockId: string }) {
     printed.stamp();
     let file: File;
     try {
-      file = await reportImage(page, `batch-report-${sheet.flock.placedOn}-${sheet.today}.png`);
+      // فاتحةٌ دائماً كالورقة المطبوعة (مراجعة 0036 R7): تُرسل لغير صاحب الجهاز، ولو كانت الصفحة بالسمة الداكنة.
+      file = await reportImage(page, `batch-report-${sheet.flock.placedOn}-${sheet.today}.png`, IMAGE_WIDTH, { light: true });
     } catch {
       setImaging(false);
       toast({ tone: 'danger', title: t('halls.day.image.failed', 'تعذّر تجهيز الصورة على هذا الجهاز. اطبع التقرير أو احفظه PDF بدلاً من ذلك.') });

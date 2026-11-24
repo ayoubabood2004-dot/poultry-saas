@@ -5,7 +5,8 @@ import type { Day } from '../../domain/dates';
 // الجهاز إن قبلت الملفّات، وإلّا تنزيله. html-to-image مستوردة هنا داخل حزمة القاعات (خارج التثبيت المسبق بالاسم)، لا استيراداً كسولاً: ذاك يفصلها
 // حزمةً جديدة يحفظها التثبيت المسبق.
 // الصورة نسخةٌ من الصفحة خارج الشاشة بعرض ثابت وبتخطيط الطباعة نفسه (الجداول لا البطاقات، وبلا ما يُخفى عند الطباعة)، بقواعد [data-capture] في
-// أسلوب الصفحة: فلا تتحرّك الصفحة المعروضة، والصورة واحدة من الهاتف والحاسوب، وما يُطبع هو ما يُرسل. وخلفيتها لون سطح الصفحة بالسمة الحاليّة.
+// أسلوب الصفحة: فلا تتحرّك الصفحة المعروضة، والصورة واحدة من الهاتف والحاسوب، وما يُطبع هو ما يُرسل. وتقارير القاعات فاتحةٌ دائماً كورقة الطباعة (light،
+// مراجعة 0036 R7)، ولو كانت الصفحة بالسمة الداكنة.
 
 /**
  * عرض الصورة بنقاط CSS: أعرض جداول التقرير (أيّام شهر البيّاض بثلاثة عشر عموداً) تتّسع له بخطّ 11 نقطة دون أن تُقصّ، وبالمقياس 2 تخرج 1,440 نقطة صورة
@@ -48,13 +49,28 @@ const LIGHT_TOKENS: ReadonlyArray<readonly [string, string]> = [
 /** سطح السمة الفاتحة لونَ خلفية الصورة. */
 const LIGHT_SURFACE = 'rgb(243, 248, 253)';
 
+/** صنفٌ بمتغيّر Tailwind الداكن (بادئة dark قبل اسمه، وحدها أو بعد غيرها كـhover): يتبع .dark على <html> ولو كانت النسخة فاتحة. */
+const darkVariant = (token: string): boolean => token.split(':').slice(0, -1).includes('dark');
+
+/**
+ * النسخة الفاتحة بلا أصناف المتغيّر الداكن، فيها وفي كلّ ما تحتها (مراجعة 0036 R7: اسم القاعة ويوم التقرير كانا نصّاً فاتحاً brand-200 على ورقة فاتحة).
+ * النسخة وحدها تتغيّر، لا الصفحة المعروضة؛ وبالأبناء لا بمحدِّد: صنفٌ فيه «dark» بين أقواس محدِّد يقرؤه Tailwind صنفاً.
+ */
+function dropDarkVariants(node: Element): void {
+  const tokens = (node.getAttribute('class') ?? '').split(/\s+/u).filter(Boolean);
+  const kept = tokens.filter((token) => !darkVariant(token));
+  if (kept.length !== tokens.length) node.setAttribute('class', kept.join(' '));
+  for (const child of Array.from(node.children)) dropDarkVariants(child);
+}
+
 /** صورة شفّافة بنقطة واحدة مكان صورة تعذّر جلبها: html-to-image يرفض الرسم كلّه بصورة فاشلة (بلا اتصال مثلاً). */
 const IMAGE_PLACEHOLDER = 'data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7';
 
 export interface ImageOptions {
   /**
-   * فاتحة ولو كانت الصفحة داكنة (ورقة فاتورة البيع تُرسل للزبون، مراجعة 0033 D2): رموز السمة الفاتحة ولون النصّ وcolor-scheme مضمَّنة على الحاوية فتغلب
-   * .dark و.clarity على <html>، والخلفية سطح السمة الفاتحة. تقرير القاعات بلا هذا الخيار: بسمة الصفحة كما هو.
+   * فاتحة ولو كانت الصفحة داكنة (ورقة فاتورة البيع تُرسل للزبون، مراجعة 0033 D2؛ وتقارير القاعات كورقة الطباعة، مراجعة 0036 R7): رموز السمة الفاتحة ولون
+   * النصّ وcolor-scheme مضمَّنة على الحاوية فتغلب .dark و.clarity على <html>، وأصناف المتغيّر الداكن تُشال من النسخة (dropDarkVariants)، والخلفية سطح
+   * السمة الفاتحة. ورموز --ofc- للتقارير الرسمية فاتحةٌ على كلّ نسخة في official.css.
    */
   light?: boolean;
   /** خلفية الصورة مع light (ورقة الفاتورة بيضاء كالورق، تصميم المبيعات ٦)؛ وإلّا سطح السمة الفاتحة. */
@@ -79,6 +95,7 @@ export async function reportImage(page: HTMLElement, name: string, width: number
     host.style.setProperty('color', 'rgb(var(--ink))');
   }
   const copy = page.cloneNode(true) as HTMLElement;
+  if (options.light) dropDarkVariants(copy);
   copy.setAttribute('data-capture', '');
   copy.style.width = `${width}px`;
   host.appendChild(copy);

@@ -19,7 +19,7 @@ import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
 import { BackLink, backLabel, dash, daysText, decimalsOf, grams, kgText, kindLabel, pct, printAs, qtyText, reportsBack, stateLabel, unweighedText } from './parts';
 import { HallsNoteDialog, HistorySections, monthStartOf, NoteBlock } from './dailyHistory';
-import { downloadFile, imageName, reportImage, sendFile } from './reportImage';
+import { downloadFile, IMAGE_WIDTH, imageName, reportImage, sendFile } from './reportImage';
 import { signedCount } from './ticketParts';
 
 // تقرير القاعات اليومي (0027، كلمة المالك 2026-11-12: «تقارير القاعات الي تطلعلي بشكل يومي»، docs/HALLS_REPORTS_PLAN.md): /halls/day?on=YYYY-MM-DD
@@ -617,7 +617,8 @@ export default function DailyPage() {
     printed.stamp();
     let file: File;
     try {
-      file = await reportImage(page, imageName(on));
+      // فاتحةٌ دائماً كالورقة المطبوعة (مراجعة 0036 R7): تُرسل لغير صاحب الجهاز، ولو كانت الصفحة بالسمة الداكنة.
+      file = await reportImage(page, imageName(on), IMAGE_WIDTH, { light: true });
     } catch {
       setImaging(false);
       toast({ tone: 'danger', title: t('halls.day.image.failed', 'تعذّر تجهيز الصورة على هذا الجهاز. اطبع التقرير أو احفظه PDF بدلاً من ذلك.') });
