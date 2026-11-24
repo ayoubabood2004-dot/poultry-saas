@@ -38,8 +38,9 @@
 // وخصم وسيقان وأخرى لزبون نقديّ تُكتب وتُقرأ. والطريق الثاني بسبعة فروع، كلّ واحد ببذرته: أكثر من سطر، وخصم، وأكثر من ساق، ودفع جزئيّ، ووحدة بيع،
 // وملاحظة، وزبون نقديّ.
 // 0036: البذرة نفسها وفوقها هلاكات أمس بـset_flock_dead وغاز اليوم بإضافتين وعلف اليوم (ROLLBACK_EXTRAS)، فالتراجع يكمل؛ وبين التراجع والإعادة جولة بنافق
-// بجسم 0035 وغاز اليوم بـset_flock_gas، وبعد الإعادة الملء يعلّم اليومين والجولة لا تضيف إليهما والإضافة تكمل المجموع (وضابط الإعادة: بلا الملء يفشل الثابت).
-// والطريق الثاني بثلاثة فروع، كلّ واحد ببذرته: يوم سُجّلت هلاكاته صفراً، وهلاكات مركونة، وغاز مضاف مركون.
+// بجسم 0035 وغاز اليوم بـset_flock_gas، وبعد الإعادة الملء يعلّم زيارتي اليومين ثمّ اليومين منهما، والجولة لا تضيف إليهما والإضافة تكمل المجموع (وضابطا
+// الإعادة: بلا ملء الزيارات، وبلا اشتقاق الأيّام، يفشل الثابت). والطريق الثاني بثلاثة فروع، كلّ واحد ببذرته: يوم سُجّلت هلاكاته صفراً، وهلاكات مركونة،
+// وغاز مضاف مركون؛ والفرع الرابع (زيارة مركونة بسبب dead_recorded) يحرسه قيد 0012 نفسه أيضاً فلا يكمل التراجع بلا الكتلة، وفحصه في round-once.test.
 
 const U = {
   owner: '60000000-0000-4000-8000-000000000001',
@@ -1897,9 +1898,14 @@ const sheetRedone = async (db) => {
  * 0036: حالة التراجع الكاملة على فوج البذرة بلا ما يوقفه: هلاكات أمس 4 بـset_flock_dead (موجبة: زيارة وصفّ يحملهما القديم، والملء يعيد علامتها)، وغاز اليوم
  * 2 + 1 بـadd_flock_gas (مجموع في flock_day_gas)، و10 كغم «علف الورقة» أُرسلت اليوم، فالتراجع يكمل؛ وبين التراجع والإعادة جولة قبل يومين بنافق 3 بجسم 0035
  * (بلا علامة) وغاز اليوم 5 بـset_flock_gas بنسخته؛ وبعد الإعادة الملء يعلّم اليومين، فالجولة بالقيمة نفسها saved وبغيرها dead_recorded، والإضافة تكمل غاز
- * اليوم إلى 6 بالنسخة 4، والملخّص بغاز اليوم وعلفه، والثابت صفر. وضابط الإعادة (controls): الهجرة بلا جملة الملء تُفشل الحالة بالثابت dead_entered_flag.
+ * اليوم إلى 6 بالنسخة 4، والملخّص بغاز اليوم وعلفه، والثابت صفر. وضابطا الإعادة (controls): الهجرة بلا ملء الزيارات تُفشل الحالة بالثابت
+ * dead_entry_visits (والأيّام بلا علامة)، وبلا اشتقاق الأيّام بالثابت dead_entered_derived.
  */
-const ROUND_BACKFILL = 'update public.flock_daily x set dead_entered = true where x.dead + x.culled > 0 and not x.dead_entered;\n';
+const ROUND_VISITS_BACKFILL = 'update public.flock_visits x set dead_entry = true where x.voided_at is null and x.dead + x.culled > 0 and not x.dead_entry;\n';
+const ROUND_DAYS_BACKFILL = 'update public.flock_daily x set dead_entered = exists (select 1 from public.flock_visits v\n'
+  + '    where v.org_id = x.org_id and v.flock_id = x.flock_id and v.on_date = x.on_date and v.voided_at is null and v.dead_entry)\n'
+  + 'where x.dead_entered is distinct from exists (select 1 from public.flock_visits v\n'
+  + '    where v.org_id = x.org_id and v.flock_id = x.flock_id and v.on_date = x.on_date and v.voided_at is null and v.dead_entry);\n';
 
 const roundFullReady = async (db) => {
   await sheetReady(db);
@@ -1951,9 +1957,14 @@ export const ROLLBACK_EXTRAS = {
     afterRedo: roundRedone,
     controls: [
       {
-        name: 'بلا جملة الملء',
-        expect: 'dead_entered_flag',
-        mutate: (sql) => sql.split(ROUND_BACKFILL).join(''),
+        name: 'بلا ملء الزيارات',
+        expect: 'dead_entry_visits',
+        mutate: (sql) => sql.split(ROUND_VISITS_BACKFILL).join(''),
+      },
+      {
+        name: 'بلا اشتقاق الأيّام',
+        expect: 'dead_entered_derived',
+        mutate: (sql) => sql.split(ROUND_DAYS_BACKFILL).join(''),
       },
     ],
   },

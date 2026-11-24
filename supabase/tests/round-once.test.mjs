@@ -1,8 +1,10 @@
-// الجولة: الهلاكات مرّة في اليوم والغاز يُضاف (0036، العقد docs/plans/0036/contract-0036.md «الجزء د»): علامة flock_daily.dead_entered ومن يضعها
-// (save_flock_day وsave_flock_visit، لا المركون ولا stale ولا المرفوض ولا ما لا يغيّر شيئاً) والملء، وset_flock_dead (مرّة: saved أو dead_recorded، ومن
-// الطابور parked، وجلستان حقيقيتان لليوم نفسه)، وadd_flock_gas (الإضافة والحدّ والركن والمرجع وجلستان)، وقارئا الجولة (flock_summary وflocks_overview)
-// للّاحم والبيّاض، والثابت verify_round_once، وطفرات كلّ قاعدة داخل معاملة صاحب الجداول ترجع، والأجسام القبلية حرفاً من ملفّات هجراتها (0035 و0029
-// و0012) تفشل كلّها، وضابطا قفل صفّ الوجبة بجلستين على جسم مثبَّت بلا القفل (يعود حرفاً)، وملفّ التراجع حرفاً.
+// الجولة: الهلاكات مرّة في اليوم والغاز يُضاف (0036، العقد docs/plans/0036/contract-0036.md «الجزء د»، وقرارات علامة الهلاكات بعد مراجعة القاعدة في
+// DECISIONS 2026-11-24): علامة الزيارة flock_visits.dead_entry ومن يضعها (set_flock_dead دائماً، وsave_flock_visit حين يبقى نافق أو مستبعد، وزيارة
+// day_total من save_flock_day بهلاكات النداء أو منقولةً بلاها؛ لا المركون ولا stale ولا المرفوض)، وflock_daily.dead_entered مشتقّةً منها، والملء،
+// وset_flock_dead (مرّة: saved أو dead_recorded، ومن الطابور parked، وجلستان حقيقيتان لليوم نفسه)، وadd_flock_gas (الإضافة والحدّ والركن والمرجع
+// وجلستان)، وقارئا الجولة (flock_summary وflocks_overview) للّاحم والبيّاض، والثابت verify_round_once، وطفرات كلّ قاعدة داخل معاملة صاحب الجداول ترجع،
+// والأجسام القبلية حرفاً من ملفّات هجراتها (0035 و0032 و0029 و0012) تفشل كلّها، وضابطا قفل صفّ الوجبة بجلستين على جسم مثبَّت بلا القفل (يعود
+// حرفاً)، وملفّ التراجع حرفاً ورفضه للزيارة المركونة بسبب dead_recorded. (مراجعة 0036 وصافي العلف في round-once-review.test.)
 // منشأة هذا الملفّ: المعرّفات d3636000 والهواتف 96477036360 (ومنشأة ثانية بالمعرّفات d3636000-…-0000000009xx والهواتف 9647703636090+).
 // البذرة: حقل لحم بثلاث قاعات — «قاعة 1» (1,000 طير قبل 20 يوماً)، و«قاعة 2» (500 قبل عشرة أيّام)، و«قاعة 3» (300 قبل 15 يوماً تُغلق قبل يومين) — وحقل
 // بيض بقاعة (2,000 قبل عشرة أيّام)؛ وأعلاف في «رصيد العلف» ومخزن علف ثانٍ، وذرة ودواء.
@@ -50,10 +52,11 @@ const SIG = {
   day: 'public.save_flock_day(uuid, date, integer, integer, numeric, numeric, numeric, numeric, integer, integer, integer, text, integer, uuid, boolean)',
   visit: 'public.save_flock_visit(uuid, uuid, date, timestamp with time zone, integer, integer, numeric, integer, integer, integer, text, integer, boolean, uuid, boolean)',
   dayJson: 'private.flock_day_json(public.flock_daily)',
+  rebuild: 'private.flock_day_rebuild(public.flocks, date)',
   summary: 'private.flock_summary(public.flocks)',
   overview: 'public.flocks_overview()',
 };
-const VERIFY_ZERO = { dead_entered_flag: 0, gas_cap: 0 };
+const VERIFY_ZERO = { dead_entered_flag: 0, dead_entered_derived: 0, dead_entry_visits: 0, gas_cap: 0 };
 
 const deadParams = (d) => [d.flock, d.on === undefined ? TODAY : d.on, d.n === undefined ? null : d.n, d.ref ?? uid(), d.queued ?? false];
 const addParams = (g) => [g.flock, g.on === undefined ? TODAY : g.on, g.n === undefined ? null : g.n, g.ref ?? uid(), g.queued ?? false];
@@ -429,30 +432,43 @@ async function scenario(t, db) {
     same(await dayRow(F.a, day(-12)), { dead: 0, culled: 0, version: 2, dead_entered: false, note: 'بلا هلاكات اليوم' }, 'اليوم بلا علامة بعد كلّ ذلك');
     same((await dead(U.owner, { flock: F.a, on: day(-12), n: 6 })).value?.day?.dead, 6, 'فتُسجَّل هلاكاته من الجولة');
 
-    // الصفر الصريح في زيارة تسجيل.
-    same((await visit(U.owner, { flock: F.a, on: day(-13), dead: 0 })).value?.day?.dead_entered, true, 'زيارة بنافق صفر صريح تعلّم');
-    same((await dead(U.owner, { flock: F.a, on: day(-13), n: 5 })).value?.status, 'dead_recorded', 'فالجولة بعدها dead_recorded');
+    // قرارات مراجعة 0036: الصفر الصريح في زيارة (تطبيق قديم «زرت ولا هلاكات») لا يقفل الجولة؛ وصفر الجولة («لا هلاكات اليوم») يقفلها.
+    same((await visit(U.owner, { flock: F.a, on: day(-13), dead: 0 })).value?.day?.dead_entered, false, 'زيارة بنافق صفر صريح لا تعلّم');
+    same((await dead(U.owner, { flock: F.a, on: day(-13), n: 5 })).value?.day?.dead, 5, 'فالجولة بعدها تسجّل هلاكات اليوم');
+    const marks = (await db.admin(`select on_date - $2::date as d, source, dead, culled, dead_entry from public.flock_visits
+      where flock_id = $1 and on_date in ($2::date - 3, $2::date - 13) and voided_at is null order by on_date, recorded_at, created_at`, [F.a, TODAY])).rows;
+    same(marks, [{ d: -13, source: 'visit', dead: 0, culled: 0, dead_entry: false }, { d: -13, source: 'visit', dead: 5, culled: 0, dead_entry: true },
+      { d: -3, source: 'visit', dead: 0, culled: 0, dead_entry: true }],
+    'العلامة على الزيارة: زيارة الصفر بلا علامة، وزيارة الجولة معلَّمة ولو صفراً');
     same(await db.asService(verifyOf), VERIFY_ZERO, 'verify_round_once صفر بعد الكتّاب كلّهم');
   });
 
-  // ── ٥) الملء: كلّ يوم فيه نافق أو مستبعد ─────────────────────────────────────────────────────────────────────────────
+  // ── ٥) الملء: كلّ زيارة حيّة فيها نافق أو مستبعد، ثمّ كلّ صفّ يوم من زياراته ─────────────────────────────────────────────────
   await section('الملء', async () => {
     const migration = readFileSync(path.join(MIGRATIONS, '0036_round_once.sql'), 'utf8');
-    const backfill = migration.split('\n').filter((line) => line.startsWith('update public.flock_daily x set dead_entered = true'));
-    t.eq(backfill.length, 1, 'جملة الملء في الهجرة مرّة واحدة');
+    const visitsFill = migration.match(/^update public\.flock_visits x set dead_entry = true[^\n]*;\n/gmu) ?? [];
+    const daysFill = migration.match(/^update public\.flock_daily x set dead_entered = exists[\s\S]*?;\n/gmu) ?? [];
+    same([visitsFill.length, daysFill.length], [1, 1], 'جملتا الملء (الزيارات ثمّ اشتقاق الأيّام) في الهجرة مرّة واحدة لكلّ منهما');
+    t.ok(migration.indexOf(visitsFill[0]) < migration.indexOf(daysFill[0]), 'ملء الزيارات قبل اشتقاق الأيّام');
+    // كلّ العلامات تُمسح داخل معاملة ترجع، ثمّ الملء: الزيارات الحيّة بهلاكات تُعلَّم (والملغاة والصفر لا)، والأيّام منها؛ وإعادته لا تكتب شيئاً.
     const out = await mutant(db, U.owner, [], async ({ oq }) => {
+      await oq('update public.flock_visits set dead_entry = false where org_id = $1', [org]);
       await oq('update public.flock_daily set dead_entered = false where org_id = $1', [org]);
-      const before = (await verifyOf(oq)).dead_entered_flag;
-      const filled = (await oq(backfill[0])).rowCount;
-      const again = (await oq(backfill[0])).rowCount;
-      const rows = (await oq(`select count(*) filter (where dead + culled > 0 and dead_entered)::int as marked, count(*) filter (where dead + culled > 0 and not dead_entered)::int as missed,
-        count(*) filter (where dead + culled = 0 and dead_entered)::int as zero_marked, count(*) filter (where dead + culled > 0)::int as with_deaths from public.flock_daily where org_id = $1`, [org])).rows[0];
-      return { before, filled, again, rows, after: (await verifyOf(oq)).dead_entered_flag };
+      const before = await verifyOf(oq);
+      const visits = (await oq(visitsFill[0])).rowCount;
+      const days = (await oq(daysFill[0])).rowCount;
+      const again = [(await oq(visitsFill[0])).rowCount, (await oq(daysFill[0])).rowCount];
+      const v = (await oq(`select count(*) filter (where voided_at is null and dead + culled > 0)::int as live_deaths,
+        count(*) filter (where dead_entry and (voided_at is not null or dead + culled = 0))::int as wrong from public.flock_visits where org_id = $1`, [org])).rows[0];
+      const d = (await oq(`select count(*) filter (where dead + culled > 0 and dead_entered)::int as marked, count(*) filter (where dead + culled > 0)::int as with_deaths,
+        count(*) filter (where dead + culled = 0 and dead_entered)::int as zero_marked from public.flock_daily where org_id = $1`, [org])).rows[0];
+      return { before, visits, days, again, v, d, after: await verifyOf(oq) };
     });
-    t.ok(out.before > 0 && out.before === out.rows.with_deaths, `قبل الملء: كلّ يوم بهلاكات بلا علامة خرق (${out.before})`);
-    same({ filled: out.filled >= out.rows.with_deaths, again: out.again, marked: out.rows.marked, missed: out.rows.missed, zero: out.rows.zero_marked, after: out.after },
-      { filled: true, again: 0, marked: out.rows.with_deaths, missed: 0, zero: 0, after: 0 },
-      'الملء يعلّم كلّ يوم فيه نافق أو مستبعد ولا يعلّم يوم الصفر، وإعادته لا تكتب شيئاً');
+    t.ok(out.before.dead_entered_flag > 0 && out.before.dead_entered_flag === out.d.with_deaths && out.before.dead_entry_visits === out.v.live_deaths,
+      `قبل الملء: كلّ يوم بهلاكات بلا علامة وكلّ زيارة حيّة بهلاكات بلا علامة خرق (${JSON.stringify(out.before)})`);
+    same({ visits: out.visits, days: out.days, again: out.again, marked: out.d.marked, zero: out.d.zero_marked, wrong: out.v.wrong, after: out.after },
+      { visits: out.v.live_deaths, days: out.d.with_deaths, again: [0, 0], marked: out.d.with_deaths, zero: 0, wrong: 0, after: VERIFY_ZERO },
+      'الملء يعلّم كلّ زيارة حيّة بهلاكات ثمّ كلّ يوم منها (ولا يعلّم يوم الصفر)، وإعادته لا تكتب شيئاً');
   });
 
   // ── ٦) الغاز يُضاف ──────────────────────────────────────────────────────────────────────────────────────────────────
@@ -473,7 +489,7 @@ async function scenario(t, db) {
     await gas(U.owner, { flock: F.a, on: day(-2), n: 999 });
     const over = await add(U.owner, { flock: F.a, on: day(-2), n: 2 });
     same(code(over), 'bad_value', '999 + 2 فوق الحدّ: bad_value');
-    t.ok(over.hint.includes('999') && over.hint.includes('1,000') && over.hint.includes('أضف 1') && over.hint.includes('قاعة 1') && over.hint.includes(ddmm(day(-2))),
+    t.ok(over.hint.includes('(999)') && over.hint.includes('ألف قنينة') && over.hint.includes('أضف 1') && over.hint.includes('قاعة 1') && over.hint.includes(ddmm(day(-2))),
       `التلميح يسمّي المجموع الآن والحدّ وما يُضاف (${over.hint})`);
     same((await add(U.owner, { flock: F.a, on: day(-2), n: 1 })).value?.gas, { on: day(-2), cylinders: 1000, version: 2 }, 'حتى 1,000 بالضبط');
     const full = await add(U.owner, { flock: F.a, on: day(-2), n: 1 });
@@ -520,8 +536,8 @@ async function scenario(t, db) {
     const pick = (s) => ({ gas: s.gas_today, gasVersion: s.gas_today_version, kg: s.feed_today_kg, feed: s.feed_today, last: s.last_feed_item_id, today: s.today });
     same(pick(summaryOf(overview, H.a)), {
       gas: 3, gasVersion: 2, kg: '180.000',
-      feed: [{ item_id: I.starter, item_name: 'علف بادئ', qty: '120.000', unit: 'kg' }, { item_id: I.finisher, item_name: 'علف ناهي', qty: '50.000', unit: 'kg' },
-        { item_id: I.corn, item_name: 'ذرة صفراء', qty: '10.000', unit: 'kg' }],
+      feed: [{ item_id: I.starter, item_name: 'علف بادئ', qty: '120.000', unit: 'kg', carry: false }, { item_id: I.finisher, item_name: 'علف ناهي', qty: '50.000', unit: 'kg', carry: false },
+        { item_id: I.corn, item_name: 'ذرة صفراء', qty: '10.000', unit: 'kg', carry: false }],
       last: I.finisher,
       today: dayJson({ on_date: TODAY, version: 1, dead: 2, dead_entered: true }),
     }, 'اللاحم: غاز اليوم 3 بنسخته، وعلفه 180 كغم بسطوره بالمادّة بترتيب أوّل إرسال (بلا المتأخّر لأمس ولا الملغى ولا الدواء)، وآخر علف أُرسل (الناهي لا الذرة)، وهلاكات اليوم بعلامتها');
@@ -566,6 +582,10 @@ async function scenario(t, db) {
     same(await db.asService(verifyOf), VERIFY_ZERO, 'verify_round_once صفر');
     const breaks = {
       dead_entered_flag: (oq) => oq('update public.flock_daily set dead_entered = false where flock_id = $1 and on_date = $2', [F.a, day(-1)]),
+      // يوم البيض اليوم بلا زيارة معلَّمة يُعلَّم بيد: العلامة لا تطابق اشتقاقها.
+      dead_entered_derived: (oq) => oq('update public.flock_daily set dead_entered = true where flock_id = $1 and on_date = $2', [F.l, TODAY]),
+      // زيارة أمس بنافق 7 تفقد علامتها: يُعاد بناء اليوم بلا علامة.
+      dead_entry_visits: (oq) => oq('update public.flock_visits set dead_entry = false where flock_id = $1 and on_date = $2 and voided_at is null and dead > 0', [F.a, day(-1)]),
       gas_cap: async (oq) => {
         await oq('alter table public.flock_day_gas drop constraint flock_day_gas_cylinders_check');
         await oq('update public.flock_day_gas set cylinders = 1001 where flock_id = $1 and on_date = $2', [F.a, day(-2)]);
@@ -578,17 +598,17 @@ async function scenario(t, db) {
         return (await verifyOf(oq))[name];
       });
     }
-    same(caught, { dead_entered_flag: 1, gas_cap: 1 }, 'كلّ خرق يمسكه فحصه باسمه');
+    same(caught, { dead_entered_flag: 1, dead_entered_derived: 1, dead_entry_visits: 1, gas_cap: 1 }, 'كلّ خرق يمسكه فحصه باسمه');
   });
 
-  // ── ٩) الطفرات: كلّ قاعدة مكسورة (ومنها أجسام 0035 بلا العلامة) يمسكها فحصها ────────────────────────────────────────────
+  // ── ٩) الطفرات: كلّ قاعدة مكسورة (ومنها أجسام ما قبل 0036 بلا العلامة) يمسكها فحصها ────────────────────────────────────────
   await section('الطفرات', async () => {
     const flagOf = async (oq, flock, on) => (await oq('select dead_entered from public.flock_daily where flock_id = $1 and on_date = $2', [flock, on])).rows[0]?.dead_entered ?? null;
     const deadOf = async (oq, flock, on) => (await oq('select dead from public.flock_daily where flock_id = $1 and on_date = $2', [flock, on])).rows[0]?.dead ?? null;
     const CASES = [
       {
-        name: 'save_flock_day بجسم 0035 (بلا العلامة)',
-        fns: [[SIG.day, [['  if v_deaths and n.id is not null and not n.dead_entered then', '  if false then']]]],
+        name: 'save_flock_day بزيارة day_total بلا علامة',
+        fns: [[SIG.day, [["n.eggs_total, n.eggs_cracked, n.eggs_broken, n.note, 'day_total', 1, v_mark);", "n.eggs_total, n.eggs_cracked, n.eggs_broken, n.note, 'day_total', 1, false);"]]]],
         run: async ({ oq, attempt }) => {
           await inside(attempt, U.owner, DAY, dayParams({ flock: F.a, on: day(-14), dead: 2 }));
           return flagOf(oq, F.a, day(-14));
@@ -596,28 +616,46 @@ async function scenario(t, db) {
         correct: (v) => v === true,
       },
       {
-        name: 'save_flock_visit بجسم 0035 (بلا العلامة)',
-        fns: [[SIG.visit, [['  if v_deaths and d.id is not null and not d.dead_entered then', '  if false then']]]],
+        name: 'save_flock_visit بزيارة بلا علامة',
+        fns: [[SIG.visit, [["p_eggs_total, p_eggs_cracked, p_eggs_broken, v_note, 'visit', 1, v_mark)", "p_eggs_total, p_eggs_cracked, p_eggs_broken, v_note, 'visit', 1, false)"]]]],
         run: async ({ attempt }) => (await inside(attempt, U.owner, VISIT, visitParams({ flock: F.a, on: day(-14), dead: 2 })))?.day?.dead_entered,
         correct: (v) => v === true,
       },
       {
-        name: 'تعديل الزيارة بالنافق كما كان يعلّم',
-        fns: [[SIG.visit, [['\n    and (v.id is null or (v.dead, v.culled) is distinct from (coalesce(p_dead, 0), coalesce(p_culled, 0)));', ';']]]],
+        name: 'save_flock_visit: تعديل الزيارة لا يغيّر علامتها',
+        fns: [[SIG.visit, [['note = v_note, dead_entry = v_mark, version = x.version + 1', 'note = v_note, version = x.version + 1']]]],
         run: async ({ attempt }) => {
           const visitId = uid();
-          await inside(attempt, U.owner, VISIT, visitParams({ id: visitId, flock: F.a, on: day(-14), eggs: null, note: 'أوّل' }));
-          return (await inside(attempt, U.owner, VISIT, visitParams({ id: visitId, flock: F.a, on: day(-14), dead: 0, note: 'ثانٍ', base: 1 })))?.day?.dead_entered;
+          await inside(attempt, U.owner, VISIT, visitParams({ id: visitId, flock: F.a, on: day(-14), dead: 3 }));
+          return (await inside(attempt, U.owner, VISIT, visitParams({ id: visitId, flock: F.a, on: day(-14), dead: 0, base: 1 })))?.day?.dead_entered;
         },
         correct: (v) => v === false,
       },
       {
-        name: 'save_flock_day بالقيمة نفسها مع خانة أخرى يعلّم',
-        fns: [[SIG.day, [[' and (d.id is null or (n.dead, n.culled) is distinct from (d.dead, d.culled));', ';']]]],
+        name: 'save_flock_visit: الصفر الصريح يقفل (علامة لكلّ هلاكات في النداء)',
+        fns: [[SIG.visit, [['v_mark := not v_void and coalesce(p_dead, 0) + coalesce(p_culled, 0) > 0;', 'v_mark := not v_void and (p_dead is not null or p_culled is not null);']]]],
+        run: async ({ attempt }) => (await inside(attempt, U.owner, VISIT, visitParams({ flock: F.a, on: day(-14), dead: 0, note: 'زيارة' })))?.day?.dead_entered,
+        correct: (v) => v === false,
+      },
+      {
+        name: 'save_flock_day: الصفر في النداء يقفل',
+        fns: [[SIG.day, [['  v_mark := case when p_dead is not null or p_culled is not null then n.dead + n.culled > 0', '  v_mark := case when p_dead is not null or p_culled is not null then true']]]],
         run: async ({ oq, attempt }) => {
           await inside(attempt, U.owner, DAY, dayParams({ flock: F.a, on: day(-14), note: 'أوّل' }));
           await inside(attempt, U.owner, DAY, dayParams({ flock: F.a, on: day(-14), dead: 0, note: 'ثانٍ', base: 1 }));
           return flagOf(oq, F.a, day(-14));
+        },
+        correct: (v) => v === false,
+      },
+      {
+        name: 'flock_day_rebuild: العلامة من الزيارات الملغاة أيضاً',
+        fns: [[SIG.rebuild, [["    coalesce(bool_or(v.dead_entry), false) as dead_entered\n  into s\n  from public.flock_visits v\n  where v.org_id = f.org_id and v.flock_id = f.id and v.on_date = p_on and v.voided_at is null;",
+          "    (select coalesce(bool_or(y.dead_entry), false) from public.flock_visits y where y.org_id = f.org_id and y.flock_id = f.id and y.on_date = p_on) as dead_entered\n  into s\n  from public.flock_visits v\n  where v.org_id = f.org_id and v.flock_id = f.id and v.on_date = p_on and v.voided_at is null;"]]]],
+        run: async ({ attempt }) => {
+          const visitId = uid();
+          await inside(attempt, U.owner, VISIT, visitParams({ id: visitId, flock: F.a, on: day(-14), dead: 3 }));
+          await inside(attempt, U.owner, VISIT, visitParams({ flock: F.a, on: day(-14), note: 'زيارة أخرى' }));
+          return (await inside(attempt, U.owner, VISIT, visitParams({ id: visitId, flock: F.a, on: day(-14), dead: 3, base: 1, void: true })))?.day?.dead_entered;
         },
         correct: (v) => v === false,
       },
@@ -640,8 +678,8 @@ async function scenario(t, db) {
         correct: (v) => JSON.stringify(v) === JSON.stringify(['dead_recorded', 0]),
       },
       {
-        name: 'set_flock_dead بلا العلامة بعد الكتابة',
-        fns: [[SIG.dead, [['  update public.flock_daily x set dead_entered = true where x.org_id = d.org_id and x.id = d.id\n  returning * into d;\n', '']]]],
+        name: 'set_flock_dead بزيارة بلا علامة',
+        fns: [[SIG.dead, [["p_on, now(), p_dead, 0, 'visit', 1, true);", "p_on, now(), p_dead, 0, 'visit', 1, false);"]]]],
         run: async ({ oq, attempt }) => {
           await inside(attempt, U.owner, DEAD, deadParams({ flock: F.a, on: day(-14), n: 0 }));
           return [(await inside(attempt, U.owner, DEAD, deadParams({ flock: F.a, on: day(-14), n: 5 })))?.status, await deadOf(oq, F.a, day(-14))];
@@ -709,8 +747,7 @@ async function scenario(t, db) {
       },
       {
         name: 'الملخّص: علف اليوم بتاريخ خروجه لا بيوم القاعة',
-        fns: [[SIG.summary, [["and l.cost_kind = 'feed' and private.issue_day(x) = v_today;\n", "and l.cost_kind = 'feed' and x.issued_on = v_today;\n"],
-          ["and l.cost_kind = 'feed' and private.issue_day(x) = v_today\n    ) as o", "and l.cost_kind = 'feed' and x.issued_on = v_today\n    ) as o"]]]],
+        fns: [[SIG.summary, [["and l.cost_kind = 'feed' and private.issue_day(x) = v_today\n        union all", "and l.cost_kind = 'feed' and x.issued_on = v_today\n        union all"]]]],
         run: async ({ attempt }) => {
           const s = (await inside(attempt, U.owner, DETAIL, [F.a]))?.flock;
           return [s?.feed_today_kg, s?.feed_today?.length];
@@ -719,8 +756,8 @@ async function scenario(t, db) {
       },
       {
         name: 'الملخّص: الملغى في علف اليوم',
-        fns: [[SIG.summary, [["  where x.org_id = f.org_id and x.flock_id = f.id and x.status = 'posted' and l.cost_kind = 'feed' and private.issue_day(x) = v_today;\n",
-          "  where x.org_id = f.org_id and x.flock_id = f.id and l.cost_kind = 'feed' and private.issue_day(x) = v_today;\n"]]]],
+        fns: [[SIG.summary, [["where x.org_id = f.org_id and x.flock_id = f.id and x.status = 'posted' and l.cost_kind = 'feed' and private.issue_day(x) = v_today\n        union all",
+          "where x.org_id = f.org_id and x.flock_id = f.id and l.cost_kind = 'feed' and private.issue_day(x) = v_today\n        union all"]]]],
         run: async ({ attempt }) => (await inside(attempt, U.owner, DETAIL, [F.a]))?.flock?.feed_today_kg,
         correct: (v) => v === '180.000',
       },
@@ -732,7 +769,7 @@ async function scenario(t, db) {
       },
       {
         name: 'الملخّص: غاز يوم آخر',
-        fns: [[SIG.summary, [['and x.on_date = v_today;\n  select round(sum(', 'and x.on_date = v_today - 1;\n  select round(sum(']]]],
+        fns: [[SIG.summary, [['and x.on_date = v_today;\n  select round(sum(o.kg), 3),', 'and x.on_date = v_today - 1;\n  select round(sum(o.kg), 3),']]]],
         run: async ({ attempt }) => (await inside(attempt, U.owner, DETAIL, [F.a]))?.flock?.gas_today,
         correct: (v) => v === 3,
       },
@@ -799,6 +836,32 @@ async function scenario(t, db) {
         run: async ({ attempt }) => (await inside(attempt, U.owner, OVERVIEW, []))?.feed_items?.length,
         correct: (v) => v === 2,
       },
+      {
+        // إعادة البناء القديمة لا تشتقّ العلامة: «لا هلاكات اليوم» صفراً بلا علامة.
+        name: 'flock_day_rebuild كما في 0032',
+        body: bodyOf('0032_round_visits.sql', 'private.flock_day_rebuild'),
+        run: async ({ oq, attempt }) => {
+          await inside(attempt, U.owner, DEAD, deadParams({ flock: F.a, on: day(-14), n: 0 }));
+          return flagOf(oq, F.a, day(-14));
+        },
+        correct: (v) => v === true,
+      },
+      {
+        // «قاعة 1» بعلفها المرسل اليوم ووزن عيّنة اليوم ولا علف مأكول: المعامل من صافي المرسل لا من المأكول (جواب المالك).
+        name: 'report_days كما في 0035',
+        body: bodyOf('0035_hall_sheet.sql', 'private.report_days'),
+        run: async ({ attempt }) => {
+          await inside(attempt, U.owner, 'select public.record_flock_weight($1, $2, $3, $4, $5) as v', [F.a, TODAY, 50, '1000.0', uid()]);
+          return (await inside(attempt, U.owner, 'select public.flock_cycle_report($1) as v', [F.a]))?.kpis?.fcr;
+        },
+        correct: (v) => typeof v === 'string' && Number(v) > 0,
+      },
+      {
+        name: 'flock_cycle_report كما في 0035',
+        body: bodyOf('0035_hall_sheet.sql', 'public.flock_cycle_report'),
+        run: async ({ attempt }) => (await inside(attempt, U.owner, 'select public.flock_cycle_report($1) as v', [F.a]))?.kpis?.feed_per_bird_kg,
+        correct: (v) => typeof v === 'string' && Number(v) > 0,
+      },
     ];
     const before = [];
     for (const c of OLD) {
@@ -816,16 +879,43 @@ async function scenario(t, db) {
   // ── ١٠) ملفّ التراجع يرجّع الأجسام الأخيرة حرفاً ─────────────────────────────────────────────────────────────────────────
   await section('التراجع', async () => {
     const rollback = readFileSync(path.join(MIGRATIONS, 'rollback_0036.sql'), 'utf8');
-    const missing = [['0035_hall_sheet.sql', 'public.save_flock_visit'], ['0035_hall_sheet.sql', 'public.save_flock_day'], ['0029_bird_sales_close.sql', 'private.flock_summary'],
-      ['0012_flocks_daily.sql', 'public.flocks_overview'], ['0012_flocks_daily.sql', 'private.flock_day_json']]
-      .filter(([file, head]) => !rollback.includes(bodyOf(file, head))).map(([, head]) => head);
-    same(missing, [], 'ملفّ التراجع يرجّع الأجسام الخمسة كما في آخر هجرة عرّفتها حرفاً');
-    const later = ['public.save_flock_visit', 'public.save_flock_day', 'private.flock_summary', 'public.flocks_overview', 'private.flock_day_json']
+    const BODIES = [['0035_hall_sheet.sql', 'public.save_flock_visit'], ['0035_hall_sheet.sql', 'public.save_flock_day'], ['0035_hall_sheet.sql', 'private.report_days'],
+      ['0035_hall_sheet.sql', 'public.flock_cycle_report'], ['0032_round_visits.sql', 'private.flock_day_rebuild'], ['0029_bird_sales_close.sql', 'private.flock_summary'],
+      ['0012_flocks_daily.sql', 'public.flocks_overview'], ['0012_flocks_daily.sql', 'private.flock_day_json']];
+    const missing = BODIES.filter(([file, head]) => !rollback.includes(bodyOf(file, head))).map(([, head]) => head);
+    same(missing, [], `ملفّ التراجع يرجّع الأجسام (${BODIES.length}) كما في آخر هجرة عرّفتها حرفاً`);
+    const later = BODIES.map(([, head]) => head)
       .filter((head) => readFileSync(path.join(MIGRATIONS, '0036_round_once.sql'), 'utf8').split(`create or replace function ${head}(`).length !== 2);
     same(later, [], 'وكلّ جسم منها معرَّف في 0036 مرّة واحدة');
     t.ok(['drop function if exists public.set_flock_dead(uuid, date, integer, uuid, boolean);', 'drop function if exists public.add_flock_gas(uuid, date, integer, uuid, boolean);',
-      'drop function if exists public.verify_round_once();', 'alter table public.flock_daily drop column if exists dead_entered;'].every((line) => rollback.includes(line)),
-    'ويُسقط الكاتبين والثابت والعمود');
+      'drop function if exists public.verify_round_once();', 'alter table public.flock_visits drop column if exists dead_entry;',
+      'alter table public.flock_daily drop column if exists dead_entered;',
+      "  add constraint flock_day_rejects_reason_check check (reason in ('flock_closed', 'out_of_scope', 'date_too_old', 'period_locked'));"].every((line) => rollback.includes(line)),
+    'ويُسقط الكاتبين والثابت والعمودين، ويرجّع قيد أسباب الركن كما في 0012');
+    // فرع الزيارة المركونة بسبب dead_recorded في طريق الرفض (والقيد القديم حارس ثانٍ: بلا الفرع يرفض بصوت أيضاً، فلا بذرة له في BLOCKING_SEEDS)، داخل
+    // معاملة صاحب الجداول ترجع: الفروع الثلاثة الأخرى مطفأة (بيانات الحزمة تحملها)، فيرفض بفرعه وتلميحه؛ وبلا فرعه يرفضه القيد عند إعادته.
+    const branches = (sql) => sql.replace('if v_zero > 0 then', 'if false then').replace('if v_dead > 0 then', 'if false then').replace('if v_gas > 0 then', 'if false then');
+    const refusals = await mutant(db, U.owner, [], async ({ oq, attempt }) => {
+      const parked = await inside(attempt, U.worker, VISIT, visitParams({ flock: F.a, on: day(-1), dead: 2, queued: true }));
+      const run = async (sql) => {
+        await oq('savepoint rollback_probe');
+        try {
+          await oq(sql);
+          return 'كمل';
+        } catch (error) {
+          return `${error.message}|${error.hint ?? error.constraint ?? ''}`;
+        } finally {
+          await oq('rollback to savepoint rollback_probe');
+        }
+      };
+      // العدد في القاعدة كلّها (ملفّات الحزمة الأخرى تركن أيضاً).
+      const count = (await oq("select count(*)::int as n from public.flock_day_rejects where reason = 'dead_recorded'")).rows[0].n;
+      return { parked, count, real: await run(branches(rollback)), unguarded: await run(branches(rollback).replace('if v_recorded > 0 then', 'if false then')) };
+    });
+    t.ok(refusals.parked?.status === 'parked' && refusals.parked?.reason === 'dead_recorded' && refusals.count > 0 && refusals.real.startsWith('rollback_blocked|')
+      && refusals.real.includes(`الزيارات المركونة لأنّ هلاكات يومها مسجّلة: ${refusals.count}،`),
+    `التراجع يرفض الزيارة المركونة بسبب dead_recorded بفرعه وتلميحه (${refusals.count}: ${refusals.real})`);
+    t.ok(refusals.unguarded !== 'كمل' && refusals.unguarded.includes('flock_day_rejects_reason_check'), `وبلا فرعه يرفضه قيد 0012 عند إعادته (${refusals.unguarded})`);
   });
 
   same(await db.asService(verifyOf), VERIFY_ZERO, 'الثابت صفر في نهاية الملفّ');
