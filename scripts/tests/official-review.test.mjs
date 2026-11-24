@@ -11,6 +11,7 @@
 // R3 شريط الجدول الرسميّ عنوانٌ لقارئ الشاشة (role="heading" بمستواه: 2 لتقرير الوجبة وورقة القاعة وجدول اليوم، و3 في «منذ أن بدأنا»)، وcaption باقٍ.
 // R4 صفحة القاعة: العنوان «قاعة 7»، و«هلاكات قاعة (7)» شريط الجدول وحده مرّةً واحدة.
 // R5 أزرار التقرير 44 نقطة: «أرسلها» و«نزّلها» بعد رفض المشاركة، وتنقّل التقرير اليوميّ بين الأيّام.
+// R6 صفحة القاعة عريضةٌ بكلّ حالها (فارغة، وأثناء القراءة، والانتقال من ورقة إلى قاعة فارغة بلا لحظة ضيّقة).
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
@@ -513,6 +514,40 @@ export default async function (t) {
         names.map((name) => [name, byAction(name).length, tall(byAction(name)[0] ?? null)]),
         names.map((name) => [name, 1, true]),
         'R5 التقرير اليوميّ: التنقّل بين الأيّام و«أرسلها» و«نزّلها» بارتفاع 44 نقطة كـ«أرسل صورة» و«اطبع» (على cfe9710: h-9 = 36)',
+      );
+    });
+
+    await step('R6a', async () => {
+      fresh();
+      await mount('/broiler/hall/h-rv-8', farmRoutes());
+      t.same(
+        [byAction('hall-empty').length, m.wideStore.get()],
+        [1, 1],
+        'R6 صفحة القاعة بلا فوج عريضةٌ كصفحة القاعة بفوج: وإلّا قفز العرض بين القاعات بالسابقة والتالية (1600 ← 1152 بعرض 1920؛ على cfe9710: العدّاد صفر)',
+      );
+    });
+
+    await step('R6b', async () => {
+      fresh({ answers: { flocks_overview: 'pending' } });
+      await mount(`/broiler/hall/${SHEET.flock.hall_id}`, farmRoutes());
+      t.same([byAction('hall-sheet').length, m.wideStore.get()], [0, 1], 'R6 صفحة القاعة عريضةٌ أثناء قراءة الحقول أيضاً، قبل أن تُعرف القاعة (على cfe9710: العدّاد صفر)');
+    });
+
+    await step('R6c', async () => {
+      fresh();
+      await mount(`/broiler/hall/${SHEET.flock.hall_id}`, farmRoutes());
+      const seen = [m.wideStore.get()];
+      const stop = m.wideStore.subscribe(() => seen.push(m.wideStore.get()));
+      try {
+        fire(byAction('hall-next')[0], 'click', { button: 0 });
+        await settle(60);
+      } finally {
+        stop();
+      }
+      t.same(
+        [byAction('hall-empty').length, Math.min(...seen) > 0, m.wideStore.get()],
+        [1, true, 1],
+        `R6 من ورقة «قاعة 7» إلى «قاعة 8» الفارغة بـ«التالية»: الصفحة عريضةٌ في كلّ لحظة (العدّاد ${seen.join(' ← ')}؛ على cfe9710 يهبط صفراً فتضيق)`,
       );
     });
 

@@ -1587,6 +1587,9 @@ function EmptyHall({ kind, site, hall, nav, onChanged }: { kind: FlockKind; site
  * حالها فارغة.
  */
 export function HallPage({ kind }: { kind: FlockKind }) {
+  // عريضةٌ بكلّ حالها (مراجعة 0036 R6): القاعة الفارغة وأثناء القراءة كورقة الفوج، فلا يقفز عرض الصفحة بين قاعة وأخرى بالسابقة والتالية. والورقة
+  // تحمل العرض بنفسها أيضاً (SheetScreen في /flock/:id خارج هذه الصفحة)، والعدّاد يتّسع للاثنين.
+  useWidePage();
   const { id = '' } = useParams();
   const stamp = useStamp();
   const userId = stamp?.userId ?? null;
