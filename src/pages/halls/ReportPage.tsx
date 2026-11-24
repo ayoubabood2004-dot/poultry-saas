@@ -250,11 +250,10 @@ function BatchView({ flockId }: { flockId: string }) {
               title={t('halls.day.image.ready', 'الصورة جاهزة: اضغط «أرسلها» لتختار التطبيق ومن ترسلها إليه.')}
               action={
                 <div className="flex flex-wrap gap-2">
-                  <Button size="sm" onClick={() => void deliver(ready.file, ready.title)} data-action="batch-send-ready">
+                  <Button onClick={() => void deliver(ready.file, ready.title)} data-action="batch-send-ready">
                     {t('halls.day.image.send', 'أرسلها')}
                   </Button>
                   <Button
-                    size="sm"
                     variant="secondary"
                     onClick={() => {
                       downloadFile(ready.file);

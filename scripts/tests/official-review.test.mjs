@@ -10,6 +10,7 @@
 // R2 جداول التقرير على الشاشة في إطار DataTable بحدّ 70dvh يثبت فيه رأسها (لا قاعدة شاشة ترفع الحدّ)؛ وعلى الورق وفي الصورة بلا حدّ ولا تمرير.
 // R3 شريط الجدول الرسميّ عنوانٌ لقارئ الشاشة (role="heading" بمستواه: 2 لتقرير الوجبة وورقة القاعة وجدول اليوم، و3 في «منذ أن بدأنا»)، وcaption باقٍ.
 // R4 صفحة القاعة: العنوان «قاعة 7»، و«هلاكات قاعة (7)» شريط الجدول وحده مرّةً واحدة.
+// R5 أزرار التقرير 44 نقطة: «أرسلها» و«نزّلها» بعد رفض المشاركة، وتنقّل التقرير اليوميّ بين الأيّام.
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
@@ -176,6 +177,8 @@ const bandsOf = (root = body()) =>
   descendants(root)
     .filter((n) => words(n).includes('ofc-band'))
     .map((n) => [n.textContent, hiddenFromReaders(n) ? null : headingLevel(n)]);
+/** بلا h-9 (36 نقطة) وبـh-11 أو أكبر (44 نقطة فأكثر). */
+const tall = (node) => Boolean(node) && !words(node).includes('h-9') && words(node).some((cls) => /^(?:h|min-h)-(?:11|12|13|14)$/u.test(cls));
 /** نصوص bdi في قيمة مربّع البيانات key. */
 const infoBdi = (key) => {
   const box = all().find((n) => n.getAttribute('data-info') === key);
@@ -358,6 +361,12 @@ export default async function (t) {
     const reportRoutes = () =>
       m.h(m.Routes, null, m.h(m.Route, { path: '/halls/report/:flockId', element: m.h(m.ReportPage) }), m.h(m.Route, { path: '/halls/day', element: m.h(m.DailyPage) }));
     const farmRoutes = () => m.h(m.Routes, null, m.h(m.Route, { path: '/broiler/*', element: m.h(m.FarmRoutes, { kind: 'broiler' }) }));
+    // «أرسل صورة» والمتصفّح يرفض فتح المشاركة (الضغطة «قديمة»): تظهر «الصورة جاهزة» بـ«أرسلها» و«نزّلها».
+    const blocked = async () => {
+      const error = new Error('not allowed');
+      error.name = 'NotAllowedError';
+      throw error;
+    };
     // ساعة الجهاز ثابتة («طُبع في» من new Date) وتتقدّم بين خطوة وأخرى.
     let clock = new RealDate(2026, 11, 3, 9, 5).getTime();
     class FixedDate extends RealDate {
@@ -479,6 +488,32 @@ export default async function (t) {
         'R4 صفحة القاعة: عنوانها اسم القاعة «قاعة 7» (h1)، و«هلاكات قاعة (7)» شريط الجدول وحده مرّةً واحدة على الشاشة (أُصلح في دمج 0036)',
       );
       t.same(bandsOf(), [[band, 2]], 'R3 ورقة القاعة: شريطها «هلاكات قاعة (7)» عنوانٌ من المستوى الثاني تحت عنوان الصفحة (على cfe9710: aria-hidden وحده)');
+    });
+
+    await step('R5a', async () => {
+      fresh({ share: blocked });
+      await mount(`/halls/report/${SHEET.flock.id}`, reportRoutes());
+      fire(byAction('batch-image')[0], 'click', { button: 0 });
+      await settle(80);
+      const ready = ['batch-send-ready', 'batch-download-ready'].map((name) => byAction(name)[0] ?? null);
+      t.same(
+        ready.map((node) => [node ? node.textContent : null, tall(node)]),
+        [['أرسلها', true], ['نزّلها', true]],
+        'R5 تقرير الوجبة: «أرسلها» و«نزّلها» (الصورة جاهزة بعد رفض المشاركة) بارتفاع 44 نقطة كأفعال التقرير (على cfe9710: h-9 = 36)',
+      );
+    });
+
+    await step('R5b', async () => {
+      fresh({ share: blocked });
+      await mount('/halls/day?on=2026-11-12', reportRoutes());
+      fire(byAction('send-image')[0], 'click', { button: 0 });
+      await settle(80);
+      const names = ['day-prev', 'day-pick', 'day-next', 'day-today', 'send-ready', 'download-ready'];
+      t.same(
+        names.map((name) => [name, byAction(name).length, tall(byAction(name)[0] ?? null)]),
+        names.map((name) => [name, 1, true]),
+        'R5 التقرير اليوميّ: التنقّل بين الأيّام و«أرسلها» و«نزّلها» بارتفاع 44 نقطة كـ«أرسل صورة» و«اطبع» (على cfe9710: h-9 = 36)',
+      );
     });
 
     // ── M: ما عبرته الطفرات في الشاشات (M5 M7 M8 M16) ────────────────────────────────────────────────────────────

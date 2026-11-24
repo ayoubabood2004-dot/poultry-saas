@@ -643,22 +643,22 @@ export default function DailyPage() {
 
       <div className="flex flex-col gap-3 print:hidden" data-action="day-controls">
         <div className="flex flex-wrap items-center gap-2" data-action="day-bar">
-          <Button size="sm" variant="secondary" disabled={prevOff} onClick={() => step(-1)} data-action="day-prev">
+          <Button variant="secondary" disabled={prevOff} onClick={() => step(-1)} data-action="day-prev">
             {t('halls.day.prev', 'اليوم السابق')}
           </Button>
-          <Button size="sm" variant="ghost" onClick={() => setPicking(true)} aria-label={t('halls.day.pick', 'اختر يوماً آخر (المطلوب {day})', { day: dayLabel })} data-action="day-pick">
+          <Button variant="ghost" onClick={() => setPicking(true)} aria-label={t('halls.day.pick', 'اختر يوماً آخر (المطلوب {day})', { day: dayLabel })} data-action="day-pick">
             {dayLabel}
           </Button>
-          <Button size="sm" variant="secondary" disabled={nextOff} onClick={() => step(1)} data-action="day-next">
+          <Button variant="secondary" disabled={nextOff} onClick={() => step(1)} data-action="day-next">
             {t('halls.day.next', 'اليوم التالي')}
           </Button>
           {following ? null : (
-            <Button size="sm" variant="ghost" onClick={() => go(null)} data-action="day-today">
+            <Button variant="ghost" onClick={() => go(null)} data-action="day-today">
               {t('halls.day.today', 'اليوم')}
             </Button>
           )}
         </div>
-        {/* أفعال التقرير بارتفاع 44 نقطة (عقد 0036 S1) كأفعال تقرير الوجبة. */}
+        {/* أفعال التقرير والتنقّل بين الأيّام بارتفاع 44 نقطة (عقد 0036 S1، ومراجعته R5) كأفعال تقرير الوجبة. */}
         <div className="flex flex-wrap items-center gap-2">
           <Button disabled={!current || !historyReady || history.loading} busy={imaging} onClick={() => void sendImage()} data-action="send-image">
             {imaging ? t('halls.day.image.making', 'جارٍ تجهيز الصورة…') : t('halls.day.image', 'أرسل صورة')}
@@ -676,11 +676,10 @@ export default function DailyPage() {
             title={t('halls.day.image.ready', 'الصورة جاهزة: اضغط «أرسلها» لتختار التطبيق ومن ترسلها إليه.')}
             action={
               <div className="flex flex-wrap gap-2">
-                <Button size="sm" onClick={() => void deliver(readyNow.file, readyNow.on, readyNow.title)} data-action="send-ready">
+                <Button onClick={() => void deliver(readyNow.file, readyNow.on, readyNow.title)} data-action="send-ready">
                   {t('halls.day.image.send', 'أرسلها')}
                 </Button>
                 <Button
-                  size="sm"
                   variant="secondary"
                   onClick={() => {
                     downloadFile(readyNow.file);
