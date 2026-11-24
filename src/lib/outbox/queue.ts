@@ -140,98 +140,111 @@ const newestOf = (ops: readonly OutboxOp[]) => ops.reduce<OutboxOp | null>((late
  * يحفظ جولة بالطابور مختومة بالهويّة المؤكّدة، ويدمجها ويّا عملية اللي ما انبعثت بعد: مجموع اليوم (save_flock_day) بأحدث عملية للمفتاح إذا
  * هي منتظرة ومن نوعها، والزيارة (save_flock_visit) بأحدث عملية منتظرة لنفس الزيارة وحدها (زيارتان مختلفتان تُجمعان بالخادم فلا تندمجان، ولا
  * تندمج زيارة بمجموع اليوم). إلغاء زيارة جديدة ما انرفعت يحذف عمليتها ويرجّع null (لا شيء يُرسل)، وهذا وحده null.
- * الشاشات ما تناديه: تنادي saveRound (round.ts) اللي يسأل persisted() وراه.
+ * الشاشات ما تناديه: تنادي saveRound أو saveRounds (round.ts) اللي يسألان persisted() وراه.
+ * جولة كاملة بمعاملة IndexedDB واحدة (مراجعة 0036 R3): كلّ عملياتها تُكتب بقواعد الدمج نفسها، أو لا يُكتب شيء. كان «احفظ الجولة» يكتب عملية بعد عملية،
+ * ففشل كتابة في منتصفه (التخزين ممتلئ) أبقى ما قبله في الطابور وخاناته مكتوبة، والضغطة الثانية تجمع الغاز مرّتين وتضيف زيارة البيض ثانيةً. والمعاملة
+ * readwrite على مخزن العمليات تتسلسل بين التبويبات كما كانت كلّ عملية.
  */
-export async function enqueue(db: IDBDatabase, stamp: Stamp, input: EnqueueInput, now = Date.now()): Promise<OutboxOp | null> {
-  const fn: string = input.fn;
-  if (!isQueueable(fn)) throw new OutboxError('not_queueable');
-  if (input.fn === 'save_flock_visit' && (typeof input.payload?.visitId !== 'string' || input.payload.visitId === '')) throw new OutboxError('not_queueable');
-  if (input.fn === 'set_flock_gas') {
-    const cylinders = input.payload?.cylinders;
-    if (cylinders !== null && !whole(cylinders, 0, MAX_CYLINDERS)) throw new OutboxError('not_queueable');
+export async function enqueueAll(db: IDBDatabase, stamp: Stamp, inputs: readonly EnqueueInput[], now = Date.now()): Promise<(OutboxOp | null)[]> {
+  // كلّ الفحوص قبل أيّ كتابة: عملية لا تدخل الطابور ترفض الجولة كلّها.
+  for (const input of inputs) {
+    const fn: string = input.fn;
+    if (!isQueueable(fn)) throw new OutboxError('not_queueable');
+    if (input.fn === 'save_flock_visit' && (typeof input.payload?.visitId !== 'string' || input.payload.visitId === '')) throw new OutboxError('not_queueable');
+    if (input.fn === 'set_flock_gas') {
+      const cylinders = input.payload?.cylinders;
+      if (cylinders !== null && !whole(cylinders, 0, MAX_CYLINDERS)) throw new OutboxError('not_queueable');
+    }
+    // 0036: الهلاكات عدد صحيح بحدود الخادم، والإضافة قنينة على الأقلّ وحتى 1,000؛ ولا نسخة لأيّهما.
+    if (input.fn === 'set_flock_dead' && (!whole(input.payload?.dead, 0, MAX_BIRDS) || input.baseVersion !== null)) throw new OutboxError('not_queueable');
+    if (input.fn === 'add_flock_gas' && (!whole(input.payload?.add, 1, MAX_CYLINDERS) || input.baseVersion !== null)) throw new OutboxError('not_queueable');
   }
-  // 0036: الهلاكات عدد صحيح بحدود الخادم، والإضافة قنينة على الأقلّ وحتى 1,000؛ ولا نسخة لأيّهما.
-  if (input.fn === 'set_flock_dead' && (!whole(input.payload?.dead, 0, MAX_BIRDS) || input.baseVersion !== null)) throw new OutboxError('not_queueable');
-  if (input.fn === 'add_flock_gas' && (!whole(input.payload?.add, 1, MAX_CYLINDERS) || input.baseVersion !== null)) throw new OutboxError('not_queueable');
   if (!stamp.userId || !stamp.orgId) throw new OutboxError('no_identity');
   return transact(db, OPS, 'readwrite', async (tx) => {
     const store = tx.objectStore(OPS);
-    const key = { userId: stamp.userId, orgId: stamp.orgId, flockId: input.flockId, day: input.day };
-    const existing = await sameKey(store, key);
-    let baseVersion = input.baseVersion;
-    if (input.fn === 'set_flock_dead') {
-      // أحدث عملية هلاكات لليوم وحدها، وبس إذا بعدها منتظرة: القيمة الأحدث تحلّ محلّ القديمة (لم تُرسل، فلا شيء يُضاف).
-      const open = newestOf(existing.filter((op) => op.fn === 'set_flock_dead'));
-      if (open?.fn === 'set_flock_dead' && open.state === 'pending') {
-        const merged: DeadOp = { ...open, payload: { dead: input.payload.dead }, updatedAt: now };
-        await requestResult(store.put(merged));
-        return merged;
-      }
-    } else if (input.fn === 'add_flock_gas') {
-      // أحدث إضافة لليوم وحدها، وبس إذا بعدها منتظرة (لم تُرسل قطّ): تُجمع فيها. والمجموع لا يتجاوز 1,000 (حدّ الخادم ليوم)، وإلّا عملية بجنبها.
-      const open = newestOf(existing.filter((op) => op.fn === 'add_flock_gas'));
-      if (open?.fn === 'add_flock_gas' && open.state === 'pending' && open.payload.add + input.payload.add <= MAX_CYLINDERS) {
-        const merged: GasAddOp = { ...open, payload: { add: open.payload.add + input.payload.add }, updatedAt: now };
-        await requestResult(store.put(merged));
-        return merged;
-      }
-    } else if (input.fn === 'set_flock_gas') {
-      // أحدث عملية غاز لليوم وحدها، وبس إذا بعدها منتظرة: القيمة الأحدث تحلّ محلّ القديمة، ونسختها كما هي.
-      const open = newestOf(existing.filter((op) => op.fn === 'set_flock_gas'));
-      if (open?.fn === 'set_flock_gas' && open.state === 'pending') {
-        const merged: GasOp = { ...open, payload: { cylinders: input.payload.cylinders }, updatedAt: now };
-        await requestResult(store.put(merged));
-        return merged;
-      }
-    } else if (input.fn === 'save_flock_visit') {
-      const visitId = input.payload.visitId;
-      const own = existing.filter((op) => visitIdOf(op) === visitId);
-      // الدمج بأحدث عملية للزيارة بس، وبس إذا بعدها منتظرة (عملية ممسوكة أو مجهولة تنحسم أوّلاً، والتالية بعدها بنسختها).
-      const open = newestOf(own);
-      if (open?.fn === 'save_flock_visit' && open.state === 'pending') {
-        if (input.payload.void && open.baseVersion === null) {
-          await requestResult(store.delete(open.id));
-          return null;
-        }
-        // المحتوى كاملاً يحلّ محلّ محتواها، ونسختها كما هي (النسخة التي يفحصها الخادم).
-        const merged: OutboxOp = { ...open, payload: { ...input.payload }, updatedAt: now };
-        await requestResult(store.put(merged));
-        return merged;
-      }
-      // تعديل زيارة أضافها هذا الجهاز أو إلغاؤها (بلا نسخة) وعمليتها لم تعد بالطابور: رُفعت بعد ما فُتحت النافذة (أو رُدّت)، فنسختها 1 ما لم
-      // تُعدَّل من جهاز آخر (والخادم يجيب حينها stale_visit). كان الإلغاء يرجّع null فيُقال «أُلغيت قبل أن تُرسل» وهي بالخادم، والتعديل يصير إضافة
-      // لمعرّف موجود (stale_visit). وعمليتها في الطريق (ممسوكة أو مجهولة): نسخة null، وحفظها يرفعها (removeSaved).
-      if ((input.amend || input.payload.void) && input.baseVersion === null && own.length === 0) baseVersion = 1;
-    } else {
-      // الدمج بأحدث عملية للمفتاح بس، وبس إذا بعدها منتظرة ومن نوعها: عمليتان منتظرتان لنفس اليوم ممكنة (عملية رجعت للانتظار بلا ما
-      // تنبعث)، والدمج بالأقدم كان يرفع القيمة الجديدة أوّل وتدوسها القديمة؛ وزيارة بعدها تقطع الدمج فيبقى الترتيب كما كُتب.
-      const open = newestOf(existing.filter(dayLike));
-      if (open?.fn === 'save_flock_day' && open.state === 'pending') {
-        const merged: DayOp = { ...open, payload: mergePayload(open.payload, input.payload), updatedAt: now };
-        await requestResult(store.put(merged));
-        return merged;
-      }
-    }
-    // ترتيب صارم لنفس المفتاح حتى لو انحفظت عمليتان بنفس الملّي ثانية.
-    const createdAt = existing.reduce((latest, op) => Math.max(latest, op.createdAt + 1), now);
-    const op = {
-      id: crypto.randomUUID(),
-      fn: input.fn,
-      ...key,
-      displayName: stamp.displayName,
-      payload: { ...input.payload },
-      baseVersion,
-      state: 'pending',
-      attempts: 0,
-      claimToken: null,
-      claimedAt: null,
-      createdAt,
-      updatedAt: now,
-      lastError: null,
-    } as OutboxOp;
-    await requestResult(store.add(op));
-    return op;
+    const written: (OutboxOp | null)[] = [];
+    for (const input of inputs) written.push(await write(store, stamp, input, now));
+    return written;
   });
+}
+
+/** عملية واحدة داخل معاملة مفتوحة: الدمج بعمليات مفتاحها كما هي فيها (ومنها ما كُتب قبلها في المعاملة نفسها)، أو عملية جديدة. */
+async function write(store: IDBObjectStore, stamp: Stamp, input: EnqueueInput, now: number): Promise<OutboxOp | null> {
+  const key = { userId: stamp.userId, orgId: stamp.orgId, flockId: input.flockId, day: input.day };
+  const existing = await sameKey(store, key);
+  let baseVersion = input.baseVersion;
+  if (input.fn === 'set_flock_dead') {
+    // أحدث عملية هلاكات لليوم وحدها، وبس إذا بعدها منتظرة: القيمة الأحدث تحلّ محلّ القديمة (لم تُرسل، فلا شيء يُضاف).
+    const open = newestOf(existing.filter((op) => op.fn === 'set_flock_dead'));
+    if (open?.fn === 'set_flock_dead' && open.state === 'pending') {
+      const merged: DeadOp = { ...open, payload: { dead: input.payload.dead }, updatedAt: now };
+      await requestResult(store.put(merged));
+      return merged;
+    }
+  } else if (input.fn === 'add_flock_gas') {
+    // أحدث إضافة لليوم وحدها، وبس إذا بعدها منتظرة (لم تُرسل قطّ): تُجمع فيها. والمجموع لا يتجاوز 1,000 (حدّ الخادم ليوم)، وإلّا عملية بجنبها.
+    const open = newestOf(existing.filter((op) => op.fn === 'add_flock_gas'));
+    if (open?.fn === 'add_flock_gas' && open.state === 'pending' && open.payload.add + input.payload.add <= MAX_CYLINDERS) {
+      const merged: GasAddOp = { ...open, payload: { add: open.payload.add + input.payload.add }, updatedAt: now };
+      await requestResult(store.put(merged));
+      return merged;
+    }
+  } else if (input.fn === 'set_flock_gas') {
+    // أحدث عملية غاز لليوم وحدها، وبس إذا بعدها منتظرة: القيمة الأحدث تحلّ محلّ القديمة، ونسختها كما هي.
+    const open = newestOf(existing.filter((op) => op.fn === 'set_flock_gas'));
+    if (open?.fn === 'set_flock_gas' && open.state === 'pending') {
+      const merged: GasOp = { ...open, payload: { cylinders: input.payload.cylinders }, updatedAt: now };
+      await requestResult(store.put(merged));
+      return merged;
+    }
+  } else if (input.fn === 'save_flock_visit') {
+    const visitId = input.payload.visitId;
+    const own = existing.filter((op) => visitIdOf(op) === visitId);
+    // الدمج بأحدث عملية للزيارة بس، وبس إذا بعدها منتظرة (عملية ممسوكة أو مجهولة تنحسم أوّلاً، والتالية بعدها بنسختها).
+    const open = newestOf(own);
+    if (open?.fn === 'save_flock_visit' && open.state === 'pending') {
+      if (input.payload.void && open.baseVersion === null) {
+        await requestResult(store.delete(open.id));
+        return null;
+      }
+      // المحتوى كاملاً يحلّ محلّ محتواها، ونسختها كما هي (النسخة التي يفحصها الخادم).
+      const merged: OutboxOp = { ...open, payload: { ...input.payload }, updatedAt: now };
+      await requestResult(store.put(merged));
+      return merged;
+    }
+    // تعديل زيارة أضافها هذا الجهاز أو إلغاؤها (بلا نسخة) وعمليتها لم تعد بالطابور: رُفعت بعد ما فُتحت النافذة (أو رُدّت)، فنسختها 1 ما لم
+    // تُعدَّل من جهاز آخر (والخادم يجيب حينها stale_visit). كان الإلغاء يرجّع null فيُقال «أُلغيت قبل أن تُرسل» وهي بالخادم، والتعديل يصير إضافة
+    // لمعرّف موجود (stale_visit). وعمليتها في الطريق (ممسوكة أو مجهولة): نسخة null، وحفظها يرفعها (removeSaved).
+    if ((input.amend || input.payload.void) && input.baseVersion === null && own.length === 0) baseVersion = 1;
+  } else {
+    // الدمج بأحدث عملية للمفتاح بس، وبس إذا بعدها منتظرة ومن نوعها: عمليتان منتظرتان لنفس اليوم ممكنة (عملية رجعت للانتظار بلا ما
+    // تنبعث)، والدمج بالأقدم كان يرفع القيمة الجديدة أوّل وتدوسها القديمة؛ وزيارة بعدها تقطع الدمج فيبقى الترتيب كما كُتب.
+    const open = newestOf(existing.filter(dayLike));
+    if (open?.fn === 'save_flock_day' && open.state === 'pending') {
+      const merged: DayOp = { ...open, payload: mergePayload(open.payload, input.payload), updatedAt: now };
+      await requestResult(store.put(merged));
+      return merged;
+    }
+  }
+  // ترتيب صارم لنفس المفتاح حتى لو انحفظت عمليتان بنفس الملّي ثانية.
+  const createdAt = existing.reduce((latest, op) => Math.max(latest, op.createdAt + 1), now);
+  const op = {
+    id: crypto.randomUUID(),
+    fn: input.fn,
+    ...key,
+    displayName: stamp.displayName,
+    payload: { ...input.payload },
+    baseVersion,
+    state: 'pending',
+    attempts: 0,
+    claimToken: null,
+    claimedAt: null,
+    createdAt,
+    updatedAt: now,
+    lastError: null,
+  } as OutboxOp;
+  await requestResult(store.add(op));
+  return op;
 }
 
 interface Claimed {

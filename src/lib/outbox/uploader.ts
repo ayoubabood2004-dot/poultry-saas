@@ -1,3 +1,4 @@
+import { patchKept } from '../farmCopy';
 import { publishCounts, publishRun, roundQueueStore, stampKey, type RoundResult } from '../roundUploads';
 import { flush, openOutbox, summarize } from './queue';
 import type { Stamp, Transport } from './types';
@@ -69,6 +70,12 @@ async function run(stamp: Stamp, loadTransport: () => Promise<Transport>): Promi
       } catch {
         /* swallow-ok: نتيجة لا تُنسخ إلى نافذة أخرى (DataCloneError)؛ تلك تقرأ الطابور بعد رفعها التالي كما كانت */
       }
+    }
+    // نسخة الجهاز بما حُفظ (مراجعة 0036 R2c): فتح التطبيق بلا نت بعد رفعٍ لم تصل قراءة بعده يعرضه، لا ما قبله.
+    if (results.some((entry) => entry.result.kind === 'saved')) {
+      void patchKept(stamp).catch(() => {
+        /* swallow-ok: نسخة الجهاز للفتح بلا نت؛ القراءة التالية تكتبها من الخادم */
+      });
     }
     await refreshQueue(stamp).catch(() => {
       /* swallow-ok: العدّ بعد الرفع تعذّر (IndexedDB)؛ الرأس يبقى على آخر عدّ لحد الرفع الجاي */

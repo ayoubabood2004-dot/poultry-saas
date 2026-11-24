@@ -1,5 +1,5 @@
 import { CloudOff, Send } from 'lucide-react';
-import { Suspense, useCallback, useEffect, useId, useRef, useState, type ComponentType, type KeyboardEvent } from 'react';
+import { Suspense, useEffect, useId, useMemo, useRef, useState, type ComponentType, type KeyboardEvent } from 'react';
 import { Link } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/Button';
@@ -13,15 +13,18 @@ import type { Milli } from '../../domain/money';
 import { readGasAdd, readVisit, type FlockKind, type GasAddError } from '../../domain/flocks';
 import { can } from '../../domain/permissions';
 import { describeError, NotConnectedError, RejectedError } from '../../lib/errors';
+import { fedStore, nextTick, patchKept, withSaved } from '../../lib/farmCopy';
 import { countForm, fmtDay, fmtInt, fmtMilli } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { onlineStore } from '../../lib/online';
-import { openOutbox, pendingOps, removeReview, reviewEntries, saveRound, type OutboxOp, type ReviewEntry, type SendResult, type Stamp } from '../../lib/outbox';
+import { openOutbox, removeReview, saveRounds, type EnqueueInput, type OutboxOp, type ReviewEntry, type SendResult, type Stamp } from '../../lib/outbox';
 import { useDirtyForm } from '../../lib/pwa/dirty';
-import type { FlockSummary, FlocksOverview } from '../../lib/repo/flocks';
+import { parseOverview, type FlockSummary, type FlocksOverview } from '../../lib/repo/flocks';
+import type { FeedSent } from '../../lib/repo/hallSheet';
 import { ackRuns, refreshRoundQueue, roundQueueStore, stampKey, uploadRounds, type RoundRun } from '../../lib/roundUploads';
 import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
+import { useQueue } from './deviceQueue';
 import { CARD_CLASS, givePath, LINK_CLASS } from './feed';
 import './round.css';
 import { cylindersText, errorText, feedAmount, gasSoFar, loadTransport, parkText, soFar, soFarText, staleVisitText, type GasSoFar, type SoFar } from './roundText';
@@ -149,37 +152,6 @@ function statusText(status: RowStatus): string {
   }
 }
 
-/** عمليات الجهاز ورفّ المراجعة للداخل، ومن جديد بعد كل رفع (uploads). */
-function useQueue(stamp: Stamp | null, uploads: number) {
-  const [state, setState] = useState<{ key: string; pending: OutboxOp[]; review: ReviewEntry[] } | null>(null);
-  const [version, setVersion] = useState(0);
-  const key = stamp ? `${stamp.userId}:${stamp.orgId}` : '';
-  const userId = stamp?.userId ?? null;
-  const orgId = stamp?.orgId ?? null;
-  const displayName = stamp?.displayName ?? '';
-  useEffect(() => {
-    if (!userId || !orgId) return;
-    let cancelled = false;
-    const owner = { userId, orgId, displayName };
-    openOutbox()
-      .then(async (db) => ({ pending: await pendingOps(db, owner), review: await reviewEntries(db, owner) }))
-      .then(
-        ({ pending, review }) => {
-          if (!cancelled) setState({ key: `${userId}:${orgId}`, pending, review });
-        },
-        () => {
-          /* swallow-ok: الطابور ما انقرا (IndexedDB ممنوع)؛ الجولة تعرض قيم الخادم والحفظ نفسه يبلّغ بفشله */
-        },
-      );
-    return () => {
-      cancelled = true;
-    };
-  }, [userId, orgId, displayName, version, uploads]);
-  const reload = useCallback(() => setVersion((n) => n + 1), []);
-  const current = state?.key === key ? state : null;
-  return { pending: current?.pending ?? [], review: current?.review ?? [], loaded: current !== null, reload };
-}
-
 type ShelfField = 'dead' | 'culled' | 'feed_kg' | 'eggs_total' | 'eggs_broken' | 'cylinders' | 'add' | 'note';
 
 /** الهلاكات في صفّ اليوم كما يعرضها الخادم: النافق والمستبعد القديم معاً (الورقة)، أو null. */
@@ -194,7 +166,7 @@ function dayDeaths(server: unknown): number | null {
  * رفّ المراجعة: ما لم يقبله الخادم كما هو، ومنه المركون بسببه (0035: كان يُحذف من الجهاز بصمت)، بالنسختين جنب بعض؛ ولا يُحذف إلا بـ«احذفه» بتأكيد
  * يسمّي ما يضيع. ولكلّ صفّ الخانة وقيمتاها: الهلاكات (0036) ما كتبته وما سُجّل، والغاز المضاف ما أضفته.
  */
-function ReviewShelf({ entries, names, onRemove }: { entries: readonly ReviewEntry[]; names: ReadonlyMap<string, string>; onRemove: (entry: ReviewEntry) => Promise<void> }) {
+function ReviewShelf({ entries, names, halls, kind, onRemove }: { entries: readonly ReviewEntry[]; names: ReadonlyMap<string, string>; halls: ReadonlyMap<string, string>; kind: FlockKind; onRemove: (entry: ReviewEntry) => Promise<void> }) {
   const [removing, setRemoving] = useState<{ entry: ReviewEntry; busy: boolean } | null>(null);
   if (entries.length === 0) return null;
   const fields: { key: ShelfField; label: string; amount?: boolean }[] = [
@@ -225,7 +197,7 @@ function ReviewShelf({ entries, names, onRemove }: { entries: readonly ReviewEnt
   return (
     <section className="flex flex-col gap-3">
       <h2 className="font-semibold">{t('round.review.title', 'جولات تحتاج مراجعة')}</h2>
-      <p className="text-sm text-ink-muted">{t('round.review.hint', 'لم يقبلها الخادم كما هي. تبقى هنا على هذا الجهاز ولا تُحذف؛ أعد إدخال ما تراه صحيحاً في الجولة.')}</p>
+      <p className="text-sm text-ink-muted">{t('round.review.hint', 'لم يقبلها الخادم كما هي. تبقى هنا على هذا الجهاز ولا تُحذف؛ أعد إدخال ما تراه صحيحاً في الجولة، والهلاكات المسجّلة من صفحة القاعة.')}</p>
       {entries.map((entry) => {
         const server = entry.server && typeof entry.server === 'object' ? (entry.server as Record<string, unknown>) : null;
         const op = entry.op;
@@ -278,6 +250,8 @@ function ReviewShelf({ entries, names, onRemove }: { entries: readonly ReviewEnt
             </p>
             {/* الرفض بلا تلميح (رمز خادم مثل PGRST202) بجملة فصيحة، مو الرمز وحده. */}
             <p className="text-sm">{reason}</p>
+            {/* الهلاكات المسجّلة مقفولة في الجولة: تصحيحها من صفحة القاعة بالقلم (مراجعة 0036 R9). */}
+            {entry.reason === 'dead_recorded' && halls.has(op.flockId) ? <DeadFix to={hallPath(kind, halls.get(op.flockId) ?? '')} action="review-dead-fix" /> : null}
             <DataTable
               caption={visit ? t('round.review.visit_table', 'زيارتك والمحفوظة') : t('round.review.table', 'جولتك والمحفوظ في الخادم')}
               columns={[
@@ -316,6 +290,18 @@ function ReviewShelf({ entries, names, onRemove }: { entries: readonly ReviewEnt
   );
 }
 
+/** «للتصحيح: صفحة القاعة ← ✎ تعديل»: الهلاكات المسجّلة تُصحَّح من صفحة القاعة بالقلم (البطاقة المقفولة، وصفّ dead_recorded في الرفّ). */
+function DeadFix({ to, action }: { to: string; action: string }) {
+  return (
+    <p className="text-sm">
+      {t('round.dead.fix_lead', 'للتصحيح:')}{' '}
+      <Link to={to} className={`${LINK_CLASS} inline-flex min-h-11 items-center`} data-action={action}>
+        {t('round.dead.fix', 'صفحة القاعة ← ✎ تعديل')}
+      </Link>
+    </p>
+  );
+}
+
 /** قسم في بطاقة القاعة (الهلاكات والبيض والعلف والغاز). */
 const SECTION_CLASS = 'flex min-w-0 flex-col gap-2 rounded-2xl border border-line p-3';
 
@@ -347,7 +333,7 @@ interface CardProps {
   online: boolean;
   stamp: Stamp | null;
   feedItems: FlocksOverview['feedItems'];
-  onFeedSent: () => void;
+  onFeedSent: (sent: FeedSent) => void;
   /** بطاقات العلف و«أرسل» من حزمة القاعات (استيراد واحد للجولة كلّها). */
   Feed: ComponentType<RoundFeedProps>;
   /** مرجع كلّ خانة للتنقّل بـEnter. */
@@ -395,6 +381,7 @@ function RoundCard({ row, kind, today, entry, onChange, error, status, online, s
       </p>
     ) : null;
   const late = entry !== null && entered && typed(entry.dead);
+  const gasToday = gas.cylinders === null ? t('round.gas.today_none', 'اليوم: لم يُسجَّل غاز') : t('round.gas.today', 'اليوم: {n}', { n: cylindersText(gas.cylinders) });
   return (
     <div className={CARD_CLASS} data-flock={row.flock.id}>
       <div className="flex flex-wrap items-baseline justify-between gap-2">
@@ -440,14 +427,7 @@ function RoundCard({ row, kind, today, entry, onChange, error, status, online, s
                     {t('round.dead.pending', 'بانتظار الرفع من هذا الجهاز.')}
                   </p>
                 ) : null}
-                {entered ? (
-                  <p className="text-sm">
-                    {t('round.dead.fix_lead', 'للتصحيح:')}{' '}
-                    <Link to={hallPath(kind, row.hallId)} className={`${LINK_CLASS} inline-flex min-h-11 items-center`} data-action="round-dead-fix">
-                      {t('round.dead.fix', 'صفحة القاعة ← ✎ تعديل')}
-                    </Link>
-                  </p>
-                ) : null}
+                {entered ? <DeadFix to={hallPath(kind, row.hallId)} action="round-dead-fix" /> : null}
                 {late ? (
                   <div className="flex flex-col gap-1" data-action="round-dead-late">
                     <p role="alert" className="text-sm text-warn-800 dark:text-warn-200">
@@ -502,7 +482,14 @@ function RoundCard({ row, kind, today, entry, onChange, error, status, online, s
           {row.sent ? (
             // «أُرسل اليوم» من قراءة الجولة (يعمل بلا نت من نسخة الجهاز ليومها)، فوق بطاقات العلف.
             <div className="flex flex-col gap-1" data-action="round-feed-today">
-              <p className="font-semibold">{row.sent.kg === null ? t('round.feed.none_today', 'لم يُرسل علف اليوم بعد.') : t('round.feed.today', 'أُرسل اليوم: {amount}', { amount: feedAmount(row.sent.kg, 'kg') })}</p>
+              {/* «أُرسل اليوم» بسطوره (مراجعة 0036 R10): علف بالقطعة بلا وزن أو باللتر بلا كثافة سطرٌ بلا مجموع بالكيلو، لا «لم يُرسل». */}
+              <p className="font-semibold">
+                {row.sent.lines.length === 0
+                  ? t('round.feed.none_today', 'لم يُرسل علف اليوم بعد.')
+                  : row.sent.kg === null
+                    ? t('round.feed.today_lines', 'أُرسل اليوم:')
+                    : t('round.feed.today', 'أُرسل اليوم: {amount}', { amount: feedAmount(row.sent.kg, 'kg') })}
+              </p>
               {row.sent.lines.length > 0 ? (
                 <ul className="flex flex-col gap-0.5 text-sm text-ink-muted" data-action="round-feed-lines">
                   {row.sent.lines.map((line) => (
@@ -522,9 +509,12 @@ function RoundCard({ row, kind, today, entry, onChange, error, status, online, s
           <h3 className="font-semibold">{t('round.gas.title', 'الغاز (اختياري)')}</h3>
           {input('gas', t('round.gas.label', 'قناني أُرسلت الآن'))}
           <p className="text-sm" data-action="round-gas-today">
-            {gas.cylinders === null ? t('round.gas.today_none', 'اليوم: لم يُسجَّل غاز') : t('round.gas.today', 'اليوم: {n}', { n: cylindersText(gas.cylinders) })}
+            {gas.unsure > 0
+              ? // إضافة جوابها ضاع أو في الطريق لا تُعدّ (ربّما صارت في المحفوظ): جملة واحدة تقولها، لا «لم يُسجَّل غاز» و«منها ما ينتظر» معاً (مراجعة 0036 R8).
+                t('round.gas.unsure', '{today}، ولم يُعرف بعد مصير إضافة من هذا الجهاز: {n}.', { today: gasToday, n: cylindersText(gas.unsure) })
+              : gasToday}
           </p>
-          {gas.pending ? (
+          {gas.pending && gas.unsure === 0 ? (
             <p className="text-xs text-ink-muted" data-action="round-gas-pending">
               {t('round.gas.pending', 'منها ما ينتظر الرفع من هذا الجهاز.')}
             </p>
@@ -584,20 +574,41 @@ export default function RoundPage({ kind }: { kind: FlockKind }) {
   const [result, setResult] = useState<{ total: number; saved: number; others: string[] } | null>(null);
   const [busy, setBusy] = useState(false);
   const [failure, setFailure] = useState<unknown>(null);
-  // التذكير وبطاقات العلف من حزمة القاعات باستيراد واحد لهذا الفتح (فشله لعمره، ويُعاد في الفتح التالي).
+  // التذكير وبطاقات العلف من حزمة القاعات باستيراد واحد لهذا الفتح؛ وفشله (بلا نت) تعيده بطاقات العلف مرّة حين يعود الاتصال (shared: FeedOffline).
   const [halls] = useState(roundLazies);
   const fields = useRef(new Map<string, HTMLInputElement>());
   // آخر قراءة تبقى معروضة أثناء القراءة من جديد (كلّ رفع جولات من أيّ شاشة وكلّ إرسال علف يعيد القراءة): البطاقات لا تُطوى.
   // والمحفوظة لهويّة القراءة وحدها: دخول حساب أو منشأة أخرى لا يعرض قاعات الأولى ولا يحفظ جولات لأفواجها.
-  const owner = stamp ? stampKey(stamp) : '';
-  const [kept, setKept] = useState<{ owner: string; data: NonNullable<typeof state.data> } | null>(null);
-  if (state.data !== null && (kept?.data !== state.data || kept.owner !== owner)) setKept({ owner, data: state.data });
-  const shown = state.data ?? (kept?.owner === owner ? kept.data : null);
-  const overview = shown?.overview ?? null;
-  const rows = overview ? roundRows(overview, kind, today, queue.pending) : [];
   const key = stamp ? stampKey(stamp) : '';
+  const [kept, setKept] = useState<{ owner: string; data: NonNullable<typeof state.data> } | null>(null);
+  if (state.data !== null && (kept?.data !== state.data || kept.owner !== key)) setKept({ owner: key, data: state.data });
+  const shown = state.data ?? (kept?.owner === key ? kept.data : null);
+  // وفوقها ما حُفظ من هذا الجهاز في هذه الجلسة ولم تحمله (مراجعة 0036 R2): نتائج الرفع (الهلاكات والغاز) وأجوبة إرسال العلف، حتى تصل قراءة أحدث.
+  const fed = useStore(fedStore);
+  const runs = uploads.runs;
+  const overview = useMemo(() => {
+    if (!shown) return null;
+    try {
+      return parseOverview(withSaved(shown.json, key, shown.read, runs, fed));
+    } catch { // swallow-ok: ما فوق القراءة لم يُقرأ (شكل غريب)؛ القراءة نفسها كما وصلت، والقراءة التالية تحمل المحفوظ
+      return shown.overview;
+    }
+  }, [shown, key, runs, fed]);
+  const rows = overview ? roundRows(overview, kind, today, queue.pending) : [];
   const names = new Map<string, string>();
   for (const site of overview?.sites ?? []) for (const hall of site.halls) if (hall.flock) names.set(hall.flock.id, hallLabel(hall.name));
+  // قاعات هذه الجولة (نوعها) لروابط الرفّ إلى صفحة القاعة.
+  const hallOf = new Map(rows.map((row) => [row.flock.id, row.hallId]));
+  /** جواب إرسال علف حُفظ: يُعرض فوق القراءة وفي نسخة الجهاز حتى تصل قراءة بعده، والجولة تُقرأ من جديد. */
+  const feedSent = (flockId: string) => (sent: FeedSent) => {
+    if (stamp) {
+      fedStore.set((list) => [...list, { ...sent.issue, key, flockId, day: sent.day.on, dayKg: sent.day.feedKg, mark: nextTick() }]);
+      void patchKept(stamp).catch(() => {
+        /* swallow-ok: نسخة الجهاز للفتح بلا نت؛ القراءة التالية تكتبها من الخادم */
+      });
+    }
+    state.retry();
+  };
   const mine = queue.pending.length;
   const reloadQueue = queue.reload;
   const entryOf = (row: RoundRow) => entries[row.flock.id] ?? EMPTY_ENTRY;
@@ -639,10 +650,10 @@ export default function RoundPage({ kind }: { kind: FlockKind }) {
     const nextErrors: typeof errors = {};
     // الخانات كما حُفظت: بعد الرفع تُفرغ خانات القاعة المحفوظة التي بقيت كما كانت، وما كُتب أثناء الرفع (والخانات مفتوحة) يبقى.
     const typedNow = entries;
-    const sent: { row: RoundRow; opIds: string[] }[] = [];
-    const done: string[] = [];
+    // عمليات القاعات كلّها، ولكلّ قاعة مداها فيها: تُكتب بمعاملة واحدة بعد الفحص (مراجعة 0036 R3).
+    const inputs: EnqueueInput[] = [];
+    const sent: { row: RoundRow; from: number }[] = [];
     try {
-      const db = await openOutbox();
       const recordedAt = new Date().toISOString();
       for (const row of ready) {
         const entry = entryOf(row);
@@ -664,33 +675,25 @@ export default function RoundPage({ kind }: { kind: FlockKind }) {
           nextErrors[row.flock.id] = { field: 'gas', message: gasErrorText(gasRead.error, row.gas.cylinders) };
           continue;
         }
-        done.push(row.flock.id);
-        const opIds: string[] = [];
+        sent.push({ row, from: inputs.length });
         const base = { flockId: row.flock.id, day: today, baseVersion: null } as const;
-        if (read.values.dead !== null) {
-          const op = await saveRound(db, stamp, { ...base, fn: 'set_flock_dead', payload: { dead: read.values.dead } });
-          if (op) opIds.push(op.id);
-        }
-        if (gasRead.add !== null) {
-          const op = await saveRound(db, stamp, { ...base, fn: 'add_flock_gas', payload: { add: gasRead.add } });
-          if (op) opIds.push(op.id);
-        }
+        if (read.values.dead !== null) inputs.push({ ...base, fn: 'set_flock_dead', payload: { dead: read.values.dead } });
+        if (gasRead.add !== null) inputs.push({ ...base, fn: 'add_flock_gas', payload: { add: gasRead.add } });
         if (read.values.eggs_total !== null || read.values.eggs_broken !== null) {
           // البيض زيارة تُضاف (بمعرّف من الجهاز، بلا نسخة)، بلا هلاكات: تلك في عمليتها.
-          const op = await saveRound(db, stamp, {
+          inputs.push({
+            ...base,
             fn: 'save_flock_visit',
-            flockId: row.flock.id,
-            day: today,
             payload: { visitId: crypto.randomUUID(), recordedAt, dead: null, culled: null, feed_kg: null, eggs_total: read.values.eggs_total, eggs_cracked: null, eggs_broken: read.values.eggs_broken, note: null, void: false },
-            baseVersion: null,
           });
-          if (op) opIds.push(op.id);
         }
-        if (opIds.length > 0) sent.push({ row, opIds });
       }
-      const results = online && sent.length > 0 ? await uploadRounds(stamp, loadTransport).catch(() => []) : []; /* swallow-ok: الرفع فشل (IndexedDB)؛ العمليات باقية بالجهاز وصفوفها «محفوظة على هذا الجهاز» */
+      setErrors(nextErrors);
+      // كلّها أو لا شيء: فشل كتابة في منتصفها (التخزين ممتلئ) لا يُبقي قاعات في الطابور وخاناتها مكتوبة، فلا تُرسل ثانيةً بالضغطة التالية.
+      const ops = inputs.length > 0 ? await saveRounds(await openOutbox(), stamp, inputs) : [];
+      const results = online && ops.length > 0 ? await uploadRounds(stamp, loadTransport).catch(() => []) : []; /* swallow-ok: الرفع فشل (IndexedDB)؛ العمليات باقية بالجهاز وصفوفها «محفوظة على هذا الجهاز» */
       // بلا نت: عدّاد الرأس («جولاتك المنتظرة») يتحدّث هسه، مو بالرفع الجاي.
-      if (!online && sent.length > 0) {
+      if (!online && ops.length > 0) {
         void refreshRoundQueue(stamp).catch(() => {
           /* swallow-ok: عدّ الطابور تعذّر؛ الرأس يتحدّث بالرفع الجاي */
         });
@@ -698,12 +701,12 @@ export default function RoundPage({ kind }: { kind: FlockKind }) {
       const outcome = new Map<string, SendResult>();
       for (const entry of results) outcome.set(entry.opId, entry.result);
       // لكلّ قاعة أسوأ نتائج عملياتها: الهلاكات المردودة لا يخفيها غاز حُفظ معها.
-      const statuses = sent.map(({ row, opIds }) => ({ row, status: worst(opIds.map((opId) => statusOf(outcome.get(opId)))) ?? 'device' }));
+      const statuses = sent.map(({ row, from }, index) => ({ row, status: worst(ops.slice(from, sent[index + 1]?.from ?? ops.length).map((op) => statusOf(op ? outcome.get(op.id) : null))) ?? 'device' }));
       const fine = (status: RowStatus) => status === 'saved' || status === 'device';
-      setErrors(nextErrors);
       setEntries((current) => {
         const next = { ...current };
-        for (const flockId of done) {
+        for (const { row } of sent) {
+          const flockId = row.flock.id;
           const left = afterSave(current[flockId], typedNow[flockId]);
           if (left) next[flockId] = left;
           else delete next[flockId];
@@ -820,7 +823,7 @@ export default function RoundPage({ kind }: { kind: FlockKind }) {
           online={online}
           stamp={canSave ? stamp : null}
           feedItems={overview?.feedItems ?? []}
-          onFeedSent={state.retry}
+          onFeedSent={feedSent(row.flock.id)}
           Feed={halls.Feed}
           register={register(row.flock.id)}
           onEnter={(field) => moveNext(field, row.flock.id)}
@@ -836,6 +839,8 @@ export default function RoundPage({ kind }: { kind: FlockKind }) {
       <ReviewShelf
         entries={queue.review}
         names={names}
+        halls={hallOf}
+        kind={kind}
         onRemove={async (entry) => {
           if (!stamp) return;
           try {

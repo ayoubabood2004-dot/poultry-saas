@@ -1,19 +1,9 @@
-// منذ 0036 (كلمة المالك 2026-11-24: «زيارات اليوم» و«كلّ القاعات» خرجتا من الجولة، والتصحيح من ورقة القاعة): مكوّن «زيارات اليوم» (HallVisits، ما زال في
-// حزمة القاعات) يُركَّب هنا وحده بخصائص الجولة القديمة فتبقى فحوصه، ورفّ المراجعة يُرى في الجولة بعده؛ وما كان عن الجولة نفسها صار فحص غيابه: V0 لا زرّ
-// «زيارات اليوم» ولا قراءة round_visits من الجولة (بنت وبلا نت وبلا حزمة القاعات)، وG لا اختيار ولا «اصرف للمختارة» و«أضف للقاعة» لكلّ قاعة.
-// الجولة بزيارات في اليوم (0032، كلمة المالك 2026-11-17؛ عقد docs/plans/0032/contract-0032.md «ب. الشاشات»): react-dom/client الحقيقي على DOM صغير
-// (dom.mjs) يشغّل FarmRoutes وHallsRoutes الحقيقيتين، وrepo الحقيقي (flocks وhalls: المحلّلات وبناء النداءات) على core بديل يسجّل كلّ نداء ويجيب
-// بأجوبة العقد مكتوبة باليد (visit_json وround_visits وsave_flock_visit)، والطابور الحقيقي على fake-indexeddb. الدمج يمرّر عيّنات القاعدة الحقيقية
-// (fixtures/round-visits-0032.json) بالمحلّلات نفسها. الحالات:
-// L «زيارات اليوم» من الجولة: round_visits لفوج ويوم، كلّ زيارة بوقتها وأرقامها وكاتبها ومصدرها («قديمة» و«مجموع اليوم»)، وصفّ «مجموع اليوم»، والعدد
-//   على الزرّ؛ E «عدّل»: نافذة بالمحتوى كاملاً بلقطة الزيارة ونسختها لحظة الفتح (قراءة أحدث بعدها لا تغيّرها)، فعملية بنسختها ومحتواها كاملاً، وstale_visit
-//   تنبيه ورفّ «زيارتك والمحفوظة»؛ X «ألغِ»: تأكيد يسمّي ما يُطرح من مجموع اليوم، فعملية p_void بنسختها؛ D زيارات هذا الجهاز المنتظرة «على هذا الجهاز»،
-//   وتعديل إحداها يحلّ محلّ عمليتها وإلغاؤها يحذفها، وما في الطريق بلا أفعال؛ O بلا نت أو بلا حزمة القاعات «تحتاج اتصالاً» بلا نداء، وفشل القراءة
-//   «أعد المحاولة»؛ G «اصرف من المخزن للقاعات المختارة» إلى صفحة الإضافة بأوّل قاعة مختارة و?also= بالباقية، وبلا نت «يحتاج اتصالاً»؛ A ‎?also= يختار
-//   القاعات مسبقاً في «كرّر في القاعات الأخرى» ويقول عدد المُهمَل، والاختيار المسبق ليس «ما لم يُحفظ».
-// ومراجعة 0032 (كلّ حالة تفشل على الشفرة قبل إصلاحها): M2 «ألغِ»/«عدّل» لزيارة «على هذا الجهاز» رُفعت إضافتها والنافذة مفتوحة ← عملية بنسخة 1 تُرسل
-//   (لا «أُلغيت قبل أن تُرسل» ولا إضافة ثانية)؛ L3 stale_visit بجملة الخادم (تغيّرت، أو أُلغيت: voided، أو لم تصل: null) في التنبيه والرفّ، بعيّنة
-//   save_flock_visit_stale الحقيقية؛ L4 المشعور الباقي في فحص «عدّل»؛ L7 عدد «زيارات اليوم» بعد الحفظ؛ وتأكيد «ألغِ» يقول ما يذهب مع الزيارة.
+// الجولة بلا «زيارات اليوم» (0036، كلمة المالك 2026-11-24: «زيارات اليوم» و«كلّ القاعات» خرجتا من الجولة، والتصحيح من ورقة القاعة). وخرج المكوّن نفسه
+// (HallVisits) من حزمة القاعات و?also= من صفحة الإضافة بلا منتِج (مراجعة 0036 R7)، ففحوصهما التي تركّبهما وحدهما خرجت معهما (L وE وE2 وX وD وO وA
+// ومراجعة 0032 M2 وL3 وL4)، وبقي ما عن الجولة نفسها ومحلّلات العقد: V0 لا زرّ «زيارات اليوم» ولا قراءة round_visits من الجولة (بنت وبلا نت وبلا
+// حزمة القاعات)، وG لا اختيار ولا «اصرف للمختارة» و«أضف للقاعة» لكلّ قاعة، وL7 الحفظ عملية set_flock_dead لا زيارة، وP محلّلا visit_json وround_visits
+// بشكلهما، وX أجوبة القاعدة الحقيقية (fixtures/round-visits-0032.json). react-dom/client الحقيقي على DOM صغير (dom.mjs) يشغّل FarmRoutes وHallsRoutes
+// الحقيقيتين، وrepo الحقيقي (flocks وhalls) على core بديل يسجّل كلّ نداء ويجيب بأجوبة العقد، والطابور الحقيقي على fake-indexeddb.
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
@@ -49,7 +39,7 @@ async function bundle() {
     "export { createRoot } from 'react-dom/client';",
     "export { flushSync } from 'react-dom';",
     "export { MemoryRouter, Routes, Route, useLocation } from 'react-router-dom';",
-    "export { default as HallsRoutes, HallVisits } from './src/pages/halls/HallsRoutes.tsx';",
+    "export { default as HallsRoutes } from './src/pages/halls/HallsRoutes.tsx';",
     "export { default as FarmRoutes } from './src/pages/farm/FarmRoutes.tsx';",
     "export { openOutbox, pendingOps, reviewEntries, saveRound } from './src/lib/outbox/index.ts';",
     "export { roundQueueStore, uploadRounds } from './src/lib/roundUploads.ts';",
@@ -90,8 +80,6 @@ async function bundle() {
 const body = () => globalThis.document.body;
 const all = () => descendants(body());
 const byAction = (name, root = body()) => descendants(root).filter((n) => n.getAttribute('data-action') === name);
-const withAttr = (action, attr, value) => byAction(action).find((n) => n.getAttribute(attr) === value) ?? null;
-const textOf = (action, root = body()) => byAction(action, root)[0]?.textContent ?? null;
 const text = () => body().textContent;
 const type = (input, value) => {
   if (!input) return;
@@ -101,23 +89,6 @@ const type = (input, value) => {
 const click = async (node, rounds = 40) => {
   if (node) fire(node, 'click', { button: 0 });
   await settle(rounds);
-};
-const tick = async (box) => {
-  if (!box) return;
-  box.checked = !box.checked;
-  fire(box, 'click');
-  await settle();
-};
-const dialogTitled = (start) => all().find((n) => n.getAttribute('role') === 'dialog' && descendants(n).some((c) => c.localName === 'h2' && c.textContent.startsWith(start))) ?? null;
-const tableRows = (caption) => {
-  const table = all().find((n) => n.localName === 'table' && descendants(n).some((c) => c.localName === 'caption' && c.textContent === caption));
-  const tbody = table ? descendants(table).find((n) => n.localName === 'tbody') : null;
-  return tbody ? tbody.children.filter((n) => n.localName === 'tr').map((tr) => tr.children.map((td) => td.textContent)) : null;
-};
-const tableFoot = (caption) => {
-  const table = all().find((n) => n.localName === 'table' && descendants(n).some((c) => c.localName === 'caption' && c.textContent === caption));
-  const tfoot = table ? descendants(table).find((n) => n.localName === 'tfoot') : null;
-  return tfoot ? descendants(tfoot).filter((n) => n.localName === 'td' || n.localName === 'th').map((n) => n.textContent) : null;
 };
 
 // ── البيانات: «ما يُصرف» الحقيقية للمالك (FLOCK)، وقاعتان قائمتان معها، وفوج مغلق ─────────────────────────────────────────────────
@@ -146,7 +117,6 @@ const ws = (role, over = {}) => ({
   canSeeCost: true, canSeeAccounts: true, canSeeSales: true, invites: [], subscription: 'active', confirmedAt: 1, ...over,
 });
 const OWNER = { status: 'ready', workspace: ws('owner'), offline: false };
-const stampOf = (userId) => ({ userId, orgId: 'org-1', displayName: 'علي' });
 
 /** visit_json بعقد 0032. */
 const visitJson = (id, today, over = {}) => ({
@@ -155,11 +125,6 @@ const visitJson = (id, today, over = {}) => ({
 });
 /** round_visits لفوج ويوم: الحيّة بترتيب وقتها. */
 const roundVisits = (today, visits) => ({ on: today, today, flocks: visits.length ? [{ flock_id: FLOCK, hall_id: 'h-1', visits }] : [] });
-const pad = (n) => `${n < 10 ? '0' : ''}${n}`;
-const clockOf = (iso) => {
-  const at = new Date(iso);
-  return `${pad(at.getHours())}:${pad(at.getMinutes())}`;
-};
 
 export default async function (t) {
   const restore = installDom();
@@ -169,7 +134,6 @@ export default async function (t) {
     const TODAY = m.localDay();
     const V1 = visitJson('v-1', TODAY, { recorded_at: `${TODAY}T03:05:00+00:00`, dead: 4, culled: 1, feed_kg: '120.000', source: 'legacy', by: null });
     const V2 = visitJson('v-2', TODAY, { recorded_at: `${TODAY}T05:10:00+00:00`, dead: 2, feed_kg: '50.000', eggs_cracked: null, note: 'صباحاً', version: 2 });
-    const V3 = visitJson('v-3', TODAY, { recorded_at: `${TODAY}T07:20:00+00:00`, dead: 3, feed_kg: '50.000', source: 'day_total', by: 'علي' });
 
     const fresh = (session, rpcs = {}) => {
       const rpcLog = [];
@@ -217,181 +181,6 @@ export default async function (t) {
     };
     const roundRpcs = (over = {}) => ({ flocks_overview: () => overview(TODAY), vaccine_reminders: () => ({ today: TODAY, items: [] }), ...over });
     const cardOf = (flockId) => all().find((n) => n.getAttribute('data-flock') === flockId) ?? null;
-    /** «زيارات اليوم» (HallVisits) وحدها بخصائص الجولة قبل 0036 (اليوم والنوع والحيّ بداية اليوم)، والعدد الذي تُبلغه (onCount) في counts. */
-    const counts = [];
-    const mountVisits = async ({ kind = 'broiler', flockId = FLOCK, liveStart = 5000 } = {}) => {
-      counts.length = 0;
-      const container = globalThis.document.createElement('div');
-      body().appendChild(container);
-      root = m.createRoot(container);
-      m.flushSync(() => root.render(m.h(m.MemoryRouter, { initialEntries: ['/'] }, m.h(m.HallVisits, { kind, flockId, day: TODAY, canSave: true, liveStart, onCount: (n) => counts.push(n) }))));
-      await settle(80);
-    };
-    /** الجولة بعد ما جرى في «زيارات اليوم»: رفّ المراجعة فيها. */
-    const remountRound = async (url = '/broiler/round') => {
-      m.flushSync(() => root.unmount());
-      body().textContent = '';
-      await settle();
-      await mount(url);
-    };
-    const visitRow = (time) => (tableRows('زيارات اليوم') ?? []).find((row) => row[0] === time) ?? null;
-    const actionIn = (time, action) => {
-      const table = all().find((n) => n.localName === 'table' && descendants(n).some((c) => c.localName === 'caption' && c.textContent === 'زيارات اليوم'));
-      const tr = table ? descendants(table).find((n) => n.localName === 'tr' && n.children[0]?.textContent === time) : null;
-      return tr ? (byAction(action, tr)[0] ?? null) : null;
-    };
-    const queue = async (userId) => {
-      const db = await m.openOutbox();
-      return { pending: await m.pendingOps(db, stampOf(userId)), review: await m.reviewEntries(db, stampOf(userId)) };
-    };
-
-    // ── L: القائمة من round_visits ───────────────────────────────────────────────────────────────────────────────────────────
-    await step('L', async () => {
-      const rpcLog = fresh(OWNER, roundRpcs({ round_visits: () => roundVisits(TODAY, [V1, V2, V3]) }));
-      await mountVisits();
-      t.same(named(rpcLog, 'round_visits'), [{ p_on: TODAY, p_kind: 'broiler', p_flock: FLOCK }], 'L round_visits لليوم والنوع والفوج وحده');
-      t.same(
-        tableRows('زيارات اليوم')?.map((row) => row.slice(0, 4)),
-        [
-          [clockOf(V1.recorded_at), '5', '120', '— · قديمة'],
-          [clockOf(V2.recorded_at), '2', '50', 'حسن'],
-          [clockOf(V3.recorded_at), '3', '50', 'علي · مجموع اليوم'],
-        ],
-        'L كلّ زيارة بوقتها بساعة الجهاز وهلاكاتها (النافق والمستبعد القديم معاً، 0035) وعلفها بمراتب العمود وكاتبها ومصدرها',
-      );
-      t.same(tableFoot('زيارات اليوم')?.slice(0, 3), ['مجموع اليوم', '10', '220'], 'L صفّ «مجموع اليوم» بمجموع الزيارات (الهلاكات 4 + 1 مستبعد قديم + 2 + 3)');
-      t.eq(counts.at(-1), 3, 'L عدد زيارات اليوم بعد القراءة');
-    });
-
-    // ── E: «عدّل» بلقطة الزيارة ونسختها لحظة الفتح ───────────────────────────────────────────────────────────────────────────
-    await step('E', async () => {
-      let version = 2;
-      const rpcLog = fresh(OWNER, roundRpcs({
-        round_visits: () => roundVisits(TODAY, [V1, { ...V2, version, dead: version === 2 ? 2 : 9 }, V3]),
-        save_flock_visit: () => ({ status: 'stale_visit', server: { ...V2, version: 3, dead: 9 } }),
-      }));
-      await mountVisits();
-      await click(actionIn(clockOf(V2.recorded_at), 'visit-edit'));
-      const dialog = () => dialogTitled('عدّل زيارة');
-      const field = (name) => (dialog() ? byAction(`visit-${name}`, dialog())[0] ?? null : null);
-      t.same([field('dead')?.value, field('culled'), field('feedKg')], ['2', null, null], 'E النافذة بنافق الزيارة وحده (0035: لا مستبعد ولا علف في الإدخال؛ يُرسلان كما في اللقطة)');
-      t.ok(dialog()?.textContent.includes('والماء والحرارة والملاحظة تبقى كما هي'), 'E التلميح يقول ما يبقى كما هو');
-      // زيارة تغيّرت من جهاز آخر بعد الفتح، والقائمة تُقرأ من جديد: اللقطة والنسخة كما فُتحت.
-      version = 3;
-      m.roundQueueStore.set((state) => ({ ...state, seq: state.seq + 1 }));
-      await settle(60);
-      t.same([Boolean(dialog()), field('dead')?.value], [true, '2'], 'E قراءة أحدث بعد الفتح لا تغيّر النافذة');
-      type(field('dead'), '5');
-      await settle();
-      await click(byAction('visit-edit-save', dialog() ?? body())[0] ?? null, 120);
-      const [args] = named(rpcLog, 'save_flock_visit');
-      t.same(
-        args && { ...args, p_client_ref: typeof args.p_client_ref },
-        { p_visit: 'v-2', p_flock: FLOCK, p_date: TODAY, p_recorded_at: V2.recorded_at, p_dead: 5, p_culled: 0, p_feed_kg: '50.000', p_eggs_total: null, p_eggs_cracked: null, p_eggs_broken: null, p_note: 'صباحاً', p_base_version: 2, p_void: false, p_client_ref: 'string', p_queued: true },
-        'E عملية بنسخة اللقطة (2 لا 3) والمحتوى كاملاً (العلف كما هو، والملاحظة محفوظة، ووقت الزيارة الأصليّ)',
-      );
-      const last = globalThis.__rv.toasts.at(-1);
-      t.same([last?.tone, last?.title], ['danger', 'تغيّرت هذه الزيارة من جهاز آخر قبل أن يصل طلبك، فلم يُكتب فوقها.'], 'E stale_visit: تنبيه لا يكتب فوقها');
-      const { review } = await queue('u-owner');
-      t.same([review.length, review[0]?.reason, review[0]?.op.payload.dead, review[0]?.server?.dead], [1, 'stale_visit', 5, 9], 'E ورفّ المراجعة بالنسختين');
-      await remountRound();
-      t.ok(text().includes('تعديل زيارة') && text().includes('زيارتك') && text().includes('المحفوظة'), 'E الرفّ في الجولة: «تعديل زيارة» و«زيارتك» و«المحفوظة»');
-    });
-
-    // ── E2: فحص الحيّ في «عدّل» على مجموع اليوم بلا الزيارة المعدَّلة (الحيّ بداية اليوم 5,000؛ غيرها 8)، ولو قُرئت القائمة من جديد بعد الفتح ──
-    await step('E2', async () => {
-      const rpcLog = fresh({ status: 'ready', workspace: ws('owner', { userId: 'u-e2' }), offline: false }, roundRpcs({
-        round_visits: () => roundVisits(TODAY, [V1, V2, V3]),
-        save_flock_visit: () => ({ status: 'saved', visit: { ...V2, dead: 4991, version: 3 }, day: null }),
-      }));
-      await mountVisits();
-      await click(actionIn(clockOf(V2.recorded_at), 'visit-edit'));
-      m.roundQueueStore.set((state) => ({ ...state, seq: state.seq + 1 }));
-      await settle(60);
-      const dialog = () => dialogTitled('عدّل زيارة');
-      type(byAction('visit-dead', dialog() ?? body())[0] ?? null, '4993');
-      await settle();
-      await click(byAction('visit-edit-save', dialog() ?? body())[0] ?? null, 60);
-      t.same(
-        [named(rpcLog, 'save_flock_visit').length, Boolean(dialog()) && descendants(dialog()).some((n) => n.getAttribute('role') === 'alert' && n.textContent.includes('(5,000)'))],
-        [0, true],
-        'E2 8 + 4,993 > 5,000: يُمنع قبل الإرسال',
-      );
-      type(byAction('visit-dead', dialog() ?? body())[0] ?? null, '4991');
-      await settle();
-      await click(byAction('visit-edit-save', dialog() ?? body())[0] ?? null, 120);
-      t.same(named(rpcLog, 'save_flock_visit').map((args) => [args.p_visit, args.p_dead, args.p_base_version]), [['v-2', 4991, 2]], 'E2 8 + 4,991 يُقبل: الزيارة المعدَّلة لا تُعدّ مرّتين بعد قراءة جديدة');
-    });
-
-    // ── X: «ألغِ» بتأكيد يسمّي ما يُطرح ─────────────────────────────────────────────────────────────────────────────────────
-    await step('X', async () => {
-      let voided = false;
-      const rpcLog = fresh({ status: 'ready', workspace: ws('owner', { userId: 'u-x' }), offline: false }, roundRpcs({
-        round_visits: () => roundVisits(TODAY, voided ? [V1, V2] : [V1, V2, V3]),
-        save_flock_visit: () => {
-          voided = true;
-          return { status: 'saved', visit: { ...V3, voided: true, version: 2 }, day: { on_date: TODAY, version: 9, dead: 6, culled: 1, feed_kg: '170.000', water_l: null, temp_min: null, temp_max: null, eggs_total: null, eggs_cracked: null, eggs_broken: null, note: null } };
-        },
-      }));
-      await mountVisits();
-      await click(actionIn(clockOf(V3.recorded_at), 'visit-void'));
-      const confirm = dialogTitled('ألغِ زيارة');
-      t.eq(
-        confirm ? descendants(confirm).find((n) => n.localName === 'div' && n.getAttribute('class') === 'text-ink-muted')?.textContent : null,
-        `تُلغى زيارة ${clockOf(V3.recorded_at)}، ويُطرح من مجموع اليوم: النافق 3، والعلف 50 كغم. ويُلغى معها ما سُجّل فيها من ماء وحرارة وملاحظة، إن وُجد.`,
-        'X التأكيد يسمّي الزيارة بوقتها وما يُطرح من مجموع اليوم، وما يذهب مع زيارة «مجموع اليوم» (الماء والحرارة والملاحظة لا تُعرض في القائمة)',
-      );
-      t.eq(named(rpcLog, 'save_flock_visit').length, 0, 'X ضابط: لا إرسال قبل التأكيد');
-      await click(byAction('visit-void-confirm')[0] ?? null, 120);
-      const [args] = named(rpcLog, 'save_flock_visit');
-      t.same([args?.p_visit, args?.p_void, args?.p_base_version, args?.p_dead, args?.p_feed_kg], ['v-3', true, 1, 3, '50.000'], 'X عملية الإلغاء بنسختها ومحتواها');
-      t.same([globalThis.__rv.toasts.at(-1)?.title, (tableRows('زيارات اليوم') ?? []).length, counts.at(-1)], ['أُلغيت الزيارة وطُرح ما فيها من مجموع اليوم.', 2, 2], 'X التنبيه، والقائمة تُقرأ من جديد بلا الملغاة (وعددها 2)');
-      await click(actionIn(clockOf(V2.recorded_at), 'visit-void'));
-      const note = dialogTitled('ألغِ زيارة');
-      t.eq(note ? descendants(note).find((n) => n.localName === 'div' && n.getAttribute('class') === 'text-ink-muted')?.textContent : null, `تُلغى زيارة ${clockOf(V2.recorded_at)}، ويُطرح من مجموع اليوم: النافق 2، والعلف 50 كغم. وتُلغى معها ملاحظتها.`, 'X وزيارة بملاحظة: «وتُلغى معها ملاحظتها»');
-    });
-
-    // ── D: زيارات هذا الجهاز المنتظرة ───────────────────────────────────────────────────────────────────────────────────────
-    await step('D', async () => {
-      const user = 'u-d';
-      const db = await m.openOutbox();
-      const content = (visitId, over = {}) => ({ visitId, recordedAt: `${TODAY}T08:30:00.000Z`, dead: 4, culled: 0, feed_kg: null, eggs_total: null, eggs_cracked: null, eggs_broken: null, note: null, void: false, ...over });
-      await m.saveRound(db, stampOf(user), { fn: 'save_flock_visit', flockId: FLOCK, day: TODAY, payload: content('v-dev'), baseVersion: null });
-      await m.saveRound(db, stampOf(user), { fn: 'save_flock_visit', flockId: FLOCK, day: TODAY, payload: { ...content('v-2', { recordedAt: V2.recorded_at, dead: 6, feed_kg: '50.000', note: 'صباحاً' }) }, baseVersion: 2 });
-      const rpcLog = fresh({ status: 'ready', workspace: ws('owner', { userId: user }), offline: false }, roundRpcs({ round_visits: () => roundVisits(TODAY, [V1, V2, V3]) }));
-      // جلسة غيره: الرفع لا يرسل شيئاً، فتبقى العمليات منتظرة.
-      globalThis.__rv.sessionUser = 'someone-else';
-      await mountVisits();
-      const dev = clockOf(`${TODAY}T08:30:00.000Z`);
-      t.same(
-        [visitRow(clockOf(V2.recorded_at))?.slice(1, 4), visitRow(dev)?.slice(1, 4)],
-        [['6', '50', 'حسن · على هذا الجهاز'], ['4', '—', 'علي · على هذا الجهاز']],
-        'D تعديل الجهاز فوق زيارة الخادم، والزيارة الجديدة بكاتبها، كلتاهما «على هذا الجهاز»',
-      );
-      t.same(tableFoot('زيارات اليوم')?.slice(0, 2), ['مجموع اليوم', '18'], 'D المجموع بما على الجهاز (4 + 1 مستبعد قديم + 6 + 3 + 4)');
-      await click(actionIn(dev, 'visit-edit'));
-      type(byAction('visit-dead', dialogTitled('عدّل زيارة') ?? body())[0] ?? null, '5');
-      await settle();
-      await click(byAction('visit-edit-save', dialogTitled('عدّل زيارة') ?? body())[0] ?? null, 120);
-      let ops = (await queue(user)).pending.filter((op) => op.payload.visitId === 'v-dev');
-      t.same([ops.length, ops[0]?.payload.dead, ops[0]?.baseVersion, named(rpcLog, 'save_flock_visit').length], [1, 5, null, 0], 'D تعديل زيارة لم تُرفع يحلّ محلّ عمليتها (لا عملية ثانية)');
-      await click(actionIn(dev, 'visit-void'));
-      await click(byAction('visit-void-confirm')[0] ?? null, 120);
-      ops = (await queue(user)).pending.filter((op) => op.payload.visitId === 'v-dev');
-      t.same([ops.length, globalThis.__rv.toasts.at(-1)?.title, visitRow(dev)], [0, 'أُلغيت الزيارة من هذا الجهاز قبل أن تُرسل.', null], 'D إلغاء زيارة لم تُرفع يحذف عمليتها');
-      // عملية في الطريق (ممسوكة): بلا أفعال.
-      const [held] = (await queue(user)).pending;
-      const raw = await new Promise((resolve) => {
-        const tx = db.transaction('ops', 'readwrite');
-        tx.objectStore('ops').put({ ...held, state: 'sending', claimToken: 'tab-b', claimedAt: Date.now() });
-        tx.oncomplete = resolve;
-      });
-      void raw;
-      m.roundQueueStore.set((state) => ({ ...state, seq: state.seq + 1 }));
-      await settle(60);
-      t.same([actionIn(clockOf(V2.recorded_at), 'visit-edit'), actionIn(clockOf(V1.recorded_at), 'visit-edit') !== null], [null, true], 'D زيارة عمليتها في الطريق بلا «عدّل» ولا «ألغِ» (وغيرها بأفعالها)');
-    });
-
     // ── V0 (0036): لا «زيارات اليوم» في الجولة، ولا قراءة round_visits منها: بنت، وبلا نت، وبلا حزمة القاعات (والجولة تعمل) ──────────────────
     await step('V0 بنت', async () => {
       const rpcLog = fresh(OWNER, roundRpcs({ round_visits: () => roundVisits(TODAY, [V1]) }));
@@ -413,23 +202,6 @@ export default async function (t) {
       await settle(60);
       t.same([byAction('round-visits').length, named(rpcLog, 'round_visits').length, byAction('round-save').length, byAction('round-feed-offline').length], [0, 0, 1, 3], 'V0 حزمة القاعات لا تُحمَّل: الجولة تعمل، وإرسال العلف في كلّ قاعة يقول إنّه يحتاج اتصالاً');
     });
-    // فشل قراءة «زيارات اليوم» نفسها: «أعد المحاولة».
-    await step('O فشل القراءة', async () => {
-      let fail = true;
-      const rpcLog = fresh(OWNER, roundRpcs({
-        round_visits: () => {
-          if (fail) throw new m.RejectedError('bad_kind', 'نوع غير معروف.');
-          return roundVisits(TODAY, [V1]);
-        },
-      }));
-      await mountVisits();
-      const retry = all().find((n) => n.localName === 'button' && n.textContent === 'أعد المحاولة');
-      t.ok(Boolean(retry) && !tableRows('زيارات اليوم'), 'O فشل القراءة: «أعد المحاولة» بلا قائمة');
-      fail = false;
-      await click(retry ?? null, 60);
-      t.same([named(rpcLog, 'round_visits').length, (tableRows('زيارات اليوم') ?? []).length], [2, 1], 'O وإعادتها تقرأ وتعرض');
-    });
-
     // ── G (0036): لا اختيار ولا «اصرف من المخزن للقاعات المختارة»؛ «أضف للقاعة» لكلّ قاعة إلى صفحة الإضافة والرجوع إلى الجولة ─────────────────────
     await step('G', async () => {
       fresh(OWNER, roundRpcs({ flock_issue_options: () => clone(OPTIONS) }));
@@ -447,145 +219,7 @@ export default async function (t) {
       t.ok(byAction('round-give').length === 3 && byAction('round-save').length > 0 && byAction('round-pick').length === 0, 'G المشاهد: «أضف للقاعة» والحفظ كالمالك (0034)، بلا اختيار');
     });
 
-    // ── A: ?also= في صفحة الإضافة ────────────────────────────────────────────────────────────────────────────────────────────
-    await step('A', async () => {
-      fresh(OWNER, { flock_issue_options: () => clone(OPTIONS), flocks_overview: () => overview(TODAY) });
-      const also = [F2, 'ffffffff-0000-4000-8000-000000000000', F5, FLOCK, F3].join(',');
-      await mount(`/halls/give/${FLOCK}?${new URLSearchParams({ also, back: '/broiler/round' }).toString()}`);
-      t.same(byAction('give-hall').filter((n) => n.checked).map((n) => n.getAttribute('data-flock')), [F2, F3], 'A القاعات القائمة في النطاق من ?also= مختارة مسبقاً (والحالية لا تُكرَّر)');
-      t.eq(textOf('give-also-ignored'), 'قاعات اختيرت في الجولة ولم تُضف هنا (ليس فيها فوج قائم الآن): 2.', 'A المجهول والمغلق يُهملان ويُقال عددهما');
-      t.eq(m.isWindowDirty(), false, 'A الاختيار المسبق ليس «ما لم يُحفظ»');
-      await tick(withAttr('give-hall', 'data-flock', F2));
-      t.eq(m.isWindowDirty(), true, 'A وتغييره كتابة لم تُحفظ');
-    });
-    await step('A بلا ?also=', async () => {
-      fresh(OWNER, { flock_issue_options: () => clone(OPTIONS), flocks_overview: () => overview(TODAY) });
-      await mount(`/halls/give/${FLOCK}`);
-      t.same([byAction('give-hall').filter((n) => n.checked).length, byAction('give-also-ignored').length], [0, 0], 'A ضابط: بلا ?also= لا اختيار مسبق ولا جملة');
-    });
-
-// ─── مراجعة 0032 (كلّ حالة تفشل على الشفرة قبل إصلاحها) ─────────────────────────────────────────────────────────────────────
-    const R0032 = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'round-visits-0032.json'), 'utf8'));
     const dayJson = (over = {}) => ({ on_date: TODAY, version: 2, dead: 4, culled: 0, feed_kg: null, water_l: null, temp_min: null, temp_max: null, eggs_total: null, eggs_cracked: null, eggs_broken: null, note: null, ...over });
-    const inDialog = (start, action) => byAction(action, dialogTitled(start) ?? body())[0] ?? null;
-
-    // ── M2: «ألغِ» و«عدّل» لزيارة «على هذا الجهاز» رُفعت إضافتها والنافذة مفتوحة: عملية بنسخة 1 تُرسل، لا «أُلغيت قبل أن تُرسل» ولا إضافة ثانية ──
-    const deviceVisit = async (user, visitId) => {
-      const payload = { visitId, recordedAt: TODAY + 'T08:30:00.000Z', dead: 4, culled: 0, feed_kg: null, eggs_total: null, eggs_cracked: null, eggs_broken: null, note: null, void: false };
-      await m.saveRound(await m.openOutbox(), stampOf(user), { fn: 'save_flock_visit', flockId: FLOCK, day: TODAY, payload, baseVersion: null });
-      const onServer = visitJson(visitId, TODAY, { recorded_at: payload.recordedAt, dead: 4, by: 'علي' });
-      const state = { uploaded: false };
-      const rpcs = roundRpcs({
-        round_visits: () => roundVisits(TODAY, state.uploaded ? [V1, onServer] : [V1]),
-        // save_flock_visit بعقد 0032: الإضافة الأولى تُحفظ بنسخة 1، وإضافة ثانية لمعرّف موجود بمحتوى آخر stale_visit، والتعديل والإلغاء بنسخة 1 يُحفظان.
-        save_flock_visit: (args) => {
-          if (args.p_base_version === null) {
-            if (state.uploaded) return { status: 'stale_visit', server: onServer };
-            state.uploaded = true;
-            return { status: 'saved', visit: onServer, day: dayJson() };
-          }
-          if (args.p_base_version !== 1) return { status: 'stale_visit', server: onServer };
-          if (args.p_void) return { status: 'saved', visit: { ...onServer, voided: true, version: 2 }, day: null };
-          return { status: 'saved', visit: { ...onServer, dead: args.p_dead, version: 2 }, day: dayJson({ dead: args.p_dead, version: 3 }) };
-        },
-      });
-      return { time: clockOf(payload.recordedAt), rpcs };
-    };
-    /** الإضافة تُرفع (الرافع الحقيقيّ بالناقل الحقيقيّ) والنافذة مفتوحة على لقطتها. */
-    const uploadNow = async (user) => {
-      delete globalThis.__rv.sessionUser;
-      await m.uploadRounds(stampOf(user), async () => m.flockDayTransport);
-      await settle(60);
-    };
-    await step('M2 ألغِ', async () => {
-      const user = 'u-m2v';
-      const { time, rpcs } = await deviceVisit(user, 'v-m2v');
-      const rpcLog = fresh({ status: 'ready', workspace: ws('owner', { userId: user }), offline: false }, rpcs);
-      globalThis.__rv.sessionUser = 'someone-else';
-      await mountVisits();
-      t.eq(visitRow(time)?.[3], 'علي · على هذا الجهاز', 'M2 ضابط: الزيارة «على هذا الجهاز» قبل رفعها');
-      await click(actionIn(time, 'visit-void'));
-      await uploadNow(user);
-      t.same(
-        [named(rpcLog, 'save_flock_visit').map((args) => [args.p_visit, args.p_base_version, args.p_void]), (await queue(user)).pending.length, Boolean(dialogTitled('ألغِ زيارة'))],
-        [[['v-m2v', null, false]], 0, true],
-        'M2 ضابط: رُفعت الإضافة (نسختها 1 بالخادم) والطابور فارغ، والتأكيد ما زال مفتوحاً',
-      );
-      await click(byAction('visit-void-confirm')[0] ?? null, 120);
-      const sent = named(rpcLog, 'save_flock_visit');
-      t.same([sent.length, sent.at(-1)?.p_visit, sent.at(-1)?.p_void, sent.at(-1)?.p_base_version], [2, 'v-m2v', true, 1], 'M2 «ألغِ» بعد رفع الإضافة: عملية إلغاء بنسخة 1 تُرسل (لا تُسقط بصمت)');
-      t.eq(globalThis.__rv.toasts.at(-1)?.title, 'أُلغيت الزيارة وطُرح ما فيها من مجموع اليوم.', 'M2 والتنبيه «أُلغيت… وطُرح»، لا «أُلغيت من هذا الجهاز قبل أن تُرسل»');
-    });
-    await step('M2 عدّل', async () => {
-      const user = 'u-m2e';
-      const { time, rpcs } = await deviceVisit(user, 'v-m2e');
-      const rpcLog = fresh({ status: 'ready', workspace: ws('owner', { userId: user }), offline: false }, rpcs);
-      globalThis.__rv.sessionUser = 'someone-else';
-      await mountVisits();
-      await click(actionIn(time, 'visit-edit'));
-      await uploadNow(user);
-      t.same([named(rpcLog, 'save_flock_visit').length, Boolean(dialogTitled('عدّل زيارة'))], [1, true], 'M2 ضابط: رُفعت الإضافة والنافذة مفتوحة');
-      type(inDialog('عدّل زيارة', 'visit-dead'), '5');
-      await settle();
-      await click(inDialog('عدّل زيارة', 'visit-edit-save'), 120);
-      const sent = named(rpcLog, 'save_flock_visit');
-      t.same([sent.length, sent.at(-1)?.p_visit, sent.at(-1)?.p_void, sent.at(-1)?.p_base_version, sent.at(-1)?.p_dead], [2, 'v-m2e', false, 1, 5], 'M2 «عدّل» بعد رفع الإضافة: تعديل بنسخة 1 (لا إضافة ثانية لمعرّف موجود)');
-      const { review } = await queue(user);
-      t.same([globalThis.__rv.toasts.at(-1)?.title, review.length], ['حُفظ تعديل الزيارة.', 0], 'M2 والتنبيه «حُفظ تعديل الزيارة.» بلا رفّ مراجعة');
-    });
-
-    // ── L3: stale_visit بجملة الخادم الحقيقية (عيّنة save_flock_visit_stale، وملغاة، وبلا زيارة) في التنبيه والرفّ ──
-    const staleCases = [
-      ['تغيّرت', R0032.save_flock_visit_stale, 'تغيّرت هذه الزيارة من جهاز آخر قبل أن يصل طلبك، فلم يُكتب فوقها.'],
-      ['أُلغيت', { ...R0032.save_flock_visit_stale, server: { ...R0032.save_flock_visit_stale.server, voided: true, version: 3 } }, 'أُلغيت هذه الزيارة من جهاز آخر قبل أن يصل طلبك، فلم يُكتب شيء.'],
-      ['لم تصل', { ...R0032.save_flock_visit_stale, server: null }, 'لم تصل هذه الزيارة إلى الخادم (رُدّت إضافتها أو لم تُحفظ)، فلا شيء فيه يُعدَّل أو يُلغى.'],
-    ];
-    for (const [index, [label, answer, sentence]] of staleCases.entries()) {
-      await step('L3 ' + label, async () => {
-        fresh({ status: 'ready', workspace: ws('owner', { userId: 'u-l3-' + index }), offline: false }, roundRpcs({ round_visits: () => roundVisits(TODAY, [V1, V2, V3]), save_flock_visit: () => clone(answer) }));
-        await mountVisits();
-        await click(actionIn(clockOf(V2.recorded_at), 'visit-edit'));
-        type(inDialog('عدّل زيارة', 'visit-dead'), '5');
-        await settle();
-        await click(inDialog('عدّل زيارة', 'visit-edit-save'), 120);
-        await settle(60);
-        const toast = globalThis.__rv.toasts.at(-1)?.title;
-        await remountRound();
-        const shelf = all().filter((n) => n.getAttribute('data-review') !== null).map((n) => n.textContent);
-        t.same([toast, shelf.length, shelf.some((entry) => entry.includes(sentence))], [sentence, 1, true], 'L3 ' + label + ': التنبيه، والرفّ في الجولة «' + sentence + '»');
-      });
-    }
-
-    // ── L4: «عدّل» زيارة بيّاض فيها مشعور يبقى كما هو: المكسور والمشعور معاً لا يزيدان على مجموع البيض (يُمنع في النافذة بلا عملية) ──
-    await step('L4', async () => {
-      const LF = '00000000-0000-4000-8000-00000000d2f9';
-      const layer = { today: TODAY, sites: [{ id: 's-l', name: 'حقل البيض', division_id: 'd-l', kind: 'layer', can_manage: true, halls: [hall('h-l', 'قاعة 7', flockJson(LF, { kind: 'layer' }))] }] };
-      const LV = visitJson('v-l4', TODAY, { flock_id: LF, recorded_at: TODAY + 'T06:00:00+00:00', dead: 1, eggs_total: 1200, eggs_cracked: 10, eggs_broken: 5 });
-      const user = 'u-l4';
-      const rpcLog = fresh({ status: 'ready', workspace: ws('owner', { userId: user }), offline: false }, {
-        flocks_overview: () => layer,
-        vaccine_reminders: () => ({ today: TODAY, items: [] }),
-        round_visits: () => ({ on: TODAY, today: TODAY, flocks: [{ flock_id: LF, hall_id: 'h-l', visits: [LV] }] }),
-        save_flock_visit: (args) => ({ status: 'saved', visit: { ...LV, eggs_total: args.p_eggs_total, version: 2 }, day: null }),
-      });
-      await mountVisits({ kind: 'layer', flockId: LF });
-      await click(actionIn(clockOf(LV.recorded_at), 'visit-edit'));
-      t.eq(inDialog('عدّل زيارة', 'visit-eggsTotal')?.value, '1200', 'L4 ضابط: النافذة ببيض الزيارة 1,200');
-      type(inDialog('عدّل زيارة', 'visit-eggsTotal'), '12');
-      await settle();
-      await click(inDialog('عدّل زيارة', 'visit-edit-save'), 80);
-      const alerts = descendants(dialogTitled('عدّل زيارة') ?? body()).filter((n) => n.getAttribute('role') === 'alert').map((n) => n.textContent);
-      t.same(
-        [named(rpcLog, 'save_flock_visit').length, (await queue(user)).pending.length, alerts.some((line) => line.includes('المكسور والمشعور معاً أكثر من مجموع البيض'))],
-        [0, 0, true],
-        'L4 1,200 ← 12 والمشعور 10 والمكسور 5: يُمنع في النافذة (15 > 12) بلا عملية',
-      );
-      type(inDialog('عدّل زيارة', 'visit-eggsTotal'), '15');
-      await settle();
-      await click(inDialog('عدّل زيارة', 'visit-edit-save'), 120);
-      const [args] = named(rpcLog, 'save_flock_visit');
-      t.same([args?.p_eggs_total, args?.p_eggs_cracked, args?.p_eggs_broken], [15, 10, 5], 'L4 ضابط: 15 يُقبل، والمشعور كما هو');
-    });
 
     // ── L7 (0036): حفظ الجولة لا يقرأ «زيارات اليوم» ولا يُظهر لها عدداً؛ هلاكات القاعة عمليتها مرّة (set_flock_dead) لا زيارة ──────────────────
     await step('L7', async () => {

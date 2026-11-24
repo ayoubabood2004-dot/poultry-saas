@@ -16,10 +16,14 @@ import { describeError, NotConnectedError } from '../../lib/errors';
 import { columnDecimals, fmtDay, fmtInt, fmtQtyCell, fmtScaledCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { archiveHall, type FlockSummary, type HallView, type SiteView } from '../../lib/repo/flocks';
+import { roundQueueStore } from '../../lib/roundUploads';
 import { useSession } from '../../lib/session';
+import { useStore } from '../../lib/store';
+import { useQueue } from './deviceQueue';
 import { BUTTON_LINK_CLASS, givePath, LINK_CLASS } from './feed';
 import { FlockEditDialogLazy as FlockEditDialog } from './flockEditLazy';
 import { HallDialog, OpenFlockDialog } from './hallDialogs';
+import { deathsIn } from './roundText';
 import { farmPath, farmTitle, fmtPct, hallLabel, hallPath, TodayChip, useOverview, useStamp } from './shared';
 
 // شاشة الحقل (FOUNDATION ٧٨٢ و٨١٦): زرّ الجولة اليومية أوّل شي، وتحته الحقول ← القاعات ← الفوج بأرقامه المهمّة. المدير يضيف قاعة
@@ -44,6 +48,9 @@ export default function FarmPage({ kind }: { kind: FlockKind }) {
   // «اصرف» لكلّ قاعة فيها فوج قائم لمن يصرف من المخزن (0019): يفتح صفحة الإضافة لفوجها (0026، لها ولقاعات أخرى معها).
   const canIssue = session.status === 'ready' && can(session.workspace.role, 'issue.post');
   const state = useOverview(stamp);
+  // جولة اليوم بهلاكاته (مراجعة 0036 R6): المسجّلة في الخادم، أو على هذا الجهاز ولم تُرفع؛ لا صفّ اليوم وحده (بيض البيّاض وحده كان «سُجّلت»).
+  const uploads = useStore(roundQueueStore).seq;
+  const queue = useQueue(stamp, uploads);
   const navigate = useNavigate();
   const [editing, setEditing] = useState<Editing | null>(null);
   const [archiving, setArchiving] = useState(false);
@@ -51,6 +58,7 @@ export default function FarmPage({ kind }: { kind: FlockKind }) {
   // القاعدة ترتّب القاعات حرفاً حرفاً («قاعة 44» قبل «قاعة 5» في شاشة الزبون 2026-11-15)، فالترتيب هنا بأرقام الأسماء.
   const sites = (state.data?.overview.sites ?? []).filter((site) => site.kind === kind).map((site) => ({ ...site, halls: [...site.halls].sort((a, b) => naturalCompare(hallLabel(a.name), hallLabel(b.name))) }));
   const today = state.data?.overview.today ?? localDay();
+  const roundDone = (flock: FlockSummary) => deathsIn(flock, today, queue.pending);
   const done = () => {
     setEditing(null);
     state.retry();
@@ -87,7 +95,7 @@ export default function FarmPage({ kind }: { kind: FlockKind }) {
         ),
       },
       // حالة جولة اليوم مكتوبة (لا لون وحده): سُجّلت، أو لم تُسجَّل، أو القاعة فارغة.
-      { key: 'today', header: t('farm.col.today', 'جولة اليوم'), cell: (hall) => <TodayChip flock={hall.flock} /> },
+      { key: 'today', header: t('farm.col.today', 'جولة اليوم'), cell: (hall) => <TodayChip flock={hall.flock} done={hall.flock !== null && roundDone(hall.flock)} /> },
       { key: 'age', header: t('farm.col.age', 'العمر (يوم)'), kind: 'number', cell: (hall) => (hall.flock?.ageDays !== null && hall.flock?.ageDays !== undefined ? <Num>{fmtInt(hall.flock.ageDays)}</Num> : '—') },
       { key: 'live', header: t('farm.col.live', 'الحيّ'), kind: 'number', cell: (hall) => (hall.flock ? <Num>{fmtInt(hall.flock.live)}</Num> : '—') },
       { key: 'dead_today', header: t('farm.col.dead_today', 'نافق اليوم'), kind: 'number', cell: (hall) => (hall.flock?.today?.dead !== null && hall.flock?.today?.dead !== undefined ? <Num>{fmtInt(hall.flock.today.dead)}</Num> : '—') },
@@ -192,7 +200,7 @@ export default function FarmPage({ kind }: { kind: FlockKind }) {
             rows={site.halls}
             rowKey={(hall) => hall.id}
             onRowClick={(hall) => navigate(hallPath(kind, hall.id))}
-            rowTone={(hall) => (hall.flock?.status === 'active' && hall.flock.today === null ? 'warn' : null)}
+            rowTone={(hall) => (hall.flock?.status === 'active' && !roundDone(hall.flock) ? 'warn' : null)}
             empty={t('farm.no_halls', 'لا قاعات في هذا الحقل بعد.')}
           />
         </section>

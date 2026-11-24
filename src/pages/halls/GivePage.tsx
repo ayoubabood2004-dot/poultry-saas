@@ -33,8 +33,6 @@ import { useLoad, type LoadState } from '../../lib/useLoad';
 // الأخرى» يعرض أفواج النطاق القائمة (flocks_overview) بحقولها؛ الكمية نفسها لكلّ قاعة، و«كمية مختلفة لكلّ قاعة» شبكة بقاعة لكلّ صفّ. واليوم من ?on أو
 // اليوم، بين أقدم يوم يُقبل واليوم. زرّ واحد يسمّي النتيجة («أضف لـ3 قاعات»)، فتأكيد بما يُضاف لكلّ قاعة ومجموع كلّ مادّة أمام «عندك»، فنداء واحد
 // give_to_flocks: أيّ رفض لا يحفظ شيئاً.
-// ومن الجولة (0032، «اصرف من المخزن للقاعات المختارة»): ‎?also= قائمة أفواج تُختار مسبقاً في «كرّر في القاعات الأخرى»، وما ليس قائماً أو خارج النطاق
-// يُهمل ويُقال عدده؛ والاختيار المسبق ليس «ما لم يُحفظ» (لا يسأل الخروج عنه).
 // ودروس النتيجة المجهولة (CLAUDE.md 2026-11-10): معرّفات السطور ومرجع الإرسال مرّة للنموذج؛ والطلب الذي لا تُعرف نتيجته خارج المكوّن
 // (sessionStorage بمفتاح المستخدم والمنشأة والفوج، والذاكرة إن تعذّر) فالرجوع والعودة أو إعادة التحميل تعيد الصفحة مجمَّدة به و«أعد المحاولة»
 // ترسله حرفاً؛ والنافذة «فيها ما لم يُحفظ» والطلب في الطريق أو مجمَّد. والرفض الأكيد يقول تلميح الخادم ويبقي كلّ ما كُتب ومعرّفاته، والإرسال التالي
@@ -403,8 +401,6 @@ function GiveForm({ flockId }: { flockId: string }) {
   const [params] = useSearchParams();
   const back = giveBack(params.get('back'));
   const onParam = params.get('on');
-  // الأفواج المختارة في الجولة (?also=)، مرّة لفتح الصفحة.
-  const [also] = useState(() => [...new Set((params.get('also') ?? '').split(',').map((entry) => entry.trim()))].filter((entry) => entry !== '' && entry !== flockId));
   const navigate = useNavigate();
   const session = useSession();
   const workspace = session.status === 'ready' ? session.workspace : null;
@@ -456,17 +452,6 @@ function GiveForm({ flockId }: { flockId: string }) {
     setForm((current) => ({ ...current, ...change }));
   };
 
-  // ?also= يُطبَّق مرّة حين تصل القاعات، وبعد استعادة طلب معلَّق (الصفحة المجمَّدة بطلبها لا تتغيّر). ضبط حالة من حالة أثناء الرسم بشرط يتوقّف.
-  const [alsoApplied, setAlsoApplied] = useState<{ base: string[]; ignored: number } | null>(null);
-  if (alsoApplied === null && overview && pendingId !== '' && restoredFor === pendingId) {
-    const known = new Set(
-      overview.sites.flatMap((site) => site.halls.flatMap((hall) => (hall.flock && hall.flock.id !== flockId && hall.flock.status === 'active' && hall.flock.placedOn !== null ? [hall.flock.id] : []))),
-    );
-    const base = frozen ? [] : also.filter((entry) => known.has(entry));
-    setAlsoApplied({ base, ignored: frozen ? 0 : also.length - base.length });
-    if (base.length) setForm((current) => ({ ...current, halls: [...new Set([...current.halls, ...base])] }));
-  }
-  const alsoBase = alsoApplied?.base ?? [];
 
   const items = options?.canIssue ? options.items : [];
   const itemOf = (itemId: string) => items.find((item) => item.itemId === itemId);
@@ -506,8 +491,7 @@ function GiveForm({ flockId }: { flockId: string }) {
   const active = options?.flockStatus === 'active';
   const ready = active && plan.drafts.length > 0 && problems.length === 0 && day !== null && !busy;
   const label = plan.drafts.length ? goLabel(hallCount, first) : t('give.go.pick', 'اختر ما تضيفه للقاعة');
-  const hallsChanged = form.halls.length !== alsoBase.length || form.halls.some((entry) => !alsoBase.includes(entry));
-  const dirty = form.picks.length > 0 || form.logs.length > 0 || hallsChanged || form.day !== null;
+  const dirty = form.picks.length > 0 || form.logs.length > 0 || form.halls.length > 0 || form.day !== null;
   // والطلب في الطريق أو مجمَّد: «فيها ما لم يُحفظ»، فلا يعيد التحديث تحميلها والجواب لم يصل فيضيع المعرّف.
   useDirtyForm(dirty || busy || frozen !== null);
 
@@ -804,11 +788,6 @@ function GiveForm({ flockId }: { flockId: string }) {
               {t('give.others', 'كرّر في القاعات الأخرى')}
             </Button>
           </div>
-          {alsoApplied && alsoApplied.ignored > 0 ? (
-            <p className="text-sm text-ink-muted" data-action="give-also-ignored">
-              {t('give.also.ignored', 'قاعات اختيرت في الجولة ولم تُضف هنا (ليس فيها فوج قائم الآن): {n}.', { n: fmtInt(alsoApplied.ignored) })}
-            </p>
-          ) : null}
           {othersOpen || form.halls.length > 0 ? (
             overviewState.error && !overview ? (
               <LoadFailed what={t('give.others_what', 'القاعات الأخرى')} error={overviewState.error} onRetry={overviewState.retry} />

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useState, type ComponentProps, type ComponentType, type ReactNode } from 'react';
 import type { FlockKind } from '../../domain/flocks';
 import { NetworkError, UnknownOutcomeError } from '../../lib/errors';
-import { keepOverview, savedOverview } from '../../lib/farmCopy';
+import { keepOverview, nextTick, savedOverview, type OverviewCopy } from '../../lib/farmCopy';
 import { fmtScaledCell } from '../../lib/format';
 import { loadHalls } from '../../lib/hallsChunk';
 import { t } from '../../lib/i18n';
@@ -32,14 +32,17 @@ const CHIP_TONES = {
   idle: 'bg-surface-2 text-ink-muted',
 } as const;
 
-/** حالة جولة اليوم لقاعة بكلمة مكتوبة (لا لون وحده): من قراءة الخادم (flock.today ليوم الخادم). */
-export function TodayChip({ flock }: { flock: FlockSummary | null }) {
+/**
+ * حالة جولة اليوم لقاعة بكلمة مكتوبة (لا لون وحده). done: هلاكات اليوم سُجّلت في الخادم أو على هذا الجهاز (roundText.deathsIn، مراجعة 0036 R6): بيض
+ * البيّاض وحده كان يعدّ الجولة «سُجّلت» والهلاكات لم تُدخل.
+ */
+export function TodayChip({ flock, done }: { flock: FlockSummary | null; done: boolean }) {
   const [tone, text] =
     flock === null
       ? (['idle', t('hall.state.empty', 'فارغة')] as const)
       : flock.status !== 'active'
         ? (['idle', t('hall.state.preparing', 'قيد التجهيز')] as const)
-        : flock.today !== null
+        : done
           ? (['ok', t('hall.state.done', 'سُجّلت')] as const)
           : (['warn', t('hall.state.missing', 'لم تُسجَّل')] as const);
   return (
@@ -69,6 +72,9 @@ export interface OverviewState {
   overview: FlocksOverview;
   /** null = من الخادم الآن؛ رقم = نسخة الجهاز من ذاك الوقت (بلا نت). */
   savedAt: number | null;
+  /** القراءة كما هي (JSON) ورقمها في عدّاد الجلسة: الجولة تعرض فوقها ما حُفظ بعدها (farmCopy.withSaved). */
+  json: unknown;
+  read: number;
 }
 
 /**
@@ -76,25 +82,27 @@ export interface OverviewState {
  * هم: نسخة الجهاز للانقطاع بس. شاشات الحقول والرئيسية تقرا منها، فكل قراءة ناجحة تحفظ النسخة (FOUNDATION ٢١٧).
  */
 export async function loadOverviewKept(owner: Stamp | null): Promise<OverviewState> {
+  const read = nextTick();
   try {
     const json = await loadOverviewJson();
     const overview = parseOverview(json);
+    // النسخة بما حُفظ من هذا الجهاز ولم تحمله القراءة (بدأت قبل رفع أو إرسال ووصلت بعده).
     if (owner) {
-      void keepOverview(owner, json, Date.now()).catch(() => {
+      void keepOverview(owner, json, Date.now(), read).catch(() => {
         /* swallow-ok: نسخة الجهاز للفتح بلا نت؛ تعذّر حفظها ما يغيّر القراءة الحالية */
       });
     }
-    return { overview, savedAt: null };
+    return { overview, savedAt: null, json, read };
   } catch (error) {
     if (!owner || !(error instanceof NetworkError || error instanceof UnknownOutcomeError)) throw error;
-    let saved: { json: unknown; at: number } | null;
+    let saved: OverviewCopy | null;
     try {
       saved = await savedOverview(owner);
     } catch { // swallow-ok: نسخة الجهاز ما انقرت (IndexedDB ممنوع)، فيطلع خطأ الشبكة الأصلي بزرّ «أعد المحاولة»
       throw error;
     }
     if (!saved) throw error;
-    return { overview: parseOverview(saved.json), savedAt: saved.at };
+    return { overview: parseOverview(saved.json), savedAt: saved.at, json: saved.json, read: saved.read };
   }
 }
 
@@ -174,7 +182,33 @@ export function roundLazies() {
   const once = () => (loading ??= quietly(loadHalls));
   // حزمة بلا المكوّن (لا تُسقط الجولة كلّها بعنصر غير معرّف) كحزمة لم تُحمَّل.
   const from = <P,>(pick: (halls: Halls) => ComponentType<P> | undefined, fallback: ComponentType<P>) => lazy<ComponentType<P>>(() => once().then((halls) => ({ default: pick(halls) ?? fallback }), () => ({ default: fallback })));
-  return { Reminders: from((halls) => halls.Reminders, nothing), Feed: from((halls) => halls.RoundFeed, FeedNeedsConnection) };
+  return { Reminders: from((halls) => halls.Reminders, nothing), Feed: from((halls) => halls.RoundFeed, FeedOffline) };
+}
+
+/** استيراد حزمة القاعات بعد فشله: واحد لكلّ عودة للاتصال تتشاركه بطاقات الجولة، وفشله يُنسى فيُعاد في العودة التالية. */
+let retrying: Promise<Halls> | null = null;
+const retryHalls = () =>
+  (retrying ??= quietly(loadHalls).catch((error: unknown) => {
+    retrying = null;
+    throw error;
+  }));
+
+/** بطاقات العلف بعد عودة الاتصال: تُركَّب مع كلّ عودة فتحمّل الحزمة مرّة (لا بكلّ رسم). */
+function FeedRetry(props: RoundFeedProps) {
+  const [Lazy] = useState(() => lazy<ComponentType<RoundFeedProps>>(() => retryHalls().then((halls) => ({ default: halls.RoundFeed ?? FeedNeedsConnection }), () => ({ default: FeedNeedsConnection }))));
+  return (
+    <Suspense fallback={null}>
+      <Lazy {...props} />
+    </Suspense>
+  );
+}
+
+/**
+ * إرسال العلف وحزمة القاعات لم تُحمَّل (فُتحت الجولة بلا نت): جملة «يحتاج اتصالاً» ما دام بلا نت، وحين يعود الاتصال تُحمَّل الحزمة وتظهر البطاقات بلا فتح
+ * الجولة من جديد (مراجعة 0036 R5).
+ */
+function FeedOffline(props: RoundFeedProps) {
+  return props.online ? <FeedRetry {...props} /> : <FeedNeedsConnection />;
 }
 
 /** بطاقة مؤشّر: الرقم الصافي بـdir=ltr (الفواصل والإشارة بمكانها)، والجملة العربية ترث RTL. */

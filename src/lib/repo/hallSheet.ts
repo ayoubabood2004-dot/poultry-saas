@@ -394,7 +394,8 @@ export interface FeedSend {
 
 export interface FeedSent {
   issue: { id: string; docNo: string; itemId: string; itemName: string; qty: Milli; unit: BaseUnit; issuedOn: Day; forDay: Day };
-  day: { on: Day; feedKg: Milli };
+  /** علف يوم الإرسال في القاعة بالكيلو بعده، أو null: لا كتلة لسطوره كلّها (قطع بلا وزن قطعة، أو لتر بلا كثافة: hall_feed_kg فارغ). */
+  day: { on: Day; feedKg: Milli | null };
 }
 
 export function parseFeedSent(value: unknown): FeedSent {
@@ -413,7 +414,7 @@ export function parseFeedSent(value: unknown): FeedSent {
       issuedOn: day(issue, 'issued_on'),
       forDay: day(issue, 'for_day'),
     },
-    day: { on: day(dayRow, 'on'), feedKg: scaled(dayRow, 'feed_kg', 3) },
+    day: { on: day(dayRow, 'on'), feedKg: optScaled(dayRow, 'feed_kg', 3) },
   };
 }
 

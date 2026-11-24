@@ -8,3 +8,24 @@
     bottom: 1rem;
   }
 }
+
+/* الشريط بعرض الصفحة شفّاف للّمس: اللمس بجانب الزرّ يصل إلى ما تحته (خانة القاعة)، والزرّ وحده يأخذه (مراجعة 0036). */
+.round-save {
+  pointer-events: none;
+}
+.round-save > * {
+  pointer-events: auto;
+}
+
+/* Enter يضع الخانة التالية فوق الزرّ الثابت والشريط السفليّ لا تحتهما (مراجعة 0036): التركيز يمرّرها حتى تبقى تحتها هذه المسافة (الزرّ والشريط بالهاتف،
+   وتكفي الحاسوب). */
+input[data-round-field] {
+  scroll-margin-bottom: calc(8.5rem + env(safe-area-inset-bottom));
+}
+
+/* المختار في بطاقات العلف ورقائق الوحدة (مراجعة 0036؛ كان 1.18:1 بالخلفية وحدها): إطار بلون التركيز (--ring بالفاتح والداكن و«وضوح» من tokens.css:
+   3.7:1 فأكثر مع إطار غير المختار ومع الخلفية) مع علامة ✓ قبل الاسم (RoundFeed). */
+.round-pick[aria-checked='true'] {
+  border-color: rgb(var(--ring));
+  box-shadow: inset 0 0 0 1px rgb(var(--ring));
+}
