@@ -4,6 +4,7 @@
 // وhalls-history-0031.json)، وhtml-to-image بديلٌ يسجّل النسخة التي تُصوَّر. وقواعد official.css وأسلوب الصفحة تُقرأ بمحلّل صغير: قاعدةً قاعدة بسياقها (الشاشة
 // أو @media print أو غيرهما)، فلا تمرّ خاصيّة غائبة لأنّ نصّها في قاعدة أخرى (-webkit-print-color-adjust يحوي print-color-adjust، وقاعدة الصورة بعد كتلة
 // الطباعة).
+// R2 جداول التقرير على الشاشة في إطار DataTable بحدّ 70dvh يثبت فيه رأسها (لا قاعدة شاشة ترفع الحدّ)؛ وعلى الورق وفي الصورة بلا حدّ ولا تمرير.
 // R4 صفحة القاعة: العنوان «قاعة 7»، و«هلاكات قاعة (7)» شريط الجدول وحده مرّةً واحدة.
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
@@ -176,6 +177,21 @@ const beforeprintListeners = () => globalThis.window._listeners.filter((listener
 export default async function (t) {
   const css = cssRules(readFileSync(CSS_FILE, 'utf8'));
 
+  // ── R2 (CSS): على الشاشة لا شيء يرفع حدّ إطار الجدول (وعلى الورق وفي الصورة بلا حدّ: M22 أدناه) ─────────────────────────────────────────
+  {
+    const lifts = css.filter(
+      (rule) =>
+        rule.media !== 'print' &&
+        rule.selectors.some((selector) => selector.endsWith('.ofc-frame') && !selector.startsWith('[data-capture]')) &&
+        rule.decls.some(([name]) => name === 'max-height' || name === 'overflow' || name === 'overflow-y'),
+    );
+    t.same(
+      lifts.map((rule) => [rule.media, rule.selectors.join(', ')]),
+      [],
+      'R2 لا قاعدة شاشة ترفع حدّ إطار الجدول الرسميّ (max-h-[70dvh] من DataTable): رأس الجدول ثابتٌ فيه وأنت تمرّ على آخر الوجبة (على cfe9710: «.ofc-paper .ofc-frame { max-height: none }»)',
+    );
+  }
+
   // ── M: قواعد official.css التي عبرت طفراتها (M1 M2 M9 M11 M12 M13 M14 M15 M18 M22) ──────────────────────────────────────────
   {
     const coloured = ['.ofc-band', '.ofc-grid > thead > tr > th', '.ofc-grid > tfoot > tr > *', '.ofc-info dt', '.ofc-bar', '.ofc-subbar'];
@@ -319,6 +335,25 @@ export default async function (t) {
         return clock;
       }
     }
+
+    await step('R2', async () => {
+      fresh();
+      await mount(`/halls/report/${SHEET.flock.id}`, reportRoutes());
+      const frames = ['batch-summary', 'batch-days'].map((name) => {
+        const table = byAction(name)[0] ? descendants(byAction(name)[0]).find((n) => n.localName === 'table') : null;
+        const frame = table?.parentNode ?? null;
+        const th = table ? descendants(table).find((n) => n.localName === 'th') : null;
+        return [words(frame).filter((cls) => ['ofc-frame', 'max-h-[70dvh]', 'overflow-auto'].includes(cls)), words(th).filter((cls) => cls === 'sticky' || cls === 'top-0')];
+      });
+      t.same(
+        frames,
+        [
+          [['ofc-frame', 'max-h-[70dvh]', 'overflow-auto'], ['sticky', 'top-0']],
+          [['ofc-frame', 'max-h-[70dvh]', 'overflow-auto'], ['sticky', 'top-0']],
+        ],
+        'R2 جدولا تقرير الوجبة في إطارٍ بحدّ 70dvh يُمرَّر، ورأسهما sticky top-0 فيه (لا تلغيه official.css على الشاشة)',
+      );
+    });
 
     await step('R4', async () => {
       fresh();
