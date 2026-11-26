@@ -1,4 +1,4 @@
-import { useId, useRef, useState } from 'react';
+import { useId, useRef, useState, type FormEvent } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Dialog } from '../../components/ui/Dialog';
 import { Field } from '../../components/ui/Field';
@@ -10,9 +10,13 @@ import { describeError } from '../../lib/errors';
 import { fmtDay, fmtInt } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { createHall, openFlock, updateHall, type HallView, type SiteView } from '../../lib/repo/flocks';
+import { DeleteHallDialog } from './DeleteHallDialog';
 import { hallLabel } from './shared';
 
 // نافذتا القاعة («أضف قاعة» و«عدّل القاعة») و«افتح فوجاً»: في جدول الحقل وفي صفحة القاعة الفارغة (كلمة المالك 2026-11-16)، من مكان واحد.
+// وكلّ نافذة نموذج (<form id> وزرّ الحفظ type="submit" form=… في ذيلها، كنافذة السعر): الإرسال من Enter أو الزرّ يمرّ بالتحقّق نفسه، والزرّ المعطّل
+// لا يرسل (كلمة الزبون 2026-11-26: «أكتب 25000 وأدوس إنتر يحفظ»، عقد 0037). و«عدّل القاعة» في ذيلها «احذف القاعة» (0037): زرّ type="button" لا
+// يرسل النموذج، يفتح نافذة الحذف فوقها (والتراجع يرجع إليها).
 
 const MAX_COUNT = 10_000_000;
 /** عدد صحيح من نصّ أرقام بس، أو null. */
@@ -23,18 +27,32 @@ export function wholeNumber(text: string, max = MAX_COUNT): number | null {
   return n <= max ? n : null;
 }
 
-export function HallDialog({ site, hall, onClose, onSaved }: { site: SiteView; hall: HallView | null; onClose: () => void; onSaved: () => void }) {
+export interface HallDialogProps {
+  site: SiteView;
+  /** null: «أضف قاعة»؛ وإلّا «عدّل القاعة» بقيمها ونسختها، وفي ذيلها «احذف القاعة». */
+  hall: HallView | null;
+  onClose: () => void;
+  onSaved: () => void;
+  /** حُذفت القاعة من «احذف القاعة» (وإلّا onSaved: أغلق واقرأ من جديد). */
+  onDeleted?: () => void;
+  /** ما تعرضه الصفحة قديم (من نافذة الحذف): اقرأ من جديد. */
+  onStale?: () => void;
+}
+
+export function HallDialog({ site, hall, onClose, onSaved, onDeleted, onStale }: HallDialogProps) {
   const id = useId();
+  const formId = `${id}-form`;
   const [name, setName] = useState(hall?.name ?? '');
   const initialCapacity = hall?.capacity !== null && hall?.capacity !== undefined ? String(hall.capacity) : '';
   const [capacity, setCapacity] = useState(initialCapacity);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
   const capacityValue = capacity.trim() === '' ? null : wholeNumber(capacity);
   const capacityError = capacity.trim() !== '' && (capacityValue === null || capacityValue < 1) ? t('farm.hall.capacity.bad', 'اكتب السعة عدداً صحيحاً من الطيور، أو اتركها فارغة.') : null;
 
   const save = async () => {
-    if (name.trim() === '' || capacityError) return;
+    if (busy || name.trim() === '' || capacityError) return;
     setBusy(true);
     setError(null);
     try {
@@ -48,6 +66,15 @@ export function HallDialog({ site, hall, onClose, onSaved }: { site: SiteView; h
       setBusy(false);
     }
   };
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    void save();
+  };
+  const saveButton = (
+    <Button type="submit" form={formId} busy={busy} disabled={name.trim() === '' || Boolean(capacityError)} data-action="hall-save">
+      {t('farm.hall.save', 'احفظ القاعة')}
+    </Button>
+  );
 
   return (
     <Dialog
@@ -57,12 +84,19 @@ export function HallDialog({ site, hall, onClose, onSaved }: { site: SiteView; h
       dirty={name !== (hall?.name ?? '') || capacity !== initialCapacity}
       title={hall ? t('farm.hall.edit.title', 'تعديل القاعة «{name}»', { name: hallLabel(hall.name) }) : t('farm.hall.add.title', 'قاعة جديدة في «{site}»', { site: site.name })}
       footer={
-        <Button onClick={() => void save()} busy={busy} disabled={name.trim() === '' || Boolean(capacityError)} data-action="hall-save">
-          {t('farm.hall.save', 'احفظ القاعة')}
-        </Button>
+        hall ? (
+          <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+            <Button type="button" variant="ghost" disabled={busy} onClick={() => setDeleting(true)} data-action="hall-edit-delete">
+              {t('hall.delete.confirm', 'احذف القاعة')}
+            </Button>
+            {saveButton}
+          </div>
+        ) : (
+          saveButton
+        )
       }
     >
-      <div className="flex flex-col gap-4">
+      <form id={formId} className="flex flex-col gap-4" onSubmit={submit} noValidate>
         <Field id={`${id}-name`} label={t('farm.hall.name', 'اسم القاعة')} hint={t('farm.hall.name.hint', 'مثل: قاعة 1.')}>
           <input id={`${id}-name`} className="input" autoComplete="off" value={name} onChange={(event) => setName(event.target.value)} />
         </Field>
@@ -70,13 +104,15 @@ export function HallDialog({ site, hall, onClose, onSaved }: { site: SiteView; h
           <input id={`${id}-capacity`} className="input tabular-nums" dir="ltr" inputMode="numeric" autoComplete="off" value={capacity} onChange={(event) => setCapacity(event.target.value)} />
         </Field>
         {error ? <Notice tone="danger" title={error} /> : null}
-      </div>
+      </form>
+      {hall && deleting ? <DeleteHallDialog hall={hall} onClose={() => setDeleting(false)} onDeleted={onDeleted ?? onSaved} onStale={onStale} /> : null}
     </Dialog>
   );
 }
 
 export function OpenFlockDialog({ hall, onClose, onOpened }: { hall: HallView; onClose: () => void; onOpened: () => void }) {
   const id = useId();
+  const formId = `${id}-form`;
   const today = localDay();
   const initialDay = fmtDay(today);
   const [day, setDay] = useState(initialDay);
@@ -97,7 +133,7 @@ export function OpenFlockDialog({ hall, onClose, onOpened }: { hall: HallView; o
   const ready = placedOn !== null && !dayError && countValue !== null && countValue > 0 && ageValue !== null;
 
   const save = async () => {
-    if (!ready || placedOn === null || countValue === null || ageValue === null) return;
+    if (busy || !ready || placedOn === null || countValue === null || ageValue === null) return;
     setBusy(true);
     setError(null);
     try {
@@ -110,6 +146,10 @@ export function OpenFlockDialog({ hall, onClose, onOpened }: { hall: HallView; o
       setBusy(false);
     }
   };
+  const submit = (event: FormEvent) => {
+    event.preventDefault();
+    void save();
+  };
 
   return (
     <Dialog
@@ -120,12 +160,12 @@ export function OpenFlockDialog({ hall, onClose, onOpened }: { hall: HallView; o
       dirty={day !== initialDay || count !== '' || age !== '0' || breed !== ''}
       title={t('farm.open.title', 'فوج جديد في «{hall}»', { hall: hallLabel(hall.name) })}
       footer={
-        <Button onClick={() => void save()} busy={busy} disabled={!ready} data-action="flock-open-save">
+        <Button type="submit" form={formId} busy={busy} disabled={!ready} data-action="flock-open-save">
           {t('farm.open.save', 'افتح الفوج')}
         </Button>
       }
     >
-      <div className="flex flex-col gap-4">
+      <form id={formId} className="flex flex-col gap-4" onSubmit={submit} noValidate>
         <Field id={`${id}-day`} label={t('farm.open.day', 'تاريخ التسكين')} error={dayError} hint={t('farm.open.day.hint', 'يوم/شهر/سنة. فوج قائم يُكتب بتاريخ تسكينه الحقيقي.')}>
           <input id={`${id}-day`} className="input tabular-nums" dir="ltr" inputMode="numeric" autoComplete="off" placeholder={t('org.go_live.placeholder', 'يوم/شهر/سنة')} value={day} onChange={(event) => setDay(event.target.value)} />
         </Field>
@@ -140,7 +180,7 @@ export function OpenFlockDialog({ hall, onClose, onOpened }: { hall: HallView; o
         </Field>
         <p className="text-sm text-ink-muted">{t('farm.open.note', 'النسخة الأولى: الفوج يُفتح بالعدد فقط، بلا كلفة أفراخ ولا سحب من مخزن المفقس.')}</p>
         {error ? <Notice tone="danger" title={error} /> : null}
-      </div>
+      </form>
     </Dialog>
   );
 }

@@ -70,3 +70,5 @@ function fromHalls<P extends { onClose: () => void }>(pick: (halls: Awaited<Retu
 
 export const HallDialogLazy = fromHalls((halls) => halls.HallDialog);
 export const OpenFlockDialogLazy = fromHalls((halls) => halls.OpenFlockDialog);
+/** «احذف» في جدول الحقل (0037): ما سيُحذف والحذف يحتاجان الخادم، فالنافذة من حزمة القاعات كأخواتها، وبلا نت نافذة تقول السبب. */
+export const DeleteHallDialogLazy = fromHalls((halls) => halls.DeleteHallDialog);

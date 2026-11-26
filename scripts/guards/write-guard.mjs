@@ -21,8 +21,13 @@ export const FUNCTION_ONLY_TABLES = functionOnlyTables();
 
 const REF_NAMED = new Set(['pay_party', 'forgive_debt', 'refresh_count', 'return_count', 'transfer_cash']);
 const VERSION_NAMED = new Set(['refresh_count', 'return_count', 'discard_draft', 'delete_draft_line', 'delete_receipt_charge', 'set_charge_lines']);
+/**
+ * «احذف القاعة» (0037): يعكس صرف الفوج القائم إلى المخزن ويلغيه ويؤرشف القاعة بنداء واحد، فيرسل المرجع (الإعادة بعد جواب ضاع لا تضاعف)
+ * ونسخة القاعة وبصمة ما عُرض (تغيّرٌ بعد فتح النافذة يُرفض stale_hall وstale_plan، لا يُحذف ما لم يُعرض).
+ */
+const HALL_DELETE = new Set(['delete_hall']);
 /** الدالّة تحرّك مالاً أو مخزوناً: المرجع نفسه لحد ما تنعرف النتيجة (FOUNDATION ٥١٩). */
-export const needsClientRef = (fn) => /^(?:post|void|record|submit)_/.test(fn) || REF_NAMED.has(fn);
+export const needsClientRef = (fn) => /^(?:post|void|record|submit)_/.test(fn) || REF_NAMED.has(fn) || HALL_DELETE.has(fn);
 /**
  * ترحيل بلا مسوّدة (WP7): تصحيح السعر يكتب سطر استلام مرحَّلاً بالمبلغ الجديد وسببه (FOUNDATION ٥٥٢)، فيرسل بصمة المعاينة
  * (p_expected_plan) بدل النسخة: سحب بين المعاينة والترحيل كان يرحّل قسمة ما شافها المدير (FOUNDATION ٥٢٠). المرجع يبقى إلزامياً.
@@ -30,9 +35,9 @@ export const needsClientRef = (fn) => /^(?:post|void|record|submit)_/.test(fn) |
 const PLAN_POSTS = new Set(['post_receipt_revalue']);
 /** ترحيل مسوّدة يسحب من دفعات: النسخة وبصمة المعاينة ويّاها (السحب يتغيّر بلا ما تتغيّر النسخة، FOUNDATION ٥٢٠، مراجعة WP7). */
 const DRAW_POSTS = new Set(['post_transfer', 'post_stock_use', 'post_supplier_return']);
-export const needsExpectedPlan = (fn) => PLAN_POSTS.has(fn) || DRAW_POSTS.has(fn);
+export const needsExpectedPlan = (fn) => PLAN_POSTS.has(fn) || DRAW_POSTS.has(fn) || HALL_DELETE.has(fn);
 /** الدالّة تقرأ مسوّدة: تنرسل بشرط إنها كما انفتحت (FOUNDATION ٥٢٠، ٨١٧). */
-export const needsExpectedVersion = (fn) => (/^(?:post|submit)_/.test(fn) && !PLAN_POSTS.has(fn)) || VERSION_NAMED.has(fn);
+export const needsExpectedVersion = (fn) => (/^(?:post|submit)_/.test(fn) && !PLAN_POSTS.has(fn)) || VERSION_NAMED.has(fn) || HALL_DELETE.has(fn);
 
 /** أعمدة يكتبها الخادم بس: الحالة والرقم والنسخة وختم الترحيل والإلغاء والدفتر والمحسوبات والمنشأة (§2.5). */
 const SERVER_COLUMNS = new Set([
@@ -202,8 +207,9 @@ function resolveSpecifier(file, specifier) {
  * وبيع الطيور وإغلاق الدورة (0028): تذاكر الوزن (weighTickets) وبطاقة الفوج والإغلاق وفرق العدّ وإعادة الفتح (flockClose) تستوردها صفحات القاعات وحدها
  * (حزمة القاعات)، وبطاقة الفوج تصل صفحة الفوج المحفوظة باستيراد كسول لحزمة القاعات (farm/shared)، لا استيراداً ثابتاً.
  * و«القاعة كالورقة» (0035): قارئ الورقة وإرسال العلف من «رصيد العلف» وإلغاؤه والقرار على المركون (hallSheet) تستوردها صفحات القاعات وحدها (حزمة القاعات).
+ * و«احذف القاعة» (0037): ما سيُحذف والحذف (hallDelete) تستوردهما نافذة الحذف وحدها (حزمة القاعات).
  */
-export const PAGE_MODULES = new Set(['inventory', 'scopes', 'members', 'home', 'parties', 'cash', 'signin', 'uses', 'counts', 'purchasing', 'flocks', 'mill', 'purchases', 'flockIssues', 'dayBalance', 'millReport', 'money', 'debts', 'statement', 'halls', 'hallReports', 'weighTickets', 'flockClose', 'birdSales', 'flockEdits', 'sales', 'hallSheet']);
+export const PAGE_MODULES = new Set(['inventory', 'scopes', 'members', 'home', 'parties', 'cash', 'signin', 'uses', 'counts', 'purchasing', 'flocks', 'mill', 'purchases', 'flockIssues', 'dayBalance', 'millReport', 'money', 'debts', 'statement', 'halls', 'hallReports', 'weighTickets', 'flockClose', 'birdSales', 'flockEdits', 'sales', 'hallSheet', 'hallDelete']);
 
 /** المسار ملف وحدة كسول بـrepo (src/lib/repo/inventory.ts …). */
 const isPageModule = (resolved) => {
@@ -464,6 +470,10 @@ export function selfTest() {
     ['src/lib/repo/revalue2.ts', 1, "export const a = (id, r) => call('post_receipt_revaluex', { p_id: id, p_client_ref: r });", 'p_expected_version'],
     // ترحيل يسحب من دفعات بالنسخة بلا البصمة (مراجعة WP7: المرتجع كان يرحّل قيمة ما شافها المحاسب).
     ...[...DRAW_POSTS].map((fn, i) => [`src/lib/repo/drawplan${i}.ts`, 1, `export const a = (id, v, r) => call('${fn}', { p_id: id, p_expected_version: v, p_client_ref: r });`, 'p_expected_plan']),
+    // «احذف القاعة» (0037) يعكس صرف الفوج: المرجع ونسخة القاعة وبصمة ما عُرض، كلّ نقص لحاله باسمه.
+    ['src/lib/repo/hallDelete1.ts', 1, "export const a = (h, v, plan) => call('delete_hall', { p_hall: h, p_expected_version: v, p_expected_plan: plan });", 'p_client_ref'],
+    ['src/lib/repo/hallDelete2.ts', 1, "export const a = (h, plan, ref) => call('delete_hall', { p_hall: h, p_expected_plan: plan, p_client_ref: ref });", 'p_expected_version'],
+    ['src/lib/repo/hallDelete3.ts', 1, "export const a = (h, v, ref) => call('delete_hall', { p_hall: h, p_expected_version: v, p_client_ref: ref });", 'p_expected_plan'],
     ...PLAN_SERVER_COLUMNS.map((column, i) => [`src/lib/repo/col${i}.ts`, 1, `export const a = async (db, n) => updatedRows(await db.from('sites').update({ name: n, ${column}: 1 }).eq('id', 1).select());`, column]),
     // ملفات الوحدات الكسولة (WP2): index ما يصدّرها، والشاشة ما تاخذ ملفاً داخلياً غيرها (قاموس القيود، core).
     ['src/lib/repo/index.ts', 1, "export * as inventory from './inventory';", 'مسار الجلسة'],
@@ -504,6 +514,8 @@ export function selfTest() {
         "export const e = (id, ref) => { const args = { p_id: id, p_client_ref: ref }; return call('pay_party', args); };",
         "export const r = (line, total, plan, reason, ref) => call('post_receipt_revalue', { p_line: line, p_new_total: total, p_expected_plan: plan, p_reason: reason, p_client_ref: ref });",
         "export const s = (id, v, plan, ref) => call('post_supplier_return', { p_id: id, p_expected_version: v, p_expected_plan: plan, p_client_ref: ref });",
+        "export const dh = (h, v, plan, ref) => call('delete_hall', { p_hall: h, p_expected_version: v, p_expected_plan: plan, p_client_ref: ref });",
+        "export const dp = (h) => call('delete_hall_preview', { p_hall: h });",
         "export const f = async (db, n, v) => updatedRows(await db.from('sites').update({ name: n }).eq('version', v).select());",
         "export const g = async (db: any, patch: Partial<{ name: string; note: string }>) => updatedRows(await db.from('sites').update(patch).eq('id', 1).select());",
         "export const h = async (db: any, p: { name: string }) => updatedRows(await db.from('sites').update({ ...p, note: 'x' }).eq('id', 1).select());",
