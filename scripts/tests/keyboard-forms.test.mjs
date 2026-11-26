@@ -8,7 +8,8 @@
 // D النافذة: بمؤشّر دقيق أوّل خانة متاحة مركَّزة ونصّها محدَّد، وبلمس النافذة نفسها كما كان، و[data-autofocus] يغلب.
 // E من البداية إلى الحفظ بلوحة المفاتيح على نوافذ حقيقية بعد تحويلها إلى نماذج: «تعديل فوج» (editFlock مرّة بالمكتوب)، وإرسال علف الجولة (sendFlockFeed مرّة
 //   بالكمية بوحدة الأساس)، و«إلغاء البيع» بسببه (voidSale مرّة بالسبب، ConfirmDialog بخانته)، و«ألغِ الورقة» (VoidDocDialog).
-// H «قاعة جديدة» قبل تحويلها (جزء آخر): المؤشّر في الاسم، والاسم ⏎ ← السعة بنطاق النافذة.
+// H نافذتا القاعة والفوج بعد تحويلهما (الجزء H، ودمجهما هنا): «قاعة جديدة» الاسم ⏎ ← السعة، و«25000 ⏎» يحفظ مرّة (createHall بلا فأرة، كلمة الزبون نفسها)؛
+//   و«عدّل القاعة» ⏎ ⏎ يحفظ بنسختها ولا يفتح «احذف القاعة»؛ و«فوج جديد» التاريخ ⏎ العدد ⏎ العمر ⏎ السلالة ⏎ يفتح الفوج مرّة.
 // كلّ فحص هنا يفشل على الشفرة قبل هذا التغيير (لا lib/formKeys ولا تركيز أوّل خانة ولا نماذج النوافذ)، إلّا ما وُسم «ضابط».
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
@@ -28,7 +29,7 @@ export const call = (fn, args) => {
   const answer = globalThis.__kb.rpc[fn];
   return answer ? Promise.resolve(answer(args)) : new Promise(() => {});
 };
-export const send = async (make) => ({ result: await make(null), wasOnline: true });
+export const send = async (make) => ({ result: await make(globalThis.__kb?.db ?? null), wasOnline: true });
 export const classifyPostgrest = (error) => error;
 export const explained = async (error) => error;
 export const updatedRows = (answer) => (answer.data === null ? [] : Array.isArray(answer.data) ? answer.data : [answer.data]);
@@ -272,7 +273,7 @@ export default async function (t) {
           "export { Dialog };",
           "export { ConfirmDialog } from './src/components/ui/ConfirmDialog.tsx';",
           "export { FlockEditDialog } from './src/pages/farm/FlockEditDialog.tsx';",
-          "export { HallDialog } from './src/pages/farm/hallDialogs.tsx';",
+          "export { HallDialog, OpenFlockDialog } from './src/pages/farm/hallDialogs.tsx';",
           "export { default as RoundFeed } from './src/pages/farm/RoundFeed.tsx';",
           "export { SaleVoidDialog } from './src/pages/sales/SaleVoidDialog.tsx';",
           "export { VoidDocDialog } from './src/pages/inventory/stock-shared.tsx';",
@@ -505,19 +506,104 @@ export default async function (t) {
       t.eq(done.length, 1, 'E3 والنافذة تنتهي مرّة');
     });
 
-    // ── H: «قاعة جديدة» كما هي (hallDialogs لجزء آخر يحوّلها إلى نموذج): المؤشّر في الاسم على الحاسوب، والاسم ⏎ ← السعة محدَّدة بنطاق النافذة.
-    // وحفظ «25000 ⏎» يأتي بنموذجها هناك (فحصه هناك)، فلا يُثبَّت هنا وجوده ولا غيابه.
+    // ── H: نافذتا القاعة والفوج بعد تحويلهما إلى نماذج (الجزء H) مع المستمع (الجزء K)، من البداية إلى الحفظ بلا فأرة (كلمة الزبون: «أكتب 25000 وأدوس
+    // إنتر يحفظ»). القاعة كتابة مباشرة (createHall/updateHall بـwritten): قاعدة بديلة تسجّل الجدول والقيم والشرط وترجع صفّاً.
+    const tableDb = (writes, row) => ({
+      from: (table) => {
+        const answer = async (kind, values) => {
+          writes.push([kind, table, values]);
+          return { data: [row], error: null, status: kind === 'insert' ? 201 : 200 };
+        };
+        return {
+          insert: (values) => ({ select: () => answer('insert', values) }),
+          update: (values) => {
+            const where = [];
+            const chain = {
+              eq: (column, value) => {
+                where.push([column, value]);
+                return chain;
+              },
+              select: () => answer('update', { ...values, where }),
+            };
+            return chain;
+          },
+        };
+      },
+    });
+    const field = (suffix) => descendants(body).find((node) => node.localName === 'input' && node.id.endsWith(suffix)) ?? null;
+    const site = { id: 'kb-site-1', name: 'حقل لحم', divisionId: 'kb-div-1', kind: 'broiler', canManage: true, halls: [] };
     await step('H', async () => {
       pointer(true);
-      globalThis.__kb = { calls: [], rpc: {} };
-      const site = { id: 'kb-site-1', name: 'حقل لحم', kind: 'broiler', canManage: true, halls: [] };
-      await mount(m.h(m.HallDialog, { site, hall: null, onClose: () => {}, onSaved: () => {} }));
-      const field = (suffix) => descendants(body).find((node) => node.localName === 'input' && node.id.endsWith(suffix)) ?? null;
+      const writes = [];
+      globalThis.__kb = { calls: [], rpc: {}, db: tableDb(writes, { id: 'kb-hall-9', version: 1 }) };
+      let saved = 0;
+      await mount(m.h(m.HallDialog, { site, hall: null, onClose: () => {}, onSaved: () => (saved += 1) }));
       t.eq(active() === field('-name'), true, 'H «قاعة جديدة»: المؤشّر في اسم القاعة حين تُفتح على الحاسوب');
       type(field('-name'), 'قاعة 9');
       await settle();
       press(field('-name'));
+      await settle();
       t.same([active() === field('-capacity'), selected() === field('-capacity')], [true, true], 'H اسم القاعة ⏎ ← السعة مركَّزة ومحدَّدة');
+      t.same(writes, [], 'H ضابط: Enter في الاسم لا يحفظ');
+      type(field('-capacity'), '25,000x');
+      await settle();
+      press(field('-capacity'));
+      await settle(40);
+      t.same(writes, [], 'H ضابط: سعة غير صالحة (الزرّ معطّل) فـEnter لا يحفظ');
+      type(field('-capacity'), '25000');
+      await settle();
+      press(field('-capacity'));
+      await settle(40);
+      t.same(writes, [['insert', 'halls', { site_id: 'kb-site-1', name: 'قاعة 9', capacity: 25000 }]], 'H السعة 25000 ⏎: createHall مرّة واحدة بالحقل والاسم والسعة، بلا فأرة');
+      t.eq(saved, 1, 'H والنافذة تنتهي مرّة (onSaved)');
+    });
+    await step('H تعديل', async () => {
+      pointer(true);
+      const writes = [];
+      globalThis.__kb = { calls: [], rpc: {}, db: tableDb(writes, { id: 'kb-hall-4', version: 3 }) };
+      let saved = 0;
+      const hall = { id: 'kb-hall-4', name: 'قاعة 4', capacity: 20000, version: 2, flock: null };
+      await mount(m.h(m.HallDialog, { site, hall, onClose: () => {}, onSaved: () => (saved += 1), onDeleted: () => {}, onStale: () => {} }));
+      t.same([active() === field('-name'), selected() === field('-name')], [true, true], 'H «عدّل القاعة»: المؤشّر في الاسم ونصّه محدَّد');
+      press(field('-name'));
+      await settle();
+      t.eq(active() === field('-capacity'), true, 'H «عدّل القاعة»: الاسم ⏎ ← السعة');
+      type(field('-capacity'), '24000');
+      await settle();
+      press(field('-capacity'));
+      await settle(40);
+      t.same(writes, [['update', 'halls', { name: 'قاعة 4', capacity: 24000, where: [['id', 'kb-hall-4'], ['version', 2]] }]], 'H «عدّل القاعة» السعة ⏎: updateHall مرّة بشرط نسختها');
+      t.same([saved, calls('delete_hall_preview').length], [1, 0], 'H وتنتهي مرّة، وEnter لا يضغط «احذف القاعة» (ليس زرّ النموذج)');
+    });
+    await step('H فوج', async () => {
+      pointer(true);
+      globalThis.__kb = { calls: [], rpc: { open_flock: () => ({ flock_id: 'kb-flock-9' }) } };
+      let opened = 0;
+      const hall = { id: 'kb-hall-4', name: 'قاعة 4', capacity: 20000, version: 2, flock: null };
+      await mount(m.h(m.OpenFlockDialog, { hall, onClose: () => {}, onOpened: () => (opened += 1) }));
+      t.same([active() === field('-day'), selected() === field('-day')], [true, true], 'H «فوج جديد»: المؤشّر في تاريخ التسكين (اليوم) ونصّه محدَّد');
+      press(field('-day'));
+      await settle();
+      t.eq(active() === field('-count'), true, 'H التاريخ ⏎ ← العدد');
+      type(field('-count'), '25000');
+      await settle();
+      press(field('-count'));
+      await settle();
+      t.same([active() === field('-age'), selected() === field('-age')], [true, true], 'H العدد ⏎ ← العمر (صفر محدَّد)');
+      press(field('-age'));
+      await settle();
+      t.eq(active() === field('-breed'), true, 'H العمر ⏎ ← السلالة');
+      t.same(calls('open_flock'), [], 'H ضابط: لا فتح قبل آخر خانة');
+      type(field('-breed'), 'روس');
+      await settle();
+      press(field('-breed'));
+      await settle(40);
+      t.same(
+        calls('open_flock').map((args) => [args.p_hall, args.p_placed_on, args.p_placed_count, args.p_age_days, args.p_breed]),
+        [['kb-hall-4', m.localDay(), 25000, 0, 'روس']],
+        'H السلالة ⏎: open_flock مرّة واحدة بالقاعة واليوم والعدد والعمر والسلالة',
+      );
+      t.eq(opened, 1, 'H والنافذة تنتهي مرّة (onOpened)');
     });
 
     // ── E4: «ألغِ الورقة» (VoidDocDialog): السبب ⏎ بسببه، والمعطّل بلا سبب لا شيء ─────────────────────────────────────

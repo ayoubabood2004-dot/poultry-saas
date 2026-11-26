@@ -85,14 +85,16 @@ const OWNED = [
 
 /** ملفّات فيها نافذة بخانة كتابة بلا نموذج، بسببها. */
 const NO_FORM = new Map([
-  ['src/pages/farm/hallDialogs.tsx', 'نافذتا القاعة والفتح لجزء آخر من العقد نفسه يحوّلهما'],
   ['src/pages/accounts/PartyStatementPage.tsx', 'نصّ الكشف للنسخ (readOnly): لا كتابة'],
   ['src/pages/mill/ProducePage.tsx', 'منتقي المادّة: بحث بلا حفظ، وEnter فيه لا ينقل إلى شيء'],
 ]);
 
 const TYPING = /<(input|textarea|select|MoneyInput|QtyInput|DayField)\b(?![^>]*type="(checkbox|radio|range)")/;
 
-/** عناصر <Dialog …>…</Dialog> بالتداخل (لا ConfirmDialog ولا ReviewDialog: لهما ملفّاهما). */
+/**
+ * عناصر <Dialog …>…</Dialog> بالتداخل (لا ConfirmDialog ولا ReviewDialog: لهما ملفّاهما)، كلّ واحد بنصّه ونصّ مكوّنه حتّى نهايته: زرّ حفظ يُبنى في
+ * ثابت قبل النافذة (ذيل «عدّل القاعة» بزرّين) زرّ نافذته.
+ */
 function dialogs(source) {
   const out = [];
   const tag = /<Dialog\b|<\/Dialog>/g;
@@ -102,7 +104,10 @@ function dialogs(source) {
   while ((match = tag.exec(source))) {
     if (match[0] === '</Dialog>') {
       depth -= 1;
-      if (depth === 0 && start >= 0) out.push(source.slice(start, match.index));
+      if (depth === 0 && start >= 0) {
+        const component = Math.max(source.lastIndexOf('\nexport function ', start), source.lastIndexOf('\nfunction ', start), 0);
+        out.push({ text: source.slice(start, match.index), scope: source.slice(component, match.index) });
+      }
     } else {
       if (depth === 0) start = match.index;
       depth += 1;
@@ -110,6 +115,10 @@ function dialogs(source) {
   }
   return out;
 }
+
+/** زرّ حفظ في النافذة نفسها، أو ثابت زرّ حفظ في مكوّنها (const x = (<Button … type="submit" …) تذكره النافذة بـ{x}. */
+const submitsIn = (dialog, scope) =>
+  /type="submit"/.test(dialog) || Array.from(scope.matchAll(/const (\w+) = \(\s*<Button\b[^;>]*type="submit"/g)).some(([, name]) => dialog.includes(`{${name}}`));
 
 export default async function (t) {
   for (const [file, needle] of SUBMITS) {
@@ -135,14 +144,15 @@ export default async function (t) {
     for (const file of tsxFiles(path.join(ROOT, 'src'))) {
       const relative = path.relative(ROOT, file).split(path.sep).join('/');
       if (NO_FORM.has(relative)) continue;
-      dialogs(readFileSync(file, 'utf8')).map(withoutConfirms).forEach((dialog, index) => {
+      dialogs(readFileSync(file, 'utf8')).forEach(({ text, scope }, index) => {
+        const dialog = withoutConfirms(text);
         if (!TYPING.test(dialog)) return;
         checked += 1;
-        t.ok(/<form\b/.test(dialog) && /type="submit"/.test(dialog), `N ${relative} نافذة ${index + 1}: فيها خانة كتابة، فنموذج وزرّ حفظ له`);
+        t.ok(/<form\b/.test(dialog) && submitsIn(dialog, withoutConfirms(scope)), `N ${relative} نافذة ${index + 1}: فيها خانة كتابة، فنموذج وزرّ حفظ له`);
       });
     }
     t.ok(checked >= 25, `N ضابط: فُحصت نوافذ بخانات كتابة (${checked})`);
-    // المستثنى موجود (لا اسم ملفّ قديم)؛ وhallDialogs يخرج من الاستثناء حين يُدمج تحويله.
+    // المستثنى موجود (لا اسم ملفّ قديم)؛ وhallDialogs خرج من الاستثناء بدمج تحويله (الجزء H)، فنافذتاه تُفحصان هنا.
     for (const file of NO_FORM.keys()) t.ok(dialogs(read(file)).length > 0, `N ضابط: ${file} في NO_FORM وفيه نافذة`);
   }
 }
