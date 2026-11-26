@@ -1521,6 +1521,7 @@ function HallTop({ kind, nav }: { kind: FlockKind; nav?: Nav }) {
 /** القاعة بلا فوج قائم: تقول ذلك، وللمدير «افتح فوجاً» و«عدّل القاعة»، ولكلّ من يراها دوراتها السابقة. */
 function EmptyHall({ kind, site, hall, nav, onChanged }: { kind: FlockKind; site: SiteView; hall: HallView; nav: Nav; onChanged: () => void }) {
   const [dialog, setDialog] = useState<'open' | 'edit' | null>(null);
+  const navigate = useNavigate();
   const here = hallPath(kind, hall.id);
   return (
     <div className="flex flex-col gap-4">
@@ -1568,6 +1569,12 @@ function EmptyHall({ kind, site, hall, nav, onChanged }: { kind: FlockKind; site
             setDialog(null);
             onChanged();
           }}
+          // «احذف القاعة» من «عدّل القاعة» (0037): لا صفحة لقاعة محذوفة، فالرجوع إلى الحقل (بلا رجوع إليها بزرّ الرجوع) بدل «غير موجودة».
+          onDeleted={() => {
+            setDialog(null);
+            navigate(farmPath(kind), { replace: true });
+          }}
+          onStale={onChanged}
         />
       ) : null}
     </div>

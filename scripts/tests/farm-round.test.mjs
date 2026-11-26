@@ -1005,6 +1005,19 @@ export default async function (t) {
       fire(byAction('review-remove-go')[0] ?? body(), 'click');
       await settle(80);
       t.eq((await queueOf('u-4')).review.length, 1, 'R4: بعد التأكيد حُذف ما اختير وحده');
+      t.ok(text().includes('ووصل إلى صفحة القاعة أيضاً'), 'R4 ضابط: المركون لقاعة قائمة يقول إنّه وصل إلى صفحتها');
+    });
+    // ── R4b (0037): المركون لأنّ القاعة حُذفت (flock_void) يقول السبب ولا يقول إنّه وصل إلى صفحة القاعة: لا صفحة لقاعة محذوفة ─────────────────
+    await step('R4b', async () => {
+      const server = makeServer();
+      fresh(owner('u-4b'), { loadOverviewJson: () => server.overview() }, async () => ({ kind: 'parked', reason: 'flock_void' }));
+      await mount('/broiler/round');
+      type(inCard('f-b', '-dead'), '1');
+      await settle();
+      await save(100);
+      const { review } = await queueOf('u-4b');
+      t.same(review.map((entry) => [entry.reason, entry.hint]), [['parked', 'flock_void']], 'R4b: المركون في الرفّ بسببه');
+      t.same([text().includes('كانت قاعة الوجبة محذوفة حين وصل'), text().includes('ووصل إلى صفحة القاعة أيضاً')], [true, false], 'R4b: السبب «محذوفة» بلا «ووصل إلى صفحة القاعة»');
     });
 
     // ── R5/V5: الهلاكات فوق الحيّ بداية اليوم تُمنع قبل الحفظ (4,939 من 4,938)، والحدّ يُقبل ──────────────────────────────────────────

@@ -809,7 +809,7 @@ export default async function (t) {
       await click(byAction('hall-add')[0]);
       t.same([Boolean(dialogTitled('قاعة جديدة')), byAction('hall-edit-delete').length], [true, 0], 'D ضابط: «أضف قاعة» بلا «احذف القاعة»');
     });
-    // صفحة القاعة الفارغة (حزمة القاعات) تفتح «عدّل القاعة» نفسها، فالحذف منها أيضاً، ثمّ تقرأ الحقل فلا تجد القاعة.
+    // صفحة القاعة الفارغة (حزمة القاعات) تفتح «عدّل القاعة» نفسها، فالحذف منها أيضاً، ثمّ ترجع إلى جدول الحقل (لا صفحة لقاعة محذوفة).
     await step('D صفحة القاعة', async () => {
       let deleted = false;
       const after = () => ({ ...overview(), sites: overview().sites.map((site) => ({ ...site, halls: site.halls.filter((hall) => hall.id !== H4) })) });
@@ -832,9 +832,9 @@ export default async function (t) {
       await click(confirmButton());
       await settle(60);
       t.same(
-        [named(calls, 'rpc:delete_hall').length, toasts()[0]?.[1] ?? null, deleteDialog(), editDialog(), body().textContent.includes('هذه القاعة غير موجودة أو مؤرشفة.')],
-        [1, 'حُذفت القاعة «قاعة 4».', null, null, true],
-        'D صفحة القاعة: بعد الحذف تُغلق النافذتان وتقرأ الصفحة الحقل فتقول إنّ القاعة غير موجودة',
+        [named(calls, 'rpc:delete_hall').length, toasts()[0]?.[1] ?? null, deleteDialog(), editDialog(), body().textContent.includes('هذه القاعة غير موجودة أو مؤرشفة.'), byAction('hall-add').length, rowOf('قاعة 4')],
+        [1, 'حُذفت القاعة «قاعة 4».', null, null, false, 1, null],
+        'D صفحة القاعة: بعد الحذف تُغلق النافذتان وترجع الصفحة إلى جدول الحقل بلا القاعة (لا «غير موجودة»)',
       );
     });
 

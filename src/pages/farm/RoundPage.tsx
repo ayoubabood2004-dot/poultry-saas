@@ -228,7 +228,10 @@ function ReviewShelf({ entries, names, halls, kind, onRemove }: { entries: reado
                 : entry.reason === 'dead_recorded'
                   ? t('round.review.dead_recorded', 'سُجّلت هلاكات هذا اليوم من جهاز آخر: {n}', { n: fmtInt(dayDeaths(entry.server) ?? 0) })
                   : entry.reason === 'parked'
-                    ? t('round.review.parked', 'لم يُحفظ: {why}. ووصل إلى صفحة القاعة أيضاً.', { why: parkText(entry.hint) })
+                    ? // قاعة محذوفة (0037) لا صفحة لها يصل إليها المركون.
+                      entry.hint === 'flock_void'
+                      ? t('round.review.parked_void', 'لم يُحفظ: {why}.', { why: parkText(entry.hint) })
+                      : t('round.review.parked', 'لم يُحفظ: {why}. ووصل إلى صفحة القاعة أيضاً.', { why: parkText(entry.hint) })
                     : describeError(new RejectedError(entry.reason, entry.hint)).detail;
         const what =
           op.fn === 'save_flock_visit'
