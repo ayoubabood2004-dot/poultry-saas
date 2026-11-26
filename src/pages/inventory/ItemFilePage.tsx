@@ -425,7 +425,17 @@ function ItemMarkLine({ itemId, name, live }: { itemId: string; name: string; li
   const state = useLoad(load, itemId);
   const [open, setOpen] = useState(false);
   const data = state.data;
-  if (state.error) return <LoadFailed what={t('file.mark.what', 'لون المادّة وحدّ قلّتها')} error={state.error} onRetry={state.retry} />;
+  // سطر ثانويّ: فشله سطر صغير بـ«أعد القراءة» (لا بطاقة فشل كبيرة تزاحم أفعال الملفّ ونوافذه)، ولا يُعرض فارغاً كأنّه بلا لون.
+  if (state.error) {
+    return (
+      <div className="flex flex-wrap items-center gap-2 text-sm text-ink-muted" data-action="file-mark-failed">
+        {t('file.mark.failed', 'تعذّرت قراءة لون المادّة وحدّ قلّتها.')}
+        <Button size="sm" variant="ghost" onClick={state.retry} data-action="file-mark-retry">
+          {t('dayb.reread', 'أعد القراءة')}
+        </Button>
+      </div>
+    );
+  }
   if (!data) return null;
   const color = data.mark?.color ?? null;
   const shown = shownColor(data.mark, null, data.colors);

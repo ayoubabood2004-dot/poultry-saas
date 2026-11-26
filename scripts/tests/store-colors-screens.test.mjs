@@ -458,6 +458,16 @@ export default async function (t) {
       t.same(named(log, 'set_item_color'), [{ p_item: I.corn, p_color: null, p_expected_version: 4 }], 'F1: «بلا لون» بالنسخة التي قرأها الملفّ');
       t.same([dialog(), toasts(), named(log, 'item_mark').length], [undefined, ['أُزيل لون «ذرة».'], 2], 'F1: تُغلق وتقول ما حُفظ ويُقرأ لونها من جديد');
     });
+    await step('F2', async () => {
+      const log = fresh(KEEPER, {
+        item_file: async () => clone(F.item_file),
+        item_mark: async (_args, n) => (n === 1 ? Promise.reject(new m.RejectedError('internal', null)) : clone(F.item_mark)),
+      });
+      await mount(`/inventory/items/${I.corn}`);
+      t.same([byAction('file-mark-failed').length, byAction('retry').length, byAction('record-purchase').length], [1, 0, 1], 'F2: فشل قراءة اللون سطر صغير بـ«أعد القراءة» لا بطاقة فشل، والملفّ وأفعاله كما هي');
+      await click(byAction('file-mark-retry')[0]);
+      t.same([named(log, 'item_mark').length, byAction('file-mark-color')[0]?.textContent], [2, 'لونها: أصفر'], 'F2: «أعد القراءة» يقرأ من جديد فيظهر لونها');
+    });
   } finally {
     if (root && m) m.flushSync(() => root.unmount());
     restore();
