@@ -183,9 +183,10 @@ export function dayColumns(rows: readonly DayRow[], on: Day, here: string, onNot
           <Link to={itemLink(row, here)} className="font-medium text-brand-700 dark:text-brand-200" data-action="day-item">
             {row.name}
           </Link>
-          {/* كلمة الحالة بجانب اللون التلقائيّ: اللون وحده لا يُفهم ولا يظهر بالطباعة بالأبيض والأسود (0037). */}
+          {/* كلمة الحالة بجانب اللون التلقائيّ: اللون وحده لا يُفهم ولا يظهر بالطباعة بالأبيض والأسود (0037). وبسطر تحت الاسم: بجانبه كانت تعرّض
+              عمود «المادّة» فيدفع زرّ اللون خارج الشاشة بعرض الهاتف. */}
           {look?.colors.auto && row.state ? (
-            <span className="ms-2 text-sm font-semibold" data-action="day-state" data-state={row.state}>
+            <span className="block text-xs font-semibold" data-action="day-state" data-state={row.state}>
               {stateWord(row.state)}
             </span>
           ) : null}
