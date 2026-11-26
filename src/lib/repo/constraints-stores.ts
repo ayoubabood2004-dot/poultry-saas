@@ -39,6 +39,15 @@ export const STORES_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
   stock_day_notes_note_check: () => t('constraint.stock_day_notes_note_check', 'الملاحظة مطلوبة، ولا تزيد على 200 حرف.'),
   stock_day_notes_version_check: () => t('constraint.stock_day_notes_version_check', 'نسخة الملاحظة يكتبها الخادم.'),
   stock_day_notes_on_date_check: () => t('constraint.stock_day_notes_on_date_check', 'يوم الملاحظة يوم من التقويم.'),
+  store_orders_section_check: () => t('constraint.store_orders_section_check', 'القسم إمّا موادّ العلف أو العلف أو أخرى.'),
+  store_orders_items_check: () => t('constraint.store_orders_items_check', 'الترتيب بلا مادّة مكرّرة ولا فارغة، و5,000 مادّة على الأكثر.'),
+  store_orders_version_check: () => t('constraint.store_orders_version_check', 'نسخة الترتيب يكتبها الخادم.'),
+  item_marks_color_check: () => t('constraint.item_marks_color_check', 'لون المادّة من الألوان المعروضة.'),
+  item_marks_low_qty_check: () => t('constraint.item_marks_low_qty_check', 'حدّ القلّة رقم أكبر من صفر، بثلاث مراتب عشرية على الأكثر.'),
+  item_marks_version_check: () => t('constraint.item_marks_version_check', 'نسخة لون المادّة يكتبها الخادم.'),
+  store_color_settings_low_color_check: () => t('constraint.store_color_settings_low_color_check', 'لون القلّة من الألوان المعروضة.'),
+  store_color_settings_out_color_check: () => t('constraint.store_color_settings_out_color_check', 'لون النفاد من الألوان المعروضة.'),
+  store_color_settings_version_check: () => t('constraint.store_color_settings_version_check', 'نسخة ألوان الرصيد يكتبها الخادم.'),
 };
 
 

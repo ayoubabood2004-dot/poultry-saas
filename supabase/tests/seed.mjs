@@ -582,6 +582,25 @@ const halls28Seed = (variant) => async (db) => {
 };
 
 /**
+ * 0037 (طريق الرفض): ترتيب قسم ولون مادّة وإعدادات ألوان، والتراجع يُسقط جداولها؛ ثلاث حالات كلّ واحدة ببذرتها (المدير بدوالّ 0037): ترتيب
+ * «موادّ العلف» مقلوباً (order)، ولون «ذرة صفراء» (mark)، و«لوّن تلقائيّاً» (colors).
+ */
+const store37Seed = (variant) => async (db) => {
+  await seedThroughRpcs(db);
+  await db.asUser(U.manager, async (q) => {
+    if (variant === 'order') {
+      await q(`select public.set_store_order('feed_materials', (select array_agg(x.id order by x.n desc) from unnest(y.ids) with ordinality as x(id, n)), y.ids)
+        from (select array_agg((j.e ->> 'id')::uuid order by j.n) as ids from jsonb_array_elements(public.store_section_items('feed_materials') -> 'items') with ordinality as j(e, n)) as y`);
+    } else if (variant === 'mark') {
+      const corn = await value(q, "select id from public.items where name = 'ذرة صفراء'");
+      await q("select public.set_item_color($1, 'yellow', 0)", [corn]);
+    } else {
+      await q("select public.set_store_colors(true, 'yellow', 'red', 0)");
+    }
+  }, { commit: true });
+};
+
+/**
  * 0030 (طريق الرفض): نهاية دورة مفتوحة (null) لا تقبلها قاعدة 0029؛ حالتان كلّ واحدة ببذرتها (المدير بدوالّ 0030): جدول اللاحم بلا نهاية (type)، وجدول
  * قاعة بلا نهاية (hall).
  */
@@ -816,6 +835,29 @@ const roundSeed = (variant) => async (db) => {
 };
 
 export const BLOCKING_SEEDS = {
+  37: [
+    {
+      name: 'ترتيب قسم محفوظ',
+      code: 'rollback_blocked',
+      seed: store37Seed('order'),
+      data: "select (select count(*) from public.store_orders where cardinality(item_ids) > 0)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_orders + v_marks + v_settings > 0 then', 'if v_marks + v_settings > 0 then'),
+    },
+    {
+      name: 'لون مادّة',
+      code: 'rollback_blocked',
+      seed: store37Seed('mark'),
+      data: "select (select count(*) from public.item_marks where color is not null)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_orders + v_marks + v_settings > 0 then', 'if v_orders + v_settings > 0 then'),
+    },
+    {
+      name: 'إعدادات ألوان',
+      code: 'rollback_blocked',
+      seed: store37Seed('colors'),
+      data: "select (select count(*) from public.store_color_settings where auto)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_orders + v_marks + v_settings > 0 then', 'if v_orders + v_marks > 0 then'),
+    },
+  ],
   36: [
     {
       name: 'يوم سُجّلت هلاكاته صفراً',
@@ -1332,6 +1374,7 @@ export const BLOCKING_REQUIRED = [
   [33, 8, 'فاتورة بأكثر من سطر، وبخصم، ومن صندوقين، وبدفع جزئيّ، وبوحدة بيع، وبملاحظة، ولزبون نقديّ، وساق مدقَّقة لفاتورة جديدة مدفوعة كلّها، كلّ واحدة توقف التراجع'],
   [35, 3, 'خانة غاز، وعلف أُرسل ليوم فات، وغاز مركون، كلّ واحد يوقف التراجع'],
   [36, 3, 'يوم سُجّلت هلاكاته صفراً، وهلاكات مركونة، وغاز مضاف مركون، كلّ واحد يوقف التراجع'],
+  [37, 3, 'ترتيب قسم محفوظ، ولون مادّة، وإعدادات ألوان، كلّ واحد يوقف التراجع'],
 ];
 
 /**
