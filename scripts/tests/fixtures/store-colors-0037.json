@@ -1,11 +1,11 @@
 {
   "_note": "عيّنات القاعدة الحقيقية (supabase/tests/store-colors.test.mjs بـSTORE_COLORS_SAMPLES_OUT=1، اليوم المثبَّت 2026-11-26)؛ المحلّلات الحقيقية تقرؤها في فحوص الشاشات.",
   "ids": {
-    "wheat": "1e9a6b60-88ed-426d-b268-38a4f1472b18",
-    "corn": "23d750a7-d3a5-4103-970b-53d1bd773144",
-    "premix": "c1a652bd-d555-4254-87dd-a0f2212fe549",
-    "stone": "8c36a46c-9344-458a-8eac-7f61ca369b8c",
-    "feed": "cf22246c-622f-4b0f-813c-746e7b34a2f6"
+    "wheat": "5ec3f953-3ea3-46a6-a40f-8be49c082e3c",
+    "corn": "e77d7dfe-a285-4373-a706-78f6f8b2b79b",
+    "premix": "6fddc8c0-d7e8-4c0f-8b73-36fc09fffdcf",
+    "stone": "05fc9144-29b4-4257-ab10-63910ea75d43",
+    "feed": "ec8768f9-65ad-4a9c-96a6-a3cc3bc8e7a2"
   },
   "day_balance_sections": {
     "on": "2026-11-26",
@@ -32,7 +32,7 @@
             "name": "حنطة",
             "note": null,
             "state": null,
-            "item_id": "1e9a6b60-88ed-426d-b268-38a4f1472b18",
+            "item_id": "5ec3f953-3ea3-46a6-a40f-8be49c082e3c",
             "category": null,
             "base_unit": "kg"
           },
@@ -47,7 +47,7 @@
             "name": "ذرة",
             "note": null,
             "state": "low",
-            "item_id": "23d750a7-d3a5-4103-970b-53d1bd773144",
+            "item_id": "e77d7dfe-a285-4373-a706-78f6f8b2b79b",
             "category": null,
             "base_unit": "kg"
           },
@@ -62,7 +62,7 @@
             "name": "حجر",
             "note": null,
             "state": null,
-            "item_id": "8c36a46c-9344-458a-8eac-7f61ca369b8c",
+            "item_id": "05fc9144-29b4-4257-ab10-63910ea75d43",
             "category": null,
             "base_unit": "kg"
           },
@@ -73,7 +73,7 @@
             "name": "برمكس انتاجي",
             "note": null,
             "state": "out",
-            "item_id": "c1a652bd-d555-4254-87dd-a0f2212fe549",
+            "item_id": "6fddc8c0-d7e8-4c0f-8b73-36fc09fffdcf",
             "category": null,
             "base_unit": "kg"
           },
@@ -84,7 +84,7 @@
             "name": "ملح",
             "note": null,
             "state": "out",
-            "item_id": "8b108490-aa10-4242-b43a-ef44bf419141",
+            "item_id": "4da2f9b3-56ea-4eb5-8833-4d61cc37024c",
             "category": null,
             "base_unit": "kg"
           }
@@ -100,7 +100,7 @@
             "name": "علف بادئ",
             "note": null,
             "state": "out",
-            "item_id": "cf22246c-622f-4b0f-813c-746e7b34a2f6",
+            "item_id": "ec8768f9-65ad-4a9c-96a6-a3cc3bc8e7a2",
             "category": null,
             "base_unit": "kg"
           }
@@ -116,7 +116,7 @@
   "items_overview": {
     "items": [
       {
-        "id": "1e9a6b60-88ed-426d-b268-38a4f1472b18",
+        "id": "5ec3f953-3ea3-46a6-a40f-8be49c082e3c",
         "kind": "raw",
         "mark": {
           "color": null,
@@ -136,23 +136,7 @@
         "last_purchase_on": null
       },
       {
-        "id": "cf22246c-622f-4b0f-813c-746e7b34a2f6",
-        "kind": "feed",
-        "mark": null,
-        "name": "علف بادئ",
-        "money": {
-          "sell_price": null,
-          "avg_unit_price": null
-        },
-        "state": "out",
-        "base_unit": "kg",
-        "on_hand_qty": "0",
-        "purchased_qty": "0",
-        "unpriced_count": 0,
-        "last_purchase_on": null
-      },
-      {
-        "id": "23d750a7-d3a5-4103-970b-53d1bd773144",
+        "id": "e77d7dfe-a285-4373-a706-78f6f8b2b79b",
         "kind": "raw",
         "mark": {
           "color": "yellow",
@@ -172,7 +156,7 @@
         "last_purchase_on": null
       },
       {
-        "id": "8c36a46c-9344-458a-8eac-7f61ca369b8c",
+        "id": "05fc9144-29b4-4257-ab10-63910ea75d43",
         "kind": "raw",
         "mark": {
           "color": "blue",
@@ -192,7 +176,7 @@
         "last_purchase_on": null
       },
       {
-        "id": "c1a652bd-d555-4254-87dd-a0f2212fe549",
+        "id": "6fddc8c0-d7e8-4c0f-8b73-36fc09fffdcf",
         "kind": "additive",
         "mark": null,
         "name": "برمكس انتاجي",
@@ -208,10 +192,26 @@
         "last_purchase_on": null
       },
       {
-        "id": "8b108490-aa10-4242-b43a-ef44bf419141",
+        "id": "4da2f9b3-56ea-4eb5-8833-4d61cc37024c",
         "kind": "raw",
         "mark": null,
         "name": "ملح",
+        "money": {
+          "sell_price": null,
+          "avg_unit_price": null
+        },
+        "state": "out",
+        "base_unit": "kg",
+        "on_hand_qty": "0",
+        "purchased_qty": "0",
+        "unpriced_count": 0,
+        "last_purchase_on": null
+      },
+      {
+        "id": "ec8768f9-65ad-4a9c-96a6-a3cc3bc8e7a2",
+        "kind": "feed",
+        "mark": null,
+        "name": "علف بادئ",
         "money": {
           "sell_price": null,
           "avg_unit_price": null
@@ -238,27 +238,27 @@
   "store_section_items": {
     "items": [
       {
-        "id": "1e9a6b60-88ed-426d-b268-38a4f1472b18",
+        "id": "5ec3f953-3ea3-46a6-a40f-8be49c082e3c",
         "kind": "raw",
         "name": "حنطة"
       },
       {
-        "id": "23d750a7-d3a5-4103-970b-53d1bd773144",
+        "id": "e77d7dfe-a285-4373-a706-78f6f8b2b79b",
         "kind": "raw",
         "name": "ذرة"
       },
       {
-        "id": "8c36a46c-9344-458a-8eac-7f61ca369b8c",
+        "id": "05fc9144-29b4-4257-ab10-63910ea75d43",
         "kind": "raw",
         "name": "حجر"
       },
       {
-        "id": "c1a652bd-d555-4254-87dd-a0f2212fe549",
+        "id": "6fddc8c0-d7e8-4c0f-8b73-36fc09fffdcf",
         "kind": "additive",
         "name": "برمكس انتاجي"
       },
       {
-        "id": "8b108490-aa10-4242-b43a-ef44bf419141",
+        "id": "4da2f9b3-56ea-4eb5-8833-4d61cc37024c",
         "kind": "raw",
         "name": "ملح"
       }
@@ -277,7 +277,7 @@
       "low_qty": "50.000",
       "version": 4
     },
-    "item_id": "23d750a7-d3a5-4103-970b-53d1bd773144"
+    "item_id": "e77d7dfe-a285-4373-a706-78f6f8b2b79b"
   },
   "set_item_color_cleared": {
     "mark": {
@@ -285,7 +285,7 @@
       "low_qty": "50.000",
       "version": 3
     },
-    "item_id": "23d750a7-d3a5-4103-970b-53d1bd773144"
+    "item_id": "e77d7dfe-a285-4373-a706-78f6f8b2b79b"
   },
   "set_item_low": {
     "mark": {
@@ -293,7 +293,7 @@
       "low_qty": "50.000",
       "version": 2
     },
-    "item_id": "23d750a7-d3a5-4103-970b-53d1bd773144"
+    "item_id": "e77d7dfe-a285-4373-a706-78f6f8b2b79b"
   },
   "item_mark": {
     "mark": {
@@ -307,7 +307,7 @@
       "auto": true,
       "version": 1
     },
-    "item_id": "23d750a7-d3a5-4103-970b-53d1bd773144",
+    "item_id": "e77d7dfe-a285-4373-a706-78f6f8b2b79b",
     "can_mark": true,
     "base_unit": "kg"
   },
@@ -319,13 +319,13 @@
       "auto": true,
       "version": 1
     },
-    "item_id": "cf22246c-622f-4b0f-813c-746e7b34a2f6",
+    "item_id": "ec8768f9-65ad-4a9c-96a6-a3cc3bc8e7a2",
     "can_mark": true,
     "base_unit": "kg"
   },
   "item_file": {
     "item": {
-      "id": "23d750a7-d3a5-4103-970b-53d1bd773144",
+      "id": "e77d7dfe-a285-4373-a706-78f6f8b2b79b",
       "kind": "raw",
       "name": "ذرة",
       "version": 1,
@@ -353,7 +353,7 @@
         "name": "مخزن المواد الأوّلية",
         "expired": "0",
         "available": "50.000",
-        "warehouse_id": "a52496fb-0eb1-46a1-a356-94dbb0ac3e6c"
+        "warehouse_id": "720f56ed-a9be-422a-bf63-0963fa5e6614"
       }
     ],
     "can_edit": true,
@@ -368,7 +368,7 @@
         "qty": "50.000",
         "kind": "raw",
         "name": "مخزن المواد الأوّلية",
-        "warehouse_id": "a52496fb-0eb1-46a1-a356-94dbb0ac3e6c"
+        "warehouse_id": "720f56ed-a9be-422a-bf63-0963fa5e6614"
       }
     ],
     "on_hand_qty": "50.000",
@@ -381,7 +381,7 @@
       {
         "kind": "raw",
         "name": "مخزن المواد الأوّلية",
-        "warehouse_id": "a52496fb-0eb1-46a1-a356-94dbb0ac3e6c"
+        "warehouse_id": "720f56ed-a9be-422a-bf63-0963fa5e6614"
       }
     ]
   },

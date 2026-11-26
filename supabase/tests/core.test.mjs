@@ -539,6 +539,18 @@ export default async function (t, db) {
     await db.asUser(owner, (q) => q("select public.set_halls_note(public.app_today(), 'ملاحظة العزل', null)"), { commit: true });
   }
 
+  // 0037: ترتيب قسم ولون مادّة وإعدادات ألوان لكلّ منشأة (المالك)، فجداولها الثلاثة بصفوف للطرفين.
+  for (const owner of [U.aOwner, U.bOwner]) {
+    await db.asUser(owner, async (q) => {
+      const listed = [];
+      for (const section of ['feed_materials', 'feed', 'other']) listed.push([section, (await value(q, 'select public.store_section_items($1)', [section])).items.map((x) => x.id)]);
+      const [section, ids] = listed.find(([, list]) => list.length > 0);
+      await q('select public.set_store_order($1, $2::uuid[], $2::uuid[])', [section, ids]);
+      await q("select public.set_item_color($1, 'yellow', 0)", [ids[0]]);
+      await q("select public.set_store_colors(true, 'yellow', 'red', 0)");
+    }, { commit: true });
+  }
+
   // ── العزل بكل جدول مستأجر (القائمة من الكتالوج، فجدول جديد يدخل وحده) ──────────────────────────────────────────
   const tenantTables = (await db.admin(`
     select c.relname as name from pg_class c join pg_namespace n on n.oid = c.relnamespace
@@ -872,6 +884,9 @@ export default async function (t, db) {
     // 0035: ورقة فوج كلّ مالك (بجولته وغازه ومركونه)، والرصيد اليوميّ بقسمين باليوم الحاليّ.
     hall_sheet: (persona) => [flocksOf[persona === U.bOwner ? 'b' : 'a'].flock],
     day_balance_sections: () => [coreToday],
+    // 0037: لون مادّة كاز كلّ مالك وحدّها، وقسم العلف بترتيبه.
+    item_mark: (persona) => [stockOf[persona === U.bOwner ? 'b' : 'a'].fuel],
+    store_section_items: () => ['feed'],
     // 0024: «المال بين يديك»: الحركة والذمم بسنة، والكشف بجهة كلّ مالك، والسند بقبضه، والتحويل بتحويله، وخلاصة الشهر بشهر مضى.
     money_moves: () => ['2026-01-01', '2026-12-31', null, null, null, null, 50],
     debts_overview: () => ['receivable', null, null, null, 'amount', null, false, null, 50],
@@ -960,6 +975,9 @@ export default async function (t, db) {
     // 0035: الورقة والرصيد بقسمين لكلّ دور بمنشأة (read) بنطاقه، وبلا منشأة forbidden.
     hall_sheet: { [U.aSpare]: 'forbidden' },
     day_balance_sections: { [U.aSpare]: 'forbidden' },
+    // 0037: لون المادّة وترتيب القسم لكلّ دور بمنشأة (read)، وبلا منشأة forbidden.
+    item_mark: { [U.aSpare]: 'forbidden' },
+    store_section_items: { [U.aSpare]: 'forbidden' },
     // 0024: قرّاء المال لأدوار الحسابات (accounts.view ويّا can_see_accounts)، كالتقارير القائمة.
     money_overview: NO_ACCOUNTS,
     money_moves: NO_ACCOUNTS,

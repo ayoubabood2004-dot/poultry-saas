@@ -589,6 +589,8 @@ const store37Seed = (variant) => async (db) => {
   await seedThroughRpcs(db);
   await db.asUser(U.manager, async (q) => {
     if (variant === 'order') {
+      // مادّة ثانية في القسم: بمادّة واحدة عكس الترتيب هو الترتيب نفسه فلا يُحفظ شيء ولا يُرفض التراجع.
+      await q("insert into public.items (name, kind, base_unit) values ('نخالة الترتيب', 'raw', 'kg')");
       await q(`select public.set_store_order('feed_materials', (select array_agg(x.id order by x.n desc) from unnest(y.ids) with ordinality as x(id, n)), y.ids)
         from (select array_agg((j.e ->> 'id')::uuid order by j.n) as ids from jsonb_array_elements(public.store_section_items('feed_materials') -> 'items') with ordinality as j(e, n)) as y`);
     } else if (variant === 'mark') {

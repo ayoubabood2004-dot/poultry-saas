@@ -439,7 +439,7 @@ begin
       'mark', private.item_mark_json(mk), 'state', private.stock_state(coalesce(h.qty, 0), mk.low_qty),
       'money', jsonb_build_object('sell_price', s.sell_price::text,
         'avg_unit_price', case when u.priced_qty > 0 then private._mul_div_round(1, u.value, u.priced_qty, 2)::text end))
-      order by rk.n nulls last, i.name_norm collate "C", i.id), '[]'::jsonb))
+      order by array_position(array['feed_materials', 'feed', 'other'], private.store_section(i.kind)), rk.n nulls last, i.name_norm collate "C", i.id), '[]'::jsonb))
   into v_result
   from public.items i
   left join hand h on h.item_id = i.id
