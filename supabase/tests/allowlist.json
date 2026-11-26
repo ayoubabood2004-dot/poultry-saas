@@ -32,6 +32,8 @@
     "public.decline_invite(uuid)",
     "public.delete_draft_line(text, uuid, integer)",
     "public.delete_flock(uuid, integer, uuid)",
+    "public.delete_hall(uuid, integer, text, uuid)",
+    "public.delete_hall_preview(uuid)",
     "public.delete_item(uuid, integer)",
     "public.delete_receipt_charge(uuid, integer)",
     "public.delete_vaccine(uuid, integer)",
@@ -192,6 +194,7 @@
   "service_role_only": [
     "public.verify_bird_sales()",
     "public.verify_core()",
+    "public.verify_delete_hall()",
     "public.verify_flock_close()",
     "public.verify_flock_issues()",
     "public.verify_flocks()",

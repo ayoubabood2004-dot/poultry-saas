@@ -973,6 +973,19 @@ export default async function (t, db) {
       value: true,
       expect: all('ok:saved:2'),
     },
+    // 0037 («احذف القاعة» كأنها لم تكن) تحت 0034: المعاينة لكلّ دور بنتيجة المالك، والحذف (flock.manage، وvoid لصرف الفوج) لكلّ عضو؛ والخانة بمعاملة
+    // تُرجَع، فكلّ دور يحذف «قاعة 1» بفوجها القائم بنسخة المعاينة وبصمتها.
+    delete_hall_preview: {
+      sql: () => ["select jsonb_array_length(p -> 'blocks') || ':' || (p -> 'flock' ->> 'status') || ':' || (p -> 'hall' ->> 'name') as v from public.delete_hall_preview($1) as p", [p2.hall]],
+      value: true,
+      expect: all('ok:0:active:قاعة 1'),
+    },
+    delete_hall: {
+      sql: () => ["select (r ->> 'deleted') || ':' || (r ->> 'already') || ':' || ((r ->> 'flock_id') = $2::text)::text as v from public.delete_hall($1, (select version from public.halls where id = $1), public.delete_hall_preview($1) ->> 'plan', gen_random_uuid()) as r",
+        [p2.hall, p2.flock]],
+      value: true,
+      expect: all('ok:true:false:true'),
+    },
   };
 
   const allowlisted = ALLOWLIST.authenticated.map((signature) => signature.slice('public.'.length, signature.indexOf('('))).sort();
