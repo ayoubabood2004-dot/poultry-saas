@@ -448,12 +448,13 @@ async function scenario(t, db) {
       t.same(
         [v.today, v.canRecord, v.canAddItem, v.items.map((x) => x.name), cardOf(v, CORN), cardOf(v, OIL), cardOf(v, BAGS)],
         [
-          TODAY, ...flags, ['أكياس الدمج', 'ذرة الدمج', 'زيت الدمج'],
+          // 0037: القسم بترتيب عرضه ثمّ الاسم: الذرة والزيت (موادّ العلف) قبل الأكياس (أخرى).
+          TODAY, ...flags, ['ذرة الدمج', 'زيت الدمج', 'أكياس الدمج'],
           ['raw', 'kg', 2893833n, 2893833n, TODAY, money ? { sellPrice: 50000n, avgUnitPrice: 38623n } : null],
           ['raw', 'L', 200500n, 200500n, TODAY, money ? { sellPrice: 140075n, avgUnitPrice: 125025n } : null],
           ['packaging', 'pc', bagsQty, bagsQty, TODAY, money ? { sellPrice: null, avgUnitPrice: bagsQty === 5000n ? 100000n : 558824n } : null],
         ],
-        `parseItemsOverview(${label}): البطاقات الثلاث بالاسم، وأرقام الملفّ نفسها (الملغى خارجها)${money ? ' ومالها' : ' بلا مال'}`,
+        `parseItemsOverview(${label}): البطاقات الثلاث بقسمها ثمّ الاسم، وأرقام الملفّ نفسها (الملغى خارجها)${money ? ' ومالها' : ' بلا مال'}`,
       );
     }
 
