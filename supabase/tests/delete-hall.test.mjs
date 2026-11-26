@@ -184,7 +184,7 @@ async function scenario(t, db) {
   const NAMES = {
     t8: 'قاعة 8 تجريبي', t1: 'قاعه 1 تجريبي', t4: 'قاعه 4 تجريبي', t5: 'قاعه 5 تجريبي', ended: 'قاعة الدورة المنتهية', empty: 'قاعة فارغة',
     sale: 'قاعة البيع', ticket: 'قاعة التذكرة', carryPending: 'قاعة النقل المعلّق', carryApplied: 'قاعة النقل المطبّق',
-    reopened: 'قاعة الدورة المعادة',
+    reopened: 'قاعة الدورة المعادة', twoCycles: 'قاعة الدورتين',
     ...Object.fromEntries(Array.from({ length: 12 }, (_, k) => [`c${k + 1}`, `قاعة السباق ${k + 1}`])),
   };
   const H = {};
@@ -271,6 +271,15 @@ async function scenario(t, db) {
     F.carryApplied = await open(H.carryApplied, day(-4), 1500);
   });
   // دورة أُغلقت بإرجاع إلى «رصيد العلف» ثمّ أُعيد فتحها (الإرجاع معكوس، والإغلاق reopened)، فيُحذف فوجها القائم بعد ذلك.
+  // «قاعة الدورتين»: دورة أُغلقت قبل خمسة أيّام، ثمّ فوج جديد قائم بإرسال علف وجولة (يُحذف فوجها القائم وتبقى دورتها المنتهية).
+  await section('بذرة قاعة الدورتين', async () => {
+    const old = await open(H.twoCycles, day(-40), 800);
+    const form = await closeForm(old);
+    await one(U.manager, CLOSE, [uid(), id(395), old, day(-5), 800, 0, '[]', 'بيعت خارج النظام', '[]', null, form.plan]);
+    F.twoCycles = await open(H.twoCycles, day(-3), 6000);
+    await one(U.worker, DEAD, [F.twoCycles, day(-1), 4, uid(), false]);
+    await issue(U.keeper, { flock: F.twoCycles, item: I.m2, qty: 750, on: day(-1) });
+  });
   await section('بذرة الدورة المعادة', async () => {
     F.reopened = await open(H.reopened, day(-10), 1200);
     await issue(U.keeper, { flock: F.reopened, item: I.m1, qty: 100, on: day(-6) });
@@ -602,6 +611,12 @@ async function scenario(t, db) {
         { hall_id: H.t5, name: NAMES.t5, deleted: true, already: false, flock_id: F.t5, voided_issues: 0, back: [] }],
       'قاعة بدورة منتهية وقاعة فارغة تُخفيان بلا فوج، وفوج بلا سجلّ يُلغى بلا شيء يرجع');
     same([voidedDone.ok, voidedDone.value?.voided_issues], [true, 0], 'قاعة بيعها وتذكرتها ملغيان تُحذف');
+    const twoPreview = await preview(H.twoCycles);
+    samples.preview_running_with_ended = twoPreview;
+    const twoDone = await del(U.manager, H.twoCycles, twoPreview);
+    samples.delete_running_with_ended = twoDone.value;
+    same([twoPreview.ended, twoPreview.flock?.days, twoPreview.flock?.back?.map((r) => [r.item, r.qty]), twoPreview.blocks, twoDone.value?.voided_issues],
+      [1, 1, [['علف م/2', '750.000']], [], 1], 'قاعة بدورة منتهية وفوج قائم: المعاينة تعدّ الدورة المنتهية، والحذف يُلغي الفوج القائم وحده');
     const reopenedDone = await del(U.manager, H.reopened, await preview(H.reopened));
     same([reopenedDone.value?.voided_issues, reopenedDone.value?.back?.map((r) => [r.item, r.qty]),
       await scalar("select string_agg(status, ',' order by status) from public.flock_closes where flock_id = $1", [F.reopened]),
@@ -693,6 +708,16 @@ async function scenario(t, db) {
       `ضابط: حذف يقفل الأرصدة قبل الفوج يتقافل مع ترتيب الصرف (${JSON.stringify(early)})`);
     const balanced = await interleave('c3', ...flockThenBalance(3));
     same(balanced, { held: true, blocked: true, first: 'a', aSecond: 'ok', deleted: 'ok' }, 'الحذف بترتيبه: ينتظر الفوج بعينه، وماسكه يأخذ الرصيد بلا انتظار، ثمّ يُحذف');
+    // القاعة for no key update لا for update: كاتب الجولة يمسك الفوج ثمّ يضيف زيارة تشير إلى القاعة (فحص المفتاح الأجنبيّ key share) والحذف ينتظر الفوج؛
+    // والضابط: حذف يقفل القاعة for update يحبس ذلك الفحص فيتقافلان.
+    const roundAfterFlock = [{ sql: 'select 1 from public.flocks where id = $1 for update', params: [F.c12] },
+      { sql: 'select public.set_flock_dead($1, $2, 1, $3, false) as v', params: [F.c12, TODAY, uid()] }];
+    const strong = await committedMutation(SIG.del, [[' and y.id = p_hall for no key update;', ' and y.id = p_hall for update;']],
+      () => interleave('c12', ...roundAfterFlock, false));
+    t.ok(strong.held && strong.blocked && [strong.aSecond, strong.deleted].includes('deadlock detected'),
+      `ضابط: حذف يقفل القاعة for update يتقافل مع كاتب جولة يمسك الفوج (${JSON.stringify(strong)})`);
+    const keyShare = await interleave('c12', ...roundAfterFlock);
+    same(keyShare, { held: true, blocked: true, first: 'a', aSecond: 'ok', deleted: 'ok' }, 'الحذف بقفل القاعة for no key update: كاتب الجولة الماسك للفوج يضيف زيارته بلا انتظار، ثمّ يُحذف');
 
     // الخاسر أمام الحذف يرى سببه بعد قفل الفوج (الإغلاق وفرق العدّ والصرف)، وضابط كلّ واحد جسم مثبَّت بلا فحص الإلغاء بعد القفل يخطئ السبب.
     const closeParams = async (k) => [uid(), uid(), F[`c${k}`], TODAY, 1000, 0, '[]', 'بيعت خارج النظام', '[]', null, (await closeForm(F[`c${k}`])).plan];
