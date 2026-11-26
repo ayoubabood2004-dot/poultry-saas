@@ -389,7 +389,7 @@ export default async function (t, db) {
         await q("select public.save_flock_day($1, date '2026-01-31', 1, null, null, null, null, null, null, null, null, null, null, gen_random_uuid(), true)", [flock]);
         await q('select public.set_flock_gas($1, public.app_today(), 2, null, gen_random_uuid(), false)', [flock]);
         await q('select public.record_flock_weight($1, public.app_today(), 30, 120.5, gen_random_uuid())', [flock]);
-        return { flock };
+        return { flock, hall };
       },
       { commit: true },
     );
@@ -872,6 +872,8 @@ export default async function (t, db) {
     // 0035: ورقة فوج كلّ مالك (بجولته وغازه ومركونه)، والرصيد اليوميّ بقسمين باليوم الحاليّ.
     hall_sheet: (persona) => [flocksOf[persona === U.bOwner ? 'b' : 'a'].flock],
     day_balance_sections: () => [coreToday],
+    // 0037: معاينة حذف «قاعة 1» بفوجها القائم لكلّ مالك (بجولته وصرفه وغازه)، فجسمها كلّه ينفّذ.
+    delete_hall_preview: (persona) => [flocksOf[persona === U.bOwner ? 'b' : 'a'].hall],
     // 0024: «المال بين يديك»: الحركة والذمم بسنة، والكشف بجهة كلّ مالك، والسند بقبضه، والتحويل بتحويله، وخلاصة الشهر بشهر مضى.
     money_moves: () => ['2026-01-01', '2026-12-31', null, null, null, null, 50],
     debts_overview: () => ['receivable', null, null, null, 'amount', null, false, null, 50],
@@ -960,6 +962,8 @@ export default async function (t, db) {
     // 0035: الورقة والرصيد بقسمين لكلّ دور بمنشأة (read) بنطاقه، وبلا منشأة forbidden.
     hall_sheet: { [U.aSpare]: 'forbidden' },
     day_balance_sections: { [U.aSpare]: 'forbidden' },
+    // 0037: معاينة حذف القاعة لكلّ دور بمنشأة (read)، وبلا منشأة forbidden.
+    delete_hall_preview: { [U.aSpare]: 'forbidden' },
     // 0024: قرّاء المال لأدوار الحسابات (accounts.view ويّا can_see_accounts)، كالتقارير القائمة.
     money_overview: NO_ACCOUNTS,
     money_moves: NO_ACCOUNTS,

@@ -1,7 +1,8 @@
 // «احذف القاعة» كأنها لم تكن (0037، العقد docs/plans/0037/contract-0037.md «الجزء D»، DECISIONS 2026-11-26): المعاينة بأشكالها (فوج قائم بأيّامه
 // وزياراته وغازه وصرفه من «رصيد العلف» وتأشيره المصروف، ودورة منتهية، وقاعة بلا فوج، وقاعة فيها بيع طيور)، وكلّ منع بجملته ورمزه في الحذف، والنسخة
 // والبصمة، والإعادة بالمرجع وبالحالة، والمخزون يرجع بالكمية والقيمة ودفتر المادّة يُظهر الإرسال والعكس، وكلّ قارئ بلا الفوج الملغى وكلّ كاتب يرفضه،
-// والطابور يركن flock_void، والدورات المنتهية تبقى في «من أوّل ما بدينا»، وجلستان حقيقيتان مع void_flock_issue وrecord_flock_issue وundo_vaccination
+// والطابور يركن flock_void، والدورات المنتهية تبقى في «من أوّل ما بدينا» (والأفواج الملغاة بكلّ حال: بصرف وتأشير ومركون وعدّ، وبتذكرة وبيع ملغيين،
+// وبلا سجلّ، وبدورة أُغلقت بإرجاع ثمّ أُعيد فتحها، والثوابت كلّها صفر بعدها)، وجلستان حقيقيتان مع void_flock_issue وrecord_flock_issue وundo_vaccination
 // وclose_flock وrecord_flock_count_adjust (pg_blocking_pids على الجلسة بعينها، وضوابط بأجسام مثبَّتة بترتيب أقفال آخر تتقافل أو تخطئ السبب ثمّ تعود
 // حرفاً)، والثابت verify_delete_hall بضوابطه، وطفرة لكلّ تغيير في القرّاء والكتّاب، وملفّ التراجع (الأجسام حرفاً، ورفضه بصوت، وبلا كتلته يرجّع القديم).
 // منشأة هذا الملفّ: المعرّفات d3737000 والهواتف 964770373700+ (ومنشأة ثانية بالمعرّفات d3737000-…-0000000009xx والهواتف 9647703737090+).
@@ -183,6 +184,7 @@ async function scenario(t, db) {
   const NAMES = {
     t8: 'قاعة 8 تجريبي', t1: 'قاعه 1 تجريبي', t4: 'قاعه 4 تجريبي', t5: 'قاعه 5 تجريبي', ended: 'قاعة الدورة المنتهية', empty: 'قاعة فارغة',
     sale: 'قاعة البيع', ticket: 'قاعة التذكرة', carryPending: 'قاعة النقل المعلّق', carryApplied: 'قاعة النقل المطبّق',
+    reopened: 'قاعة الدورة المعادة',
     ...Object.fromEntries(Array.from({ length: 12 }, (_, k) => [`c${k + 1}`, `قاعة السباق ${k + 1}`])),
   };
   const H = {};
@@ -267,6 +269,15 @@ async function scenario(t, db) {
       F[`${key}Old`] = flockId;
     }
     F.carryApplied = await open(H.carryApplied, day(-4), 1500);
+  });
+  // دورة أُغلقت بإرجاع إلى «رصيد العلف» ثمّ أُعيد فتحها (الإرجاع معكوس، والإغلاق reopened)، فيُحذف فوجها القائم بعد ذلك.
+  await section('بذرة الدورة المعادة', async () => {
+    F.reopened = await open(H.reopened, day(-10), 1200);
+    await issue(U.keeper, { flock: F.reopened, item: I.m1, qty: 100, on: day(-6) });
+    const form = await closeForm(F.reopened);
+    await one(U.manager, CLOSE, [uid(), id(390), F.reopened, day(-5), 1200, 0, JSON.stringify([{ item_id: I.m1, qty: '100' }]), 'بيعت خارج النظام',
+      JSON.stringify([{ item_id: I.m1, qty: '40', action: 'return', warehouse_id: W.feed }]), null, form.plan]);
+    await one(U.manager, 'select public.reopen_flock($1, $2, $3) as v', [id(390), 'أُغلقت خطأً', uid()]);
   });
   // قاعات السباق: لكلّ واحدة فوج 1,000 قبل ثمانية أيّام وصرف 100 كغم «علف م/1» اليوم (والخامسة تأشير لقاح مصروف، والسابعة حتى الثانية عشرة بلا صرف).
   await section('بذرة قاعات السباق', async () => {
@@ -591,6 +602,11 @@ async function scenario(t, db) {
         { hall_id: H.t5, name: NAMES.t5, deleted: true, already: false, flock_id: F.t5, voided_issues: 0, back: [] }],
       'قاعة بدورة منتهية وقاعة فارغة تُخفيان بلا فوج، وفوج بلا سجلّ يُلغى بلا شيء يرجع');
     same([voidedDone.ok, voidedDone.value?.voided_issues], [true, 0], 'قاعة بيعها وتذكرتها ملغيان تُحذف');
+    const reopenedDone = await del(U.manager, H.reopened, await preview(H.reopened));
+    same([reopenedDone.value?.voided_issues, reopenedDone.value?.back?.map((r) => [r.item, r.qty]),
+      await scalar("select string_agg(status, ',' order by status) from public.flock_closes where flock_id = $1", [F.reopened]),
+      await scalar('select coalesce(sum(amount), 0) = 0 from public.flock_costs where flock_id = $1', [F.reopened])],
+    [1, [['علف م/1', '100.000']], 'reopened', true], 'دورة أُغلقت بإرجاع ثمّ أُعيد فتحها تُحذف: صرفها كلّه يرجع، وإرجاعها المعكوس يبقى معكوساً، ودفتر كلفتها صفر');
     same(await scalar('select status from public.flocks where id = $1', [F.ended]), 'closed', 'والدورة المنتهية تبقى مغلقة لا ملغاة');
     const history = await one(U.manager, 'select public.halls_history(null) as v', []);
     const events = history.kinds.find((k) => k.kind === 'broiler').events.filter((e) => e.hall === NAMES.ended).map((e) => [e.type, e.on]);
@@ -794,6 +810,27 @@ async function scenario(t, db) {
     const guarded = [await guard([]), await guard([[SIG.voidIssue, [off("  if f.status = 'void' then\n    raise exception 'flock_void'")]]])];
     same([guarded[0], guarded[1] !== 'flock_void'], ['flock_void', true],
       `إلغاء صرف لفوج ملغى (بخرق الثابت): flock_void، وبلا الحارس يمضي إلى العكس فيفشل بغيره (${guarded[1]})`);
+  });
+
+  // ── «اليوم السابق» في التقرير اليوميّ لا يعدّ الفوج الملغى: منشأة ثانية فيها قاعة واحدة حُذفت بفوجها (في هذه المنشأة دورات قبل كلّ فوج ملغى) ─────
+  await section('اليوم السابق', async () => {
+    const G2 = await makeOrg(db, {
+      name: 'مزرعة الحذف الثانية',
+      id: (n) => `d3737000-0000-4000-8000-0000000009${String(n).padStart(2, '0')}`,
+      phone: (n) => `964770373709${n}`,
+      roles: [['owner', 'owner']],
+    });
+    const owner = G2.users.owner;
+    const site2 = await one(owner, "insert into public.sites (division_id, name, kind) values ($1, 'حقل التجربة', 'farm') returning id", [G2.divisions.broiler]);
+    const hall2 = await one(owner, "insert into public.halls (site_id, name) values ($1, 'قاعة تجريبية') returning id", [site2]);
+    await one(owner, 'select public.open_flock($1, $2, 100, 0, null, $3) as v', [hall2, day(-3), uid()]);
+    const before = (await one(owner, 'select public.halls_day($1) as v', [day(-2)])).prev;
+    const p = await one(owner, PREVIEW, [hall2]);
+    await one(owner, DELETE, [hall2, p.hall.version, p.plan, uid()]);
+    const prev = (attempt) => inside(attempt, owner, 'select public.halls_day($1) as v', [day(-2)]).then((v) => v?.prev ?? v);
+    const real = await mutant(db, owner, [], ({ attempt }) => prev(attempt));
+    const broken = await mutant(db, owner, [[SIG.hallsDay, [["x.placed_on < v_on and x.status <> 'void' and", 'x.placed_on < v_on and']]]], ({ attempt }) => prev(attempt));
+    same([before, real, broken], [true, false, true], '«اليوم السابق»: قبل الحذف يوجد، وبعده لا (والجسم بلا الاستثناء يعدّ الفوج الملغى)');
   });
 
   // ── ١٢) ملفّ التراجع ──────────────────────────────────────────────────────────────────────────────────────────────
