@@ -215,7 +215,7 @@ export function DeleteHallDialog({ hall, onClose, onDeleted, onStale }: DeleteHa
         {problem ? (
           <div data-action="hall-delete-problem">
             <Notice tone={problem.tone} title={problem.text}>
-              {problem.reread ? t('hall.delete.reread', 'قُرئ ما في القاعة من جديد، فما يظهر هنا حالها الآن.') : null}
+              {problem.reread && preview ? t('hall.delete.reread', 'قُرئ ما في القاعة من جديد، فما يظهر هنا حالها الآن.') : null}
             </Notice>
           </div>
         ) : null}

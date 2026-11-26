@@ -476,7 +476,7 @@ export default async function (t) {
       fresh({ loadOverviewJson: () => overview({ canManage: false }) });
       await mount();
       t.ok(rowOf('قاعة 8 تجريبي') !== null, 'B ضابط: القاعات ظاهرة بلا إدارة');
-      t.same(byAction('hall-delete').length, 0, 'B الخادم أجاب can_manage=false: بلا «احذف»');
+      t.same(byAction('hall-delete').length, 0, 'B ضابط: الخادم أجاب can_manage=false فلا «احذف»');
     });
 
     // ── L وR: القراءة وفشلها ─────────────────────────────────────────────────────────────────────────────────────────
@@ -796,8 +796,9 @@ export default async function (t) {
       t.same([remove?.textContent ?? null, remove?.getAttribute('type') ?? null, (remove?.getAttribute('class') ?? '').includes('bg-brand-600')], ['احذف القاعة', 'button', false], 'D «احذف القاعة» في ذيل «عدّل القاعة»: زرّ type="button" وليس الزرّ الأساسيّ');
       await click(remove);
       t.same([Boolean(deleteDialog()), Boolean(editDialog()), named(calls, 'updateHall').length, named(calls, 'rpc:delete_hall_preview')], [true, true, 0, [{ p_hall: H8 }]], 'D يفتح نافذة الحذف فوقها ويقرأ ما في القاعة، ولا يحفظ تعديل القاعة');
-      await click(cancelButton());
-      t.same([deleteDialog(), Boolean(editDialog())], [null, true], 'D «لا، تراجع» يرجع إلى «عدّل القاعة»');
+      const cancel = cancelButton();
+      await click(cancel);
+      t.same([cancel?.textContent ?? null, deleteDialog(), Boolean(editDialog())], ['لا، تراجع', null, true], 'D «لا، تراجع» في نافذة الحذف يرجع إلى «عدّل القاعة» مفتوحة');
       await click(byAction('hall-edit-delete', editDialog() ?? body())[0]);
       await click(confirmButton());
       t.same([named(calls, 'rpc:delete_hall').length, deleteDialog(), editDialog(), reads(calls), toasts()[0]?.[0] ?? null], [1, null, null, 2, 'success'], 'D الحذف منها يغلق النافذتين ويقرأ الحقل من جديد');
@@ -806,7 +807,7 @@ export default async function (t) {
       fresh({ loadOverviewJson: () => overview() });
       await mount();
       await click(byAction('hall-add')[0]);
-      t.same([Boolean(dialogTitled('قاعة جديدة')), byAction('hall-edit-delete').length], [true, 0], 'D «أضف قاعة» بلا «احذف القاعة»');
+      t.same([Boolean(dialogTitled('قاعة جديدة')), byAction('hall-edit-delete').length], [true, 0], 'D ضابط: «أضف قاعة» بلا «احذف القاعة»');
     });
     // صفحة القاعة الفارغة (حزمة القاعات) تفتح «عدّل القاعة» نفسها، فالحذف منها أيضاً، ثمّ تقرأ الحقل فلا تجد القاعة.
     await step('D صفحة القاعة', async () => {
