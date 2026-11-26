@@ -515,10 +515,8 @@ export async function updateHall(id: string, version: number, name: string, capa
   await written(async (db) => updatedRows(withStatus(await db.from('halls').update({ name: name.trim(), capacity }).eq('id', id).eq('version', version).select('id, version'))));
 }
 
-/** أرشفة القاعة (لا حذف أبداً)؛ قاعة بيها فوج شغّال ترفض (hall_in_use). */
-export async function archiveHall(id: string, version: number): Promise<void> {
-  await written(async (db) => updatedRows(withStatus(await db.from('halls').update({ archived_at: 'now' }).eq('id', id).eq('version', version).select('id, version'))));
-}
+// إخفاء القاعة (أرشفتها) صار «احذف القاعة» (0037، repo/hallDelete: delete_hall بنداء واحد يلغي فوجها القائم ويعيد ما صُرف له إلى المخزن ثمّ
+// يخفيها)، فلا كتابة مباشرة لعمود archived_at من هنا بعد.
 
 // ─── الأفواج والأوزان: دوالّ بمرجع الجهاز ──────────────────────────────────────────────────────────────────────────────
 

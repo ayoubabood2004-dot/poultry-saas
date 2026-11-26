@@ -31,7 +31,7 @@ const REAL36 = readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'rou
 // وعيّنات «عوف سالفة العلف الماكول» (round-once-feed.test بـROUND_FEED_SAMPLES_OUT=1، يومها 2026-11-24): الوجبة التالية N في «قاعة الإغلاق» يوم تسكينها
 // بالمنقول إليها (سطر carry) والمرسل.
 const FEED36 = readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'round-feed-0036.json'), 'utf8');
-const OVERRIDES = ['loadOverviewJson', 'loadFlockDetail', 'createHall', 'updateHall', 'archiveHall', 'openFlock', 'recordFlockWeight'];
+const OVERRIDES = ['loadOverviewJson', 'loadFlockDetail', 'createHall', 'updateHall', 'openFlock', 'recordFlockWeight'];
 const STUBS = {
   // loadOverview مثل الحقيقي بالضبط (parseOverview(await loadOverviewJson())) بس عبر البديل، حتى الرئيسية القديمة تقرا من نفس الخادم المزيّف.
   flocks: `export * from ${REAL_FLOCKS}; import { parseOverview as __parseOverview } from ${REAL_FLOCKS}; ${OVERRIDES.map((n) => `export const ${n} = (...a) => globalThis.__farm.call('${n}', a);`).join(' ')}
@@ -136,6 +136,14 @@ const type = (input, value) => {
   if (!input) return;
   input.value = value;
   fire(input, 'input');
+};
+/**
+ * زرّ حفظ في ذيل نافذة مربوط بنموذجها (type="submit" form=…، عقد 0037): نقرته في المتصفّح ترسل النموذج إن لم يكن معطّلاً، وDOM الفحص لا يرسل
+ * بالنقر، فيُرسل النموذج نفسه هنا.
+ */
+const submitVia = (button) => {
+  const form = button && button.getAttribute('disabled') === null ? all().find((n) => n.localName === 'form' && n.id === button.getAttribute('form')) : null;
+  if (form) fire(form, 'submit');
 };
 const clone = (value) => JSON.parse(JSON.stringify(value));
 /** يرمي ويرجّع اسم الخانة، أو «parsed». */
@@ -1025,7 +1033,7 @@ export default async function (t) {
       await settle();
       type(byIdSuffix('-count')[0], '5000');
       await settle();
-      fire(byAction('flock-open-save')[0], 'click');
+      submitVia(byAction('flock-open-save')[0]);
       await settle(60);
       const open = calls.find(([name]) => name === 'openFlock');
       t.same(open?.[1]?.[0], { hallId: 'h-3', placedOn: TODAY, placedCount: 5000, ageDays: 0, breed: '' }, 'F1: open_flock بالقاعة والتاريخ والعدد');

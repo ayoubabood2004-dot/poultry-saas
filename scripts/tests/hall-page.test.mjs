@@ -17,7 +17,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const REAL_FLOCKS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'flocks.ts'));
 const REAL_SHEET = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'hallSheet.ts'));
 const SHEET = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sheet.hand.json'), 'utf8')).hall_sheet.broiler;
-const OVERRIDES = ['loadOverviewJson', 'loadFlockDetail', 'loadFlockFeed', 'createHall', 'updateHall', 'archiveHall', 'openFlock', 'recordFlockWeight'];
+const OVERRIDES = ['loadOverviewJson', 'loadFlockDetail', 'loadFlockFeed', 'createHall', 'updateHall', 'openFlock', 'recordFlockWeight'];
 const STUBS = {
   flocks: `export * from ${REAL_FLOCKS}; import { parseOverview as __parseOverview } from ${REAL_FLOCKS}; ${OVERRIDES.map((n) => `export const ${n} = (...a) => globalThis.__hp.call('${n}', a);`).join(' ')}
     export const loadOverview = async () => __parseOverview(await globalThis.__hp.call('loadOverviewJson', []));

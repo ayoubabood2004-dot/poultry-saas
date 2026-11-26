@@ -158,6 +158,9 @@ export function parkText(reason: string | null): string {
   switch (reason) {
     case 'flock_closed':
       return t('sheet.park.closed', 'كانت الوجبة مغلقة حين وصل');
+    case 'flock_void':
+      // 0037: جولة من جهاز لم يعرف بعدُ أنّ القاعة حُذفت (كأنّها لم تكن) تُركن ولا تُكتب.
+      return t('sheet.park.void', 'كانت قاعة الوجبة محذوفة حين وصل');
     case 'out_of_scope':
       return t('sheet.park.scope', 'لم يكن لمن أرسله وصول إلى القاعة');
     case 'period_locked':
