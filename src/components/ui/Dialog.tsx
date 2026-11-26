@@ -2,6 +2,7 @@ import { X } from 'lucide-react';
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { isTopModal, trapFocus } from '../../lib/focus';
+import { firstField, focusField } from '../../lib/formKeys';
 import { t } from '../../lib/i18n';
 import { useDirtyForm } from '../../lib/pwa/dirty';
 import { lockScroll } from '../../lib/scrollLock';
@@ -62,6 +63,10 @@ export function Dialog({ open, onClose, title, dirty = false, locked = false, di
     if (!open || !panel) return;
     const unlock = lockScroll();
     const release = trapFocus(panel);
+    // على الحاسوب (مؤشّر دقيق) المؤشّر في أوّل خانة حين تُفتح النافذة بلا [data-autofocus] (كلمة المالك 2026-11-26)؛ والهاتف كما كان: لوحة مفاتيحه لا
+    // تقفز فوق الورقة.
+    const first = panel.querySelector('[data-autofocus]') || !window.matchMedia('(pointer: fine)').matches ? null : firstField(panel);
+    if (first) focusField(first);
     return () => {
       release();
       unlock();

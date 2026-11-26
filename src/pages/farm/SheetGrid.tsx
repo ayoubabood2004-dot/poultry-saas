@@ -1358,6 +1358,7 @@ export function SheetGrid(props: SheetGridProps) {
         ref={wrapRef}
         className={active ? 'sg-grid sg-on' : 'sg-grid'}
         data-action="sheet-grid"
+        data-enter="own"
         data-mode={active ? 'edit' : 'locked'}
         onKeyDown={active ? onKeyDown : undefined}
         onPointerDown={active ? onPointerDown : undefined}

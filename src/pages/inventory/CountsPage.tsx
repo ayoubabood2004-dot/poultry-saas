@@ -24,6 +24,7 @@ import { parseQty, toBase, type BaseUnit } from '../../domain/units';
 import { parseDayText, parseMomentText } from '../../lib/dayText';
 import type { DraftStamp } from '../../lib/drafts';
 import { describeError, RejectedError, ZeroRowsError, type ErrorContext, type ErrorDescription } from '../../lib/errors';
+import { noSubmit } from '../../lib/formKeys';
 import { fmtDay, fmtInt, fmtMoney, fmtQty, fmtQtyCell, fmtUnitCost } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { onlineStore } from '../../lib/online';
@@ -1001,7 +1002,8 @@ function CountReview({
         })
       : t('count.post.consequence_qty', 'يُحفظ جرد «{store}» بتاريخ {day} نهائياً بفروق {n} من السطور، ويأخذ رقمه. لا يُعدَّل بعدها؛ الخطأ يُلغى بسببه.', { store: store.name, day: fmtDay(doc.onDate), n: fmtInt(withDiff) });
   return (
-    <div className="flex flex-col gap-4">
+    // الأسباب والكلف نموذج (0037 K): Enter ينقل بين خاناتها، وفي آخرها «احفظ الأسباب والكلف».
+    <form className="flex flex-col gap-4" onSubmit={noSubmit} noValidate>
       {doc.voidReason ? <Notice tone="warning" title={t('count.voided', 'أُلغي هذا الجرد')}>{doc.voidReason}</Notice> : null}
       {submitted && data.stale ? (
         <Notice tone="warning" title={t('count.stale', 'تغيّر الرصيد بعد العدّ')}>
@@ -1045,7 +1047,7 @@ function CountReview({
       ) : null}
       {submitted ? (
         <div className="flex flex-wrap gap-2">
-          <Button variant="secondary" busy={busy} disabled={!dirty && staleReasons.length === 0} onClick={() => void saveReview()} data-action="save-count-review">
+          <Button type="submit" variant="secondary" busy={busy} disabled={!dirty && staleReasons.length === 0} onClick={() => void saveReview()} data-action="save-count-review">
             {t('count.review.save', 'احفظ الأسباب والكلف')}
           </Button>
           <Button variant="secondary" busy={busy} disabled={!online || dirty} onClick={() => void refresh()} data-action="refresh-count">
@@ -1141,7 +1143,7 @@ function CountReview({
           onClose={() => setConfirm(null)}
         />
       ) : null}
-    </div>
+    </form>
   );
 }
 

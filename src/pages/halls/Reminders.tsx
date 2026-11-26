@@ -12,6 +12,7 @@ import type { FlockKind } from '../../domain/flocks';
 import type { Milli } from '../../domain/money';
 import { can } from '../../domain/permissions';
 import { parseQty } from '../../domain/units';
+import { noSubmit } from '../../lib/formKeys';
 import { countForm, fmtCounted, fmtDay, fmtInt } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { useDirtyForm } from '../../lib/pwa/dirty';
@@ -189,12 +190,12 @@ function MarkDialog({ group, today, busy, onClose, onSend }: MarkProps) {
       dirty={dirty}
       title={t('reminders.mark.title', 'تمّ «{name}» يوم العمر {age}', { name: group.name, age: fmtInt(group.ageDay) })}
       footer={
-        <Button size="lg" busy={busy} disabled={!ready} onClick={() => void send()} data-action="mark-go">
+        <Button type="submit" form={`${id}-form`} size="lg" busy={busy} disabled={!ready} onClick={() => void send()} data-action="mark-go">
           {label}
         </Button>
       }
     >
-      <div className="flex flex-col gap-3">
+      <form id={`${id}-form`} className="flex flex-col gap-3" onSubmit={noSubmit} noValidate>
         <p className="text-sm text-ink-muted">
           {linked
             ? t('reminders.mark.linked', 'يُؤشَّر يوم {day}، ويُصرف «{item}» من المخزن لكلّ قاعة بكميتها.', { day: fmtDay(today), item: group.item?.name ?? '' })
@@ -261,7 +262,7 @@ function MarkDialog({ group, today, busy, onClose, onSend }: MarkProps) {
           </ul>
         ) : null}
         {failure ? <Notice tone="danger" title={failureText(failure)} /> : null}
-      </div>
+      </form>
     </Dialog>
   );
 }

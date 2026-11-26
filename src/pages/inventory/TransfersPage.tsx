@@ -947,7 +947,16 @@ function DeviceLines({ from, to, lines, onChange }: { from: StoreRef; to: StoreR
   ];
   const failed = failure ? describeError(failure, 'once') : null;
   return (
-    <div className="flex flex-col gap-3">
+    <div
+      className="flex flex-col gap-3"
+      // سطور الجهاز داخل نموذج «تحويل جديد» (0037 K): Enter في كميتها «أضف السطر» لا رفع الورقة بلاه؛ والمنتقي قبلها له Enter.
+      onKeyDown={(event) => {
+        if (event.key !== 'Enter' || event.defaultPrevented || event.nativeEvent.isComposing || event.ctrlKey || event.metaKey || (event.target as HTMLElement).localName !== 'input') return;
+        event.preventDefault();
+        if (item) add();
+      }}
+      data-enter="own"
+    >
       <DataTable caption={t('shelf.lines.caption', 'سطور الورقة على هذا الجهاز')} columns={columns} rows={lines.map((line, n) => ({ ...line, key: `${n}` }))} rowKey={(line) => line.key} empty={t('transfer.lines.empty', 'لا سطور بعد.')} />
       <ItemPicker
         id={`${id}-item`}

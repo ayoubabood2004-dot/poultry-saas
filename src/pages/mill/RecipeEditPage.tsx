@@ -13,6 +13,7 @@ import { searchable } from '../../domain/normalize';
 import { can } from '../../domain/permissions';
 import { ITEM_KINDS, type ItemKind } from '../../domain/stores';
 import { describeError, IdentityError, NetworkError, NotConnectedError, RejectedError, RetryableError } from '../../lib/errors';
+import { noSubmit } from '../../lib/formKeys';
 import { fmtInt } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { useDirtyForm } from '../../lib/pwa/dirty';
@@ -277,7 +278,8 @@ function EditForm({
   ];
 
   return (
-    <>
+    // التعديل نموذج واحد (0037 K): Ctrl+Enter «احفظ التعديل» من الاسم.
+    <form className="flex flex-col gap-5" onSubmit={noSubmit} noValidate>
       <PageHeader
         title={t('mill.edit.title', 'تعديل الخلطة «{name}»', { name: detail.name })}
         subtitle={t('mill.edit.subtitle', 'غيّر اسمها أو موادّها أو ترتيبها ثمّ اضغط «احفظ التعديل»: تُستعمل في الإنتاج من لحظتها، ويبقى ما قبلها في سجلّها.')}
@@ -376,7 +378,7 @@ function EditForm({
         </div>
       ) : (
         <div className="flex flex-wrap gap-2">
-          <Button size="lg" icon={<CheckCircle2 className="size-5" aria-hidden="true" />} busy={saving} disabled={!canSave} onClick={save} data-action="save-recipe-edit">
+          <Button type="submit" size="lg" icon={<CheckCircle2 className="size-5" aria-hidden="true" />} busy={saving} disabled={!canSave} onClick={save} data-action="save-recipe-edit">
             {t('mill.edit.save', 'احفظ التعديل')}
           </Button>
         </div>
@@ -391,7 +393,7 @@ function EditForm({
           </ul>
         </div>
       )}
-    </>
+    </form>
   );
 }
 

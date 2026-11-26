@@ -370,6 +370,7 @@ function RoundCard({ row, kind, today, entry, onChange, error, status, online, s
           value={entry[field]}
           onChange={(event) => onChange({ ...entry, [field]: event.target.value })}
           onKeyDown={keyDown(field)}
+          data-enter="own"
           data-round-field={field}
         />
       </div>

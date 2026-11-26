@@ -18,6 +18,7 @@ import { can } from '../../domain/permissions';
 import { averageInRange, ticketNets, type StopNet, type TicketNets, type WeighMethod } from '../../domain/weighTicket';
 import { parseDayText } from '../../lib/dayText';
 import { RejectedError } from '../../lib/errors';
+import { noSubmit } from '../../lib/formKeys';
 import { fmtDay, fmtInt, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { useDirtyForm } from '../../lib/pwa/dirty';
@@ -282,12 +283,12 @@ function PadDialog({ title, initial, weighing, onClose, onCommit }: { title: str
       title={title}
       dirty={value !== initial || crates !== ''}
       footer={
-        <Button size="lg" disabled={!ready} onClick={() => onCommit(value, crates)} data-action="pad-commit">
+        <Button type="submit" form={`${id}-form`} size="lg" disabled={!ready} onClick={() => onCommit(value, crates)} data-action="pad-commit">
           {t('halls.ticket.pad.commit', 'اعتمد الوزن')}
         </Button>
       }
     >
-      <div className="flex flex-col gap-3">
+      <form id={`${id}-form`} className="flex flex-col gap-3" onSubmit={noSubmit} noValidate>
         {weighing ? (
           <Field id={`${id}-crates`} label={t('halls.ticket.weighing.crates', 'عدد أقفاص الوزنة')} error={crateCount.bad ? t('constraint.weigh_ticket_weighings_crates_check', 'عدد أقفاص الوزنة من 1 إلى 1,000.') : null}>
             <input id={`${id}-crates`} className="input tabular-nums" dir="ltr" inputMode="numeric" autoComplete="off" value={crates} onChange={(event) => setCrates(event.target.value)} data-action="pad-crates" />
@@ -303,7 +304,7 @@ function PadDialog({ title, initial, weighing, onClose, onCommit }: { title: str
               : t('halls.ticket.bad_weight', 'الوزن بالكيلوغرام أكبر من صفر حتى 200,000، بثلاث مراتب عشرية على الأكثر.')}
           </p>
         ) : null}
-      </div>
+      </form>
     </Dialog>
   );
 }
@@ -653,7 +654,8 @@ function TicketEditor({ ticketId, siteId, initial, hallId, back, onFirstSave, on
           : t('halls.ticket.state.new', 'تذكرة جديدة لم تُحفظ بعد.');
 
   return (
-    <div className="flex flex-col gap-4" data-action="ticket-editor">
+    // التذكرة نموذج واحد (0037 K): Enter ينقل بين خاناتها، وفي آخرها «احفظ التذكرة».
+    <form className="flex flex-col gap-4" onSubmit={noSubmit} noValidate data-action="ticket-editor">
       <BackLink to={back} label={ticketBackLabel(back)} />
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold" data-action="ticket-title">
@@ -935,7 +937,7 @@ function TicketEditor({ ticketId, siteId, initial, hallId, back, onFirstSave, on
           </p>
         ) : null}
         <div className="flex flex-wrap items-center gap-2">
-          <Button disabled={!canSave} busy={busy} onClick={() => void save(form)} data-action="ticket-save">
+          <Button type="submit" disabled={!canSave} busy={busy} onClick={() => void save(form)} data-action="ticket-save">
             {t('halls.ticket.save', 'احفظ التذكرة')}
           </Button>
           <Button variant="secondary" disabled={!canFinish} onClick={() => setConfirmFinish(true)} data-action="ticket-finish">
@@ -1001,7 +1003,7 @@ function TicketEditor({ ticketId, siteId, initial, hallId, back, onFirstSave, on
           onCancel={() => setConfirmDelete(false)}
         />
       ) : null}
-    </div>
+    </form>
   );
 }
 
@@ -1284,19 +1286,19 @@ function TicketDone({ ticket, back, onVoided }: { ticket: WeighTicket; back: str
               <Button variant="secondary" disabled={busy} onClick={() => setVoiding(false)}>
                 {t('confirm.cancel', 'لا، تراجع')}
               </Button>
-              <Button variant="danger" busy={busy} disabled={reason.trim() === '' || reason.trim().length > 500 || unknown} onClick={() => void voidTicket()} data-action="ticket-void-confirm">
+              <Button type="submit" form={`${id}-void`} variant="danger" busy={busy} disabled={reason.trim() === '' || reason.trim().length > 500 || unknown} onClick={() => void voidTicket()} data-action="ticket-void-confirm">
                 {t('halls.ticket.void', 'ألغِ التذكرة')}
               </Button>
             </div>
           }
         >
-          <div className="flex flex-col gap-3">
+          <form id={`${id}-void`} className="flex flex-col gap-3" onSubmit={noSubmit} noValidate>
             <p className="text-ink-muted">{t('halls.ticket.void_body', 'تُلغى التذكرة ولا تصدر لها فاتورة. الطيور في القاعات كما هي (لم تنقص بالتذكرة).')}</p>
             <Field id={`${id}-reason`} label={t('halls.ticket.void_reason_label', 'سبب الإلغاء')} error={reason.trim().length > 500 ? t('halls.ticket.reason_long', 'السبب حتى 500 حرف.') : null}>
               <input id={`${id}-reason`} className="input" autoComplete="off" value={reason} disabled={busy} onChange={(event) => setReason(event.target.value)} data-action="ticket-void-reason" />
             </Field>
             {failure ? <Notice tone="danger" title={failureText(failure)} /> : null}
-          </div>
+          </form>
         </Dialog>
       ) : null}
     </div>

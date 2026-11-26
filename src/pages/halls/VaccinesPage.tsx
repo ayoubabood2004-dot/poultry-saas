@@ -15,6 +15,7 @@ import { addDays, diffDays, type Day } from '../../domain/dates';
 import type { FlockKind } from '../../domain/flocks';
 import { naturalCompare } from '../../domain/naturalOrder';
 import { describeError, IdentityError, NetworkError, NotConnectedError, RejectedError, RetryableError } from '../../lib/errors';
+import { noSubmit } from '../../lib/formKeys';
 import { countForm, fmtDay, fmtInt } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { useDirtyForm } from '../../lib/pwa/dirty';
@@ -243,13 +244,13 @@ function VaccineDialog({ editing, board, onChange, onSave, onClose }: { editing:
           <Button variant="secondary" onClick={onClose} disabled={editing.busy} data-action="vac-dialog-cancel">
             {t('confirm.cancel', 'لا، تراجع')}
           </Button>
-          <Button busy={editing.busy} onClick={onSave} data-action={editing.frozen ? 'vac-retry' : 'vac-save'}>
+          <Button type="submit" form={`${id}-form`} busy={editing.busy} onClick={onSave} data-action={editing.frozen ? 'vac-retry' : 'vac-save'}>
             {editing.frozen ? t('halls.kit.retry', 'أعد المحاولة') : isNew ? t('halls.vac.add_go', 'أضف اللقاح') : t('halls.vac.edit_go', 'احفظ اللقاح')}
           </Button>
         </div>
       }
     >
-      <div className="flex flex-col gap-4" data-action="vac-dialog">
+      <form id={`${id}-form`} className="flex flex-col gap-4" onSubmit={noSubmit} noValidate data-action="vac-dialog">
         <Field id={`${id}-name`} label={t('halls.vac.name', 'اسم اللقاح')} hint={t('halls.vac.name_hint', 'مثل IB أو ND أو غمبورو، 40 حرفاً على الأكثر.')}>
           <input
             id={`${id}-name`}
@@ -280,7 +281,7 @@ function VaccineDialog({ editing, board, onChange, onSave, onClose }: { editing:
         </Field>
         {editing.frozen ? <Notice tone="warning" title={t('halls.vac.vaccine_frozen', 'لا نعرف إن حُفظ اللقاح: أعد المحاولة؛ لن يُحفظ مرّتين.')} /> : null}
         {editing.failure ? <Notice tone="danger" title={editing.failure} /> : null}
-      </div>
+      </form>
     </Dialog>
   );
 }
@@ -1033,7 +1034,7 @@ function VaccinesView() {
         ) : null}
       </section>
 
-      <section className="card flex flex-col gap-3 p-4" data-action="program-card" data-kind={kind} data-hall={hall?.id}>
+      <form className="card flex flex-col gap-3 p-4" onSubmit={noSubmit} noValidate data-action="program-card" data-kind={kind} data-hall={hall?.id}>
         <div className="flex flex-wrap items-end justify-between gap-3">
           <h2 className="text-lg font-semibold" data-action="program-title">
             {hall ? t('halls.vac.program_hall', 'جدول لقاحات «{hall}»', { hall: hallName }) : t('halls.vac.program', 'جدول لقاحات {kind}', { kind: kindTitle(kind) })}
@@ -1244,7 +1245,7 @@ function VaccinesView() {
         ) : null}
         {editable && !frozen ? (
           <div className="flex flex-wrap items-center gap-2" data-action="program-bar">
-            <Button onClick={save} busy={saving} disabled={!dirty || conflict || (!open && typedEnd === null) || locked} data-action="save-program">
+            <Button type="submit" onClick={save} busy={saving} disabled={!dirty || conflict || (!open && typedEnd === null) || locked} data-action="save-program">
               {t('halls.vac.save', 'احفظ الجدول')}
             </Button>
             {dirty ? (
@@ -1264,7 +1265,7 @@ function VaccinesView() {
             ) : null}
           </div>
         ) : null}
-      </section>
+      </form>
 
       {editing ? (
         <VaccineDialog

@@ -1645,6 +1645,7 @@ function Checkout({ pendingKey, userId, orgId, canCreateParty, back, itemParam, 
               value={search}
               onChange={(event) => typeSearch(toWesternDigits(event.target.value), pastedInto(event), event.timeStamp)}
               onKeyDown={enterSearch}
+              data-enter="own"
               data-action="sale-search"
             />
             {supportsCamera ? (

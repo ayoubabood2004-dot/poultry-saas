@@ -24,6 +24,9 @@ import { registerServiceWorker } from './lib/pwa/update';
 
 initWesternDigits();
 initDisplay();
+// Enter وCtrl+Enter في النوافذ والنماذج (0037 K): حزمة صغيرة محفوظة بالتثبيت المسبق تُحمَّل بعد الإقلاع لا فيه: ثابتةً كانت تزيد الإقلاع 431 بايتاً
+// gzip من هامش 530، وكسولةً 110 (اسمها في خريطة التحميل).
+void import('./lib/formKeys').then((keys) => keys.initFormKeys());
 initOnline();
 initInstall();
 initDirtyGuard();

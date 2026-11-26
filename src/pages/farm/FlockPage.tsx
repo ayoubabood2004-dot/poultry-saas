@@ -19,6 +19,7 @@ import { naturalCompare } from '../../domain/naturalOrder';
 import type { BaseUnit } from '../../domain/units';
 import { parseDayText } from '../../lib/dayText';
 import { describeError, NotConnectedError, RejectedError } from '../../lib/errors';
+import { noSubmit } from '../../lib/formKeys';
 import { columnDecimals, fmtDay, fmtInt, fmtMilli, fmtQty, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { onlineStore } from '../../lib/online';
@@ -388,7 +389,7 @@ function CellSheet({ day, field, shown, submit, onClose, onSaved }: { day: Sheet
       footer={
         clearable ? (
           <div className="grid grid-cols-2 gap-2">
-            <Button size="lg" className="w-full" onClick={() => void save()} busy={busy} disabled={value === ''} data-action="cell-done">
+            <Button type="submit" form={`${id}-form`} size="lg" className="w-full" onClick={() => void save()} busy={busy} disabled={value === ''} data-action="cell-done">
               {t('sheet.done', 'تم')}
             </Button>
             <Button size="lg" variant="secondary" className="w-full" onClick={() => void save(true)} disabled={busy} data-action="cell-clear">
@@ -396,13 +397,14 @@ function CellSheet({ day, field, shown, submit, onClose, onSaved }: { day: Sheet
             </Button>
           </div>
         ) : (
-          <Button size="lg" className="w-full" onClick={() => void save()} busy={busy} disabled={!isNote && value === ''} data-action="cell-done">
+          <Button type="submit" form={`${id}-form`} size="lg" className="w-full" onClick={() => void save()} busy={busy} disabled={!isNote && value === ''} data-action="cell-done">
             {t('sheet.done', 'تم')}
           </Button>
         )
       }
     >
-      <div className="flex flex-col gap-3" data-action="cell-sheet" data-field={field}>
+      {/* نموذج للملاحظة: Ctrl+Enter فيها «تم» (0037 K)؛ والأرقام بلوحة الوزن (Enter فيها «تم»). */}
+      <form id={`${id}-form`} className="flex flex-col gap-3" onSubmit={noSubmit} noValidate data-action="cell-sheet" data-field={field}>
         {isNote ? (
           <Field id={`${id}-note`} label={t('sheet.note.label', 'ملاحظة اليوم')} error={error} hint={t('sheet.note.hint', 'امسح النصّ كلّه لحذف الملاحظة.')}>
             <textarea id={`${id}-note`} className="input min-h-20" value={note} onChange={(event) => setNote(event.target.value)} data-action="cell-note" />
@@ -426,7 +428,7 @@ function CellSheet({ day, field, shown, submit, onClose, onSaved }: { day: Sheet
             {t('sheet.cell.offline', 'بلا اتصال: يُحفظ على هذا الجهاز ويُرسل حين يعود الاتصال.')}
           </p>
         )}
-      </div>
+      </form>
     </Dialog>
   );
 }
@@ -905,12 +907,12 @@ function WeightDialog({ sheet, onClose, onSaved }: { sheet: HallSheet; onClose: 
       dirty={samples !== '' || avg !== '' || day !== fmtDay(today)}
       title={t('hall.weight.title', 'وزن عيّنة {hall}', { hall: hallLabel(sheet.flock.hallName) })}
       footer={
-        <Button onClick={() => void save()} busy={busy} disabled={!ready} data-action="weight-save">
+        <Button type="submit" form={`${id}-form`} onClick={() => void save()} busy={busy} disabled={!ready} data-action="weight-save">
           {t('flock.weight.save', 'احفظ الوزن')}
         </Button>
       }
     >
-      <div className="flex flex-col gap-4">
+      <form id={`${id}-form`} className="flex flex-col gap-4" onSubmit={noSubmit} noValidate>
         <Field id={`${id}-day`} label={t('flock.weight.day', 'التاريخ')} error={dayError}>
           <input id={`${id}-day`} className="input tabular-nums" dir="ltr" inputMode="numeric" autoComplete="off" value={day} onChange={(event) => setDay(event.target.value)} data-action="weight-day" />
         </Field>
@@ -921,7 +923,7 @@ function WeightDialog({ sheet, onClose, onSaved }: { sheet: HallSheet; onClose: 
           <input id={`${id}-avg`} className="input tabular-nums" dir="ltr" inputMode="decimal" autoComplete="off" value={avg} onChange={(event) => setAvg(event.target.value)} />
         </Field>
         {error ? <Notice tone="danger" title={error} /> : null}
-      </div>
+      </form>
     </Dialog>
   );
 }

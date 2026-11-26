@@ -16,6 +16,7 @@ import { can } from '../../domain/permissions';
 import { parseQty, type BaseUnit } from '../../domain/units';
 import { parseDayText } from '../../lib/dayText';
 import { describeError, IdentityError, NetworkError, NotConnectedError, RejectedError, RetryableError } from '../../lib/errors';
+import { noSubmit } from '../../lib/formKeys';
 import { columnDecimals, countForm, fmtDay, fmtInt, fmtQty, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { useDirtyForm } from '../../lib/pwa/dirty';
@@ -674,7 +675,8 @@ function GiveForm({ flockId }: { flockId: string }) {
   const gridErrors = perHall ? Object.values(plan.cells) : [];
 
   return (
-    <div className="flex flex-col gap-4">
+    // «أضف للقاعة» نموذج واحد (0037 K): Enter ينقل بين الكميات واليوم، وفي آخر خانة يفتح التأكيد.
+    <form className="flex flex-col gap-4" onSubmit={noSubmit} noValidate>
       {header}
       {optionsState.error ? <LoadFailed what={t('give.options_what', 'ما يُضاف للقاعة')} error={optionsState.error} onRetry={optionsState.retry} /> : null}
       {options && !active ? <Notice tone="info" title={t('give.not_active', 'فوج هذه القاعة ليس قائماً، فلا يُضاف له شيء.')} /> : null}
@@ -850,7 +852,7 @@ function GiveForm({ flockId }: { flockId: string }) {
             </ul>
           ) : null}
           <div className="flex justify-end">
-            <Button size="lg" icon={<Plus aria-hidden="true" className="size-5" />} busy={busy} disabled={!ready} onClick={openConfirm} data-action="give-go">
+            <Button type="submit" size="lg" icon={<Plus aria-hidden="true" className="size-5" />} busy={busy} disabled={!ready} onClick={openConfirm} data-action="give-go">
               {label}
             </Button>
           </div>
@@ -876,7 +878,7 @@ function GiveForm({ flockId }: { flockId: string }) {
           onCancel={() => setConfirm(null)}
         />
       ) : null}
-    </div>
+    </form>
   );
 }
 

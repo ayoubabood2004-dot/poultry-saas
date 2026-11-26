@@ -8,6 +8,7 @@ import { toast } from '../../components/ui/Toast';
 import { localDay } from '../../domain/dates';
 import { parseDayText } from '../../lib/dayText';
 import { describeError, RejectedError } from '../../lib/errors';
+import { noSubmit } from '../../lib/formKeys';
 import { fmtDay, fmtInt } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { deleteFlock, editFlock } from '../../lib/repo/flockEdits';
@@ -138,13 +139,13 @@ export function FlockEditDialog({ hallName, flock, onClose, onSaved, onDeleted, 
           >
             {t('farm.flock.delete', 'احذف الفوج')}
           </Button>
-          <Button onClick={() => void save()} busy={busy === 'save'} disabled={!ready || busy !== null} data-action="flock-edit-save">
+          <Button type="submit" form={`${id}-form`} onClick={() => void save()} busy={busy === 'save'} disabled={!ready || busy !== null} data-action="flock-edit-save">
             {t('farm.flock.edit.save', 'احفظ التعديل')}
           </Button>
         </div>
       }
     >
-      <div className="flex flex-col gap-4">
+      <form id={`${id}-form`} className="flex flex-col gap-4" onSubmit={noSubmit} noValidate>
         <Field id={`${id}-day`} label={t('farm.open.day', 'تاريخ التسكين')} error={dayError} hint={t('farm.flock.edit.day.hint', 'يوم/شهر/سنة، ولا يكون بعد أوّل يوم سُجّل فيه شيء لهذا الفوج.')}>
           <input id={`${id}-day`} className="input tabular-nums" dir="ltr" inputMode="numeric" autoComplete="off" placeholder={t('org.go_live.placeholder', 'يوم/شهر/سنة')} value={day} onChange={(event) => setDay(event.target.value)} />
         </Field>
@@ -159,7 +160,7 @@ export function FlockEditDialog({ hallName, flock, onClose, onSaved, onDeleted, 
         </Field>
         <p className="text-sm text-ink-muted">{t('farm.flock.edit.note', 'عمر الفوج ومواعيد لقاحاته وتقاريره تُحسب من التاريخ والعمر الجديدين.')}</p>
         {error ? <Notice tone="danger" title={error} /> : null}
-      </div>
+      </form>
       <ConfirmDialog
         open={confirming}
         title={t('farm.flock.delete.title', 'حذف فوج «{hall}»؟', { hall: hallName })}

@@ -7,6 +7,7 @@ import { searchable } from '../../domain/normalize';
 import type { ItemKind } from '../../domain/stores';
 import type { BaseUnit } from '../../domain/units';
 import { describeError, RejectedError, UnknownOutcomeError } from '../../lib/errors';
+import { ownEnter } from '../../lib/formKeys';
 import { t } from '../../lib/i18n';
 import * as purchases from '../../lib/repo/purchases';
 import type { OpIds, OverviewItem } from '../../lib/repo/purchases';
@@ -162,7 +163,7 @@ export function ItemPickCards({
   return (
     <div className="flex flex-col gap-3">
       <Field id="op-item-search" label={t('op.item.search', 'ابحث عن المادّة')}>
-        <input id="op-item-search" type="search" className="input" autoComplete="off" value={search} onChange={(event) => setSearch(event.target.value)} data-action="op-item-search" />
+        <input id="op-item-search" type="search" className="input" autoComplete="off" value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={ownEnter} data-enter="own" data-action="op-item-search" />
       </Field>
       {shown.length ? (
         <ul className="grid max-h-72 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
