@@ -3,10 +3,15 @@
 // (١) ترتيب القسم بشرط القائمة التي رآها الكاتب، ومنه يُرتَّب الرصيد اليوميّ وبطاقات المخزن معاً، والمادّة الجديدة بعده؛ (٢) لون المادّة وحدّ قلّتها
 // بشرط النسخة، والإعادة بالقيمة نفسها بلا رفض، والحالة (نافدة وقليلة) برصيد اليوم المعروض؛ (٣) إعدادات الألوان؛ (٤) «احذف» كما كان؛ وطفرات تكسر
 // كلّ قاعدة فيفشل فحصها.
+import { writeFileSync } from 'node:fs';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { call, makeOrg, uid } from './ledger-kit.mjs';
 import { mutant } from './purchase-kit.mjs';
 import { postedOpening } from './stock-kit.mjs';
 
+// وعيّنات القاعدة الحقيقية للشاشات: STORE_COLORS_SAMPLES_OUT=1 يكتب scripts/tests/fixtures/store-colors-0037.json.
+const FIXTURE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'scripts', 'tests', 'fixtures', 'store-colors-0037.json');
 const TODAY = '2026-11-26';
 const id = (n) => `d3710000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const phone = (n) => `96477037100${String(n).padStart(2, '0')}`;
@@ -121,6 +126,31 @@ async function scenario(t, db) {
   t.eq(shown(await call(db, U.owner, COLORS, [false, 'orange', 'red', 0])), 'colors_changed', 'غيرها بنسخة قديمة: colors_changed');
   t.eq(shown(await call(db, U.owner, COLORS, [true, 'orange', null, 1])), 'bad_color', 'بلا لون نفاد: bad_color');
   t.same((await one(U.keeper, 'select public.items_overview() as v', [])).colors.low, 'orange', 'وبطاقات المخزن تعرف الإعدادات');
+
+  // ── عيّنات الشاشات: لونان باليد (الذرة صفراء فوق حالتها، والحجر أزرق) والتلقائيّ مشغَّل، فيُرى كلّ فرع في جواب واحد ────────────────────
+  const recolor = await call(db, U.keeper, COLOR, [I.corn, 'yellow', 3]);
+  t.same(recolor.value?.mark, { color: 'yellow', low_qty: '50.000', version: 4 }, 'إعادة تلوين الذرة بعد شيله: نسخة أكبر');
+  await one(U.keeper, COLOR, [I.stone, 'blue', 0]);
+  const samples = {
+    day_balance_sections: await one(U.keeper, 'select public.day_balance_sections(null) as v', []),
+    items_overview: await one(U.keeper, 'select public.items_overview() as v', []),
+    store_section_items: await one(U.keeper, 'select public.store_section_items($1) as v', ['feed_materials']),
+    set_store_order: ref.value,
+    set_item_color: recolor.value,
+    set_item_color_cleared: cleared.value,
+    set_item_low: low.value,
+    item_mark: await one(U.keeper, 'select public.item_mark($1) as v', [I.corn]),
+    item_mark_none: await one(U.keeper, 'select public.item_mark($1) as v', [I.feed]),
+    item_file: await one(U.keeper, 'select public.item_file($1) as v', [I.corn]),
+    set_store_colors: set.value,
+    order_changed: await call(db, U.manager, ORDER, ['feed_materials', wanted, before]),
+    mark_changed: await call(db, U.manager, COLOR, [I.corn, 'red', 0]),
+    colors_changed: await call(db, U.owner, COLORS, [false, 'orange', 'red', 0]),
+  };
+  t.same([samples.order_changed.code, samples.mark_changed.code, samples.colors_changed.code], ['order_changed', 'mark_changed', 'colors_changed'], 'والرفض الثلاثة بتلميحها للشاشات');
+  if (process.env.STORE_COLORS_SAMPLES_OUT) {
+    writeFileSync(FIXTURE, `${JSON.stringify({ _note: `عيّنات القاعدة الحقيقية (supabase/tests/store-colors.test.mjs بـSTORE_COLORS_SAMPLES_OUT=1، اليوم المثبَّت ${TODAY})؛ المحلّلات الحقيقية تقرؤها في فحوص الشاشات.`, ids: I, ...samples }, null, 2)}\n`);
+  }
 
   // ── ٤) «احذف» كما كان ─────────────────────────────────────────────────────────────────────────────────
   const lone = await item('مادّة للتجربة', 'raw');

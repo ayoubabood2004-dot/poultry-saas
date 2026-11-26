@@ -1,0 +1,409 @@
+{
+  "_note": "عيّنات القاعدة الحقيقية (supabase/tests/store-colors.test.mjs بـSTORE_COLORS_SAMPLES_OUT=1، اليوم المثبَّت 2026-11-26)؛ المحلّلات الحقيقية تقرؤها في فحوص الشاشات.",
+  "ids": {
+    "wheat": "1e9a6b60-88ed-426d-b268-38a4f1472b18",
+    "corn": "23d750a7-d3a5-4103-970b-53d1bd773144",
+    "premix": "c1a652bd-d555-4254-87dd-a0f2212fe549",
+    "stone": "8c36a46c-9344-458a-8eac-7f61ca369b8c",
+    "feed": "cf22246c-622f-4b0f-813c-746e7b34a2f6"
+  },
+  "day_balance_sections": {
+    "on": "2026-11-26",
+    "today": "2026-11-26",
+    "colors": {
+      "low": "orange",
+      "out": "red",
+      "auto": true,
+      "version": 1
+    },
+    "can_note": true,
+    "sections": [
+      {
+        "key": "feed_materials",
+        "rows": [
+          {
+            "qty": "300000.000",
+            "kind": "raw",
+            "mark": {
+              "color": null,
+              "low_qty": "1000.000",
+              "version": 1
+            },
+            "name": "حنطة",
+            "note": null,
+            "state": null,
+            "item_id": "1e9a6b60-88ed-426d-b268-38a4f1472b18",
+            "category": null,
+            "base_unit": "kg"
+          },
+          {
+            "qty": "50.000",
+            "kind": "raw",
+            "mark": {
+              "color": "yellow",
+              "low_qty": "50.000",
+              "version": 4
+            },
+            "name": "ذرة",
+            "note": null,
+            "state": "low",
+            "item_id": "23d750a7-d3a5-4103-970b-53d1bd773144",
+            "category": null,
+            "base_unit": "kg"
+          },
+          {
+            "qty": "100.000",
+            "kind": "raw",
+            "mark": {
+              "color": "blue",
+              "low_qty": null,
+              "version": 1
+            },
+            "name": "حجر",
+            "note": null,
+            "state": null,
+            "item_id": "8c36a46c-9344-458a-8eac-7f61ca369b8c",
+            "category": null,
+            "base_unit": "kg"
+          },
+          {
+            "qty": "0.000",
+            "kind": "additive",
+            "mark": null,
+            "name": "برمكس انتاجي",
+            "note": null,
+            "state": "out",
+            "item_id": "c1a652bd-d555-4254-87dd-a0f2212fe549",
+            "category": null,
+            "base_unit": "kg"
+          },
+          {
+            "qty": "0.000",
+            "kind": "raw",
+            "mark": null,
+            "name": "ملح",
+            "note": null,
+            "state": "out",
+            "item_id": "8b108490-aa10-4242-b43a-ef44bf419141",
+            "category": null,
+            "base_unit": "kg"
+          }
+        ]
+      },
+      {
+        "key": "feed",
+        "rows": [
+          {
+            "qty": "0.000",
+            "kind": "feed",
+            "mark": null,
+            "name": "علف بادئ",
+            "note": null,
+            "state": "out",
+            "item_id": "cf22246c-622f-4b0f-813c-746e7b34a2f6",
+            "category": null,
+            "base_unit": "kg"
+          }
+        ]
+      },
+      {
+        "key": "other",
+        "rows": []
+      }
+    ],
+    "can_arrange": true
+  },
+  "items_overview": {
+    "items": [
+      {
+        "id": "1e9a6b60-88ed-426d-b268-38a4f1472b18",
+        "kind": "raw",
+        "mark": {
+          "color": null,
+          "low_qty": "1000.000",
+          "version": 1
+        },
+        "name": "حنطة",
+        "money": {
+          "sell_price": null,
+          "avg_unit_price": null
+        },
+        "state": null,
+        "base_unit": "kg",
+        "on_hand_qty": "300000.000",
+        "purchased_qty": "0",
+        "unpriced_count": 0,
+        "last_purchase_on": null
+      },
+      {
+        "id": "cf22246c-622f-4b0f-813c-746e7b34a2f6",
+        "kind": "feed",
+        "mark": null,
+        "name": "علف بادئ",
+        "money": {
+          "sell_price": null,
+          "avg_unit_price": null
+        },
+        "state": "out",
+        "base_unit": "kg",
+        "on_hand_qty": "0",
+        "purchased_qty": "0",
+        "unpriced_count": 0,
+        "last_purchase_on": null
+      },
+      {
+        "id": "23d750a7-d3a5-4103-970b-53d1bd773144",
+        "kind": "raw",
+        "mark": {
+          "color": "yellow",
+          "low_qty": "50.000",
+          "version": 4
+        },
+        "name": "ذرة",
+        "money": {
+          "sell_price": null,
+          "avg_unit_price": null
+        },
+        "state": "low",
+        "base_unit": "kg",
+        "on_hand_qty": "50.000",
+        "purchased_qty": "0",
+        "unpriced_count": 0,
+        "last_purchase_on": null
+      },
+      {
+        "id": "8c36a46c-9344-458a-8eac-7f61ca369b8c",
+        "kind": "raw",
+        "mark": {
+          "color": "blue",
+          "low_qty": null,
+          "version": 1
+        },
+        "name": "حجر",
+        "money": {
+          "sell_price": null,
+          "avg_unit_price": null
+        },
+        "state": null,
+        "base_unit": "kg",
+        "on_hand_qty": "100.000",
+        "purchased_qty": "0",
+        "unpriced_count": 0,
+        "last_purchase_on": null
+      },
+      {
+        "id": "c1a652bd-d555-4254-87dd-a0f2212fe549",
+        "kind": "additive",
+        "mark": null,
+        "name": "برمكس انتاجي",
+        "money": {
+          "sell_price": null,
+          "avg_unit_price": null
+        },
+        "state": "out",
+        "base_unit": "kg",
+        "on_hand_qty": "0",
+        "purchased_qty": "0",
+        "unpriced_count": 0,
+        "last_purchase_on": null
+      },
+      {
+        "id": "8b108490-aa10-4242-b43a-ef44bf419141",
+        "kind": "raw",
+        "mark": null,
+        "name": "ملح",
+        "money": {
+          "sell_price": null,
+          "avg_unit_price": null
+        },
+        "state": "out",
+        "base_unit": "kg",
+        "on_hand_qty": "0",
+        "purchased_qty": "0",
+        "unpriced_count": 0,
+        "last_purchase_on": null
+      }
+    ],
+    "today": "2026-11-26",
+    "colors": {
+      "low": "orange",
+      "out": "red",
+      "auto": true,
+      "version": 1
+    },
+    "can_record": true,
+    "can_arrange": true,
+    "can_add_item": true
+  },
+  "store_section_items": {
+    "items": [
+      {
+        "id": "1e9a6b60-88ed-426d-b268-38a4f1472b18",
+        "kind": "raw",
+        "name": "حنطة"
+      },
+      {
+        "id": "23d750a7-d3a5-4103-970b-53d1bd773144",
+        "kind": "raw",
+        "name": "ذرة"
+      },
+      {
+        "id": "8c36a46c-9344-458a-8eac-7f61ca369b8c",
+        "kind": "raw",
+        "name": "حجر"
+      },
+      {
+        "id": "c1a652bd-d555-4254-87dd-a0f2212fe549",
+        "kind": "additive",
+        "name": "برمكس انتاجي"
+      },
+      {
+        "id": "8b108490-aa10-4242-b43a-ef44bf419141",
+        "kind": "raw",
+        "name": "ملح"
+      }
+    ],
+    "section": "feed_materials",
+    "can_arrange": true
+  },
+  "set_store_order": {
+    "count": 4,
+    "section": "feed_materials",
+    "version": 2
+  },
+  "set_item_color": {
+    "mark": {
+      "color": "yellow",
+      "low_qty": "50.000",
+      "version": 4
+    },
+    "item_id": "23d750a7-d3a5-4103-970b-53d1bd773144"
+  },
+  "set_item_color_cleared": {
+    "mark": {
+      "color": null,
+      "low_qty": "50.000",
+      "version": 3
+    },
+    "item_id": "23d750a7-d3a5-4103-970b-53d1bd773144"
+  },
+  "set_item_low": {
+    "mark": {
+      "color": "yellow",
+      "low_qty": "50.000",
+      "version": 2
+    },
+    "item_id": "23d750a7-d3a5-4103-970b-53d1bd773144"
+  },
+  "item_mark": {
+    "mark": {
+      "color": "yellow",
+      "low_qty": "50.000",
+      "version": 4
+    },
+    "colors": {
+      "low": "orange",
+      "out": "red",
+      "auto": true,
+      "version": 1
+    },
+    "item_id": "23d750a7-d3a5-4103-970b-53d1bd773144",
+    "can_mark": true,
+    "base_unit": "kg"
+  },
+  "item_mark_none": {
+    "mark": null,
+    "colors": {
+      "low": "orange",
+      "out": "red",
+      "auto": true,
+      "version": 1
+    },
+    "item_id": "cf22246c-622f-4b0f-813c-746e7b34a2f6",
+    "can_mark": true,
+    "base_unit": "kg"
+  },
+  "item_file": {
+    "item": {
+      "id": "23d750a7-d3a5-4103-970b-53d1bd773144",
+      "kind": "raw",
+      "name": "ذرة",
+      "version": 1,
+      "archived": false,
+      "base_unit": "kg",
+      "tracks_expiry": false,
+      "density_kg_per_l": null
+    },
+    "more": false,
+    "uses": [
+      "في رصيد افتتاحي",
+      "لها حركات مخزون"
+    ],
+    "money": {
+      "sell_price": null,
+      "avg_unit_price": null,
+      "last_unit_price": null,
+      "purchased_value": "0"
+    },
+    "today": "2026-11-26",
+    "stores": [
+      {
+        "qty": "50.000",
+        "kind": "raw",
+        "name": "مخزن المواد الأوّلية",
+        "expired": "0",
+        "available": "50.000",
+        "warehouse_id": "a52496fb-0eb1-46a1-a356-94dbb0ac3e6c"
+      }
+    ],
+    "can_edit": true,
+    "can_sell": true,
+    "can_price": false,
+    "purchases": [],
+    "can_delete": false,
+    "can_record": true,
+    "can_convert": true,
+    "move_stores": [
+      {
+        "qty": "50.000",
+        "kind": "raw",
+        "name": "مخزن المواد الأوّلية",
+        "warehouse_id": "a52496fb-0eb1-46a1-a356-94dbb0ac3e6c"
+      }
+    ],
+    "on_hand_qty": "50.000",
+    "can_transfer": false,
+    "cash_accounts": [],
+    "purchased_qty": "0",
+    "unpriced_count": 0,
+    "purchases_count": 0,
+    "transfer_targets": [
+      {
+        "kind": "raw",
+        "name": "مخزن المواد الأوّلية",
+        "warehouse_id": "a52496fb-0eb1-46a1-a356-94dbb0ac3e6c"
+      }
+    ]
+  },
+  "set_store_colors": {
+    "low": "orange",
+    "out": "red",
+    "auto": true,
+    "version": 1
+  },
+  "order_changed": {
+    "ok": false,
+    "code": "order_changed",
+    "hint": "تغيّرت موادّ القسم أو ترتيبها من نافذة أو جهاز آخر بعد أن فتحت «رتّب». حدّث الشاشة ورتّب من جديد."
+  },
+  "mark_changed": {
+    "ok": false,
+    "code": "mark_changed",
+    "hint": "تغيّر لون «ذرة» أو حدّ قلّتها من جهاز آخر. حدّث الشاشة ثمّ لوّنها."
+  },
+  "colors_changed": {
+    "ok": false,
+    "code": "colors_changed",
+    "hint": "تغيّرت ألوان الرصيد من جهاز آخر. حدّث الشاشة ثمّ احفظها."
+  }
+}

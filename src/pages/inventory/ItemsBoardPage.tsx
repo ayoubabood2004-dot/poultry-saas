@@ -1,4 +1,4 @@
-import { Building2, CalendarDays, ChevronLeft, LayoutGrid, Plus, Search } from 'lucide-react';
+import { ArrowUpDown, Building2, CalendarDays, ChevronLeft, LayoutGrid, Plus, Search } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
@@ -6,6 +6,7 @@ import { Button } from '../../components/ui/Button';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
 import { Segmented } from '../../components/ui/Segmented';
+import { toast } from '../../components/ui/Toast';
 import { searchable } from '../../domain/normalize';
 import { can } from '../../domain/permissions';
 import type { ItemKind } from '../../domain/stores';
@@ -13,11 +14,14 @@ import { fmtDay, fmtInt, fmtMoney } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import * as purchases from '../../lib/repo/purchases';
 import type { ItemsOverview, OverviewItem } from '../../lib/repo/purchases';
+import { DEFAULT_COLORS, shownColor, type StoreColors } from '../../lib/repo/storeMarks';
 import { useSession } from '../../lib/session';
 import { baseUnitLabel } from '../../lib/storeLabels';
 import { useLoad } from '../../lib/useLoad';
+import { ArrangeDialog } from './ArrangeDialog';
 import { DayBalanceView } from './DayBalanceView';
 import { SimpleItemDialog } from './ItemCreate';
+import { colorName, MARK_LOOK, stateWord, tintStyle } from './markColors';
 import { baseQty, itemFilePath } from './simple-shared';
 import { InventoryLinks, PendingApprovals } from './stock-shared';
 import { itemsCountText, SECTION_ADD_KIND, sectionName, sectionOfKind, STORE_SECTIONS, type StoreSection } from './storeSections';
@@ -32,6 +36,8 @@ import { itemsCountText, SECTION_ADD_KIND, sectionName, sectionOfKind, STORE_SEC
 // وبالطباعة يُطبع التقرير وحده: العنوان والمفتاح والروابط print:hidden.
 // و«المخزن بقسمين» (كلمة المالك 2026-11-21، عقد 0034/0035 S1): البطاقات في أقسام بعناوينها وعددها — «مواد العلف» (raw وadditive) و«العلف»
 // (feed) دائماً، و«أخرى» إن لم يكن فارغاً — و«أضف مادّة» داخل القسم تبدأ بنوعه؛ والبحث يصفّي كلّ الأقسام معاً (وقسم بلا مطابقة يغيب أثناءه).
+// و«ترتيب الموادّ وألوانها» (0037، رسالتا الزبون 2026-11-26): البطاقات بترتيب القسم الذي اختاره بالسحب (items_overview يرتّبها)، و«رتّب» لكلّ قسم
+// (stores.manage، بلا بحث)، والبطاقة بلونها الظاهر (باليد، أو تلقائيّاً للقليلة والنافدة) ونقطته وكلمة الحالة بجانب اللون التلقائيّ.
 
 export type BoardView = 'cards' | 'day';
 
@@ -41,17 +47,37 @@ export function boardView(value: string | null): BoardView {
 }
 
 /** بطاقة مادّة واحدة: كبيرة وبسيطة، وكلّها رابط ملفّها، بعرض خانتها كلّه (كانت بعرض نصّها فتتفاوت البطاقات في العمود الواحد). */
-export function ItemTile({ item }: { item: OverviewItem }) {
+export function ItemTile({ item, colors = DEFAULT_COLORS }: { item: OverviewItem; colors?: StoreColors }) {
   const sell = item.money?.sellPrice ?? null;
+  const color = shownColor(item.mark, item.state, colors);
+  const state = colors.auto ? item.state : null;
   return (
     <Link
       to={itemFilePath(item.id)}
       data-action="open-item-file"
+      data-color={color ?? undefined}
       className="card flex w-full flex-col gap-3 p-4 transition-colors hover:bg-surface-2"
+      style={color ? tintStyle(color) : undefined}
       aria-label={t('board.open', 'افتح ملفّ {name}', { name: item.name })}
     >
       <div className="flex items-start justify-between gap-2">
-        <span className="text-lg font-semibold">{item.name}</span>
+        <span className="flex min-w-0 items-center gap-2">
+          {color ? (
+            <span
+              role="img"
+              aria-label={colorName(color)}
+              className="size-4 shrink-0 rounded-full border border-line"
+              style={{ backgroundColor: MARK_LOOK[color].solid }}
+              data-action="tile-color"
+            />
+          ) : null}
+          <span className="text-lg font-semibold">{item.name}</span>
+          {state ? (
+            <span className="text-sm font-semibold" data-action="tile-state" data-state={state}>
+              {stateWord(state)}
+            </span>
+          ) : null}
+        </span>
         <ChevronLeft aria-hidden="true" className="size-5 shrink-0 text-ink-muted ltr:rotate-180" />
       </div>
       <dl className="flex flex-col gap-1.5">
@@ -95,7 +121,7 @@ export function matchingItems(items: readonly OverviewItem[], query: string): Ov
   return key ? items.filter((item) => searchable(item.name).includes(key)) : [...items];
 }
 
-/** موادّ القسم بترتيب القراءة (items_overview). */
+/** موادّ القسم بترتيب القراءة (items_overview: ترتيب القسم المختار، ثمّ التصنيف ثمّ الاسم). */
 export function sectionItems(items: readonly OverviewItem[], section: StoreSection): OverviewItem[] {
   return items.filter((item) => sectionOfKind(item.kind) === section);
 }
@@ -103,8 +129,20 @@ export function sectionItems(items: readonly OverviewItem[], section: StoreSecti
 /** «أضف مادّة» بالاسم (بحث بلا نتيجة) أو بنوع القسم. */
 export type AddItem = (name: string, kind?: ItemKind) => void;
 
-/** قسم واحد: عنوانه وعدده و«أضف مادّة» بنوعه، ثمّ بطاقاته أو سطر فراغه. */
-function BoardSection({ section, items, onAdd }: { section: StoreSection; items: readonly OverviewItem[]; onAdd: AddItem | null }) {
+/** قسم واحد: عنوانه وعدده و«رتّب» و«أضف مادّة» بنوعه، ثمّ بطاقاته أو سطر فراغه. */
+function BoardSection({
+  section,
+  items,
+  onAdd,
+  onArrange,
+  colors,
+}: {
+  section: StoreSection;
+  items: readonly OverviewItem[];
+  onAdd: AddItem | null;
+  onArrange: ((section: StoreSection) => void) | null;
+  colors: StoreColors;
+}) {
   const kind = SECTION_ADD_KIND[section];
   const name = sectionName(section);
   return (
@@ -118,12 +156,20 @@ function BoardSection({ section, items, onAdd }: { section: StoreSection; items:
             {itemsCountText(items.length)}
           </span>
         </div>
-        {onAdd && kind ? (
-          <Button variant="secondary" onClick={() => onAdd('', kind)} aria-label={t('board.section.add', 'أضف مادّة إلى «{section}»', { section: name })} data-action="add-section-item" data-kind={kind}>
-            <Plus aria-hidden="true" className="size-4" />
-            {t('board.add', 'أضف مادّة')}
-          </Button>
-        ) : null}
+        <div className="flex flex-wrap items-center gap-2">
+          {onArrange && items.length > 1 ? (
+            <Button variant="secondary" onClick={() => onArrange(section)} aria-label={t('board.section.arrange', 'رتّب «{section}»', { section: name })} data-action="arrange-section" data-key={section}>
+              <ArrowUpDown aria-hidden="true" className="size-4" />
+              {t('board.arrange', 'رتّب')}
+            </Button>
+          ) : null}
+          {onAdd && kind ? (
+            <Button variant="secondary" onClick={() => onAdd('', kind)} aria-label={t('board.section.add', 'أضف مادّة إلى «{section}»', { section: name })} data-action="add-section-item" data-kind={kind}>
+              <Plus aria-hidden="true" className="size-4" />
+              {t('board.add', 'أضف مادّة')}
+            </Button>
+          ) : null}
+        </div>
       </div>
       {items.length === 0 ? (
         <p className="text-sm text-ink-muted" data-action="board-section-empty">
@@ -133,7 +179,7 @@ function BoardSection({ section, items, onAdd }: { section: StoreSection; items:
         <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {items.map((item) => (
             <li key={item.id} className="flex">
-              <ItemTile item={item} />
+              <ItemTile item={item} colors={colors} />
             </li>
           ))}
         </ul>
@@ -146,7 +192,18 @@ function BoardSection({ section, items, onAdd }: { section: StoreSection; items:
  * جسم الصفحة من قراءة ناجحة (دالّة عرض صافية): الأقسام بعناوينها وعددها، والفراغ يقول ما العمل، والبحث يصفّي الأقسام كلّها (وقسم بلا مطابقة يغيب
  * أثناءه)، والبحث بلا نتيجة يقترح الإضافة.
  */
-export function BoardBody({ overview, query, onAdd }: { overview: ItemsOverview; query: string; onAdd: AddItem | null }) {
+export function BoardBody({
+  overview,
+  query,
+  onAdd,
+  onArrange = null,
+}: {
+  overview: ItemsOverview;
+  query: string;
+  onAdd: AddItem | null;
+  /** «رتّب» (can_arrange)، ويغيب أثناء البحث: الترتيب للقسم كلّه لا لما طابق. */
+  onArrange?: ((section: StoreSection) => void) | null;
+}) {
   const searching = searchable(query) !== '';
   const rows = matchingItems(overview.items, query);
   if (searching && rows.length === 0) {
@@ -177,7 +234,7 @@ export function BoardBody({ overview, query, onAdd }: { overview: ItemsOverview;
         </Notice>
       ) : null}
       {sections.map(({ section, items }) => (
-        <BoardSection key={section} section={section} items={items} onAdd={onAdd} />
+        <BoardSection key={section} section={section} items={items} onAdd={onAdd} onArrange={searching ? null : onArrange} colors={overview.colors} />
       ))}
     </div>
   );
@@ -194,6 +251,7 @@ export default function ItemsBoardPage() {
   const overview = useLoad(loadOverview, view);
   const [query, setQuery] = useState('');
   const [adding, setAdding] = useState<{ name: string; kind?: ItemKind } | null>(null);
+  const [arranging, setArranging] = useState<StoreSection | null>(null);
   const role = workspace?.role;
   const canAdd = overview.data?.canAddItem === true;
   const canSetup = workspace ? can(workspace.role, 'stores.manage') : false;
@@ -254,7 +312,7 @@ export default function ItemsBoardPage() {
           {t('page.loading', 'جارٍ الفتح…')}
         </p>
       ) : (
-        <BoardBody overview={overview.data} query={query} onAdd={add} />
+        <BoardBody overview={overview.data} query={query} onAdd={add} onArrange={overview.data.canArrange ? setArranging : null} />
       )}
       <div className="flex flex-col gap-3 border-t border-line pt-4 print:hidden">
         {canSetup ? (
@@ -272,6 +330,18 @@ export default function ItemsBoardPage() {
           </div>
         </details>
       </div>
+      {arranging && view === 'cards' ? (
+        <ArrangeDialog
+          section={arranging}
+          title={sectionName(arranging)}
+          onClose={() => setArranging(null)}
+          onSaved={() => {
+            setArranging(null);
+            toast({ tone: 'success', title: t('dayb.arrange.saved', 'حُفظ ترتيب «{section}»: بهذا الترتيب تظهر في البطاقات والرصيد اليوميّ.', { section: sectionName(arranging) }) });
+            overview.retry();
+          }}
+        />
+      ) : null}
       {adding ? (
         <SimpleItemDialog
           initialName={adding.name}

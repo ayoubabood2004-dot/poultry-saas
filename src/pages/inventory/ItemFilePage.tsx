@@ -1,4 +1,4 @@
-import { ArrowLeftRight, Banknote, Eye, NotebookText, PackagePlus, Pencil, Repeat, Trash2 } from 'lucide-react';
+import { ArrowLeftRight, Banknote, Eye, NotebookText, PackagePlus, Palette, Pencil, Repeat, Trash2 } from 'lucide-react';
 import { useCallback, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
@@ -19,12 +19,15 @@ import * as inventory from '../../lib/repo/inventory';
 import type { ItemMoves } from '../../lib/repo/inventory';
 import * as purchases from '../../lib/repo/purchases';
 import type { ConversionInput, FilePurchase, ItemFile, RecordedPurchase, TransferInput } from '../../lib/repo/purchases';
+import { loadItemMark, shownColor } from '../../lib/repo/storeMarks';
 import { useSession } from '../../lib/session';
 import { baseUnitLabel } from '../../lib/storeLabels';
 import { useLoad, type LoadState } from '../../lib/useLoad';
 import { ConvertDialog } from './ConvertDialog';
 import { appendMovesPage, MovesTable, movesShiftedText } from './ItemCardPage';
 import { PendingBanner, sessionFor, type OpItem, type OpSession } from './ItemOps';
+import { MarkDialog, markSavedText } from './MarkDialog';
+import { colorName, MARK_LOOK } from './markColors';
 import { PriceDialog } from './PriceDialog';
 import { PurchaseDialog } from './PurchaseDialog';
 import { newSalePath } from '../sales/saleParts';
@@ -413,6 +416,55 @@ export function savedText(result: RecordedPurchase, file: Pick<ItemFile, 'item'>
     : t('file.saved.credit', 'حُفظ الشراء {no}: {qty} {item} من {party} بـ{total} دينار بالدين عليه، إلى «{store}».', { ...vars, total });
 }
 
+/**
+ * لون المادّة وحدّ قلّتها في ملفّها (0037): بقراءة item_mark وحدها (item_file كما هو)، وزرّ «اللون وحدّ القلّة» لمن يكتبهما (can_mark) والمادّة
+ * ظاهرة. فشل القراءة يُقال بسطره ولا يوقف الملفّ.
+ */
+function ItemMarkLine({ itemId, name, live }: { itemId: string; name: string; live: boolean }) {
+  const load = useCallback(() => loadItemMark(itemId), [itemId]);
+  const state = useLoad(load, itemId);
+  const [open, setOpen] = useState(false);
+  const data = state.data;
+  if (state.error) return <LoadFailed what={t('file.mark.what', 'لون المادّة وحدّ قلّتها')} error={state.error} onRetry={state.retry} />;
+  if (!data) return null;
+  const color = data.mark?.color ?? null;
+  const shown = shownColor(data.mark, null, data.colors);
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2" data-action="file-mark">
+      <span className="flex items-center gap-2 text-sm" data-action="file-mark-color" data-color={color ?? 'none'}>
+        {shown ? <span aria-hidden="true" className="size-4 rounded-full border border-line" style={{ backgroundColor: MARK_LOOK[shown].solid }} /> : null}
+        {color ? t('file.mark.color', 'لونها: {color}', { color: colorName(color) }) : t('file.mark.no_color', 'بلا لون')}
+      </span>
+      <span className="text-sm text-ink-muted" data-action="file-mark-low">
+        {data.mark?.lowQty != null
+          ? t('file.mark.low', 'حدّ القلّة: {qty}', { qty: baseQty(data.mark.lowQty, data.baseUnit) })
+          : t('file.mark.no_low', 'بلا حدّ قلّة')}
+      </span>
+      {data.canMark && live ? (
+        <Button size="sm" variant="secondary" icon={<Palette aria-hidden="true" className="size-4" />} onClick={() => setOpen(true)} disabled={state.loading} data-action="file-mark-open">
+          {t('file.mark.open', 'اللون وحدّ القلّة')}
+        </Button>
+      ) : null}
+      {open ? (
+        <MarkDialog
+          item={{ id: itemId, name, baseUnit: data.baseUnit }}
+          shown={data.mark}
+          colors={data.colors}
+          onClose={(uncertain) => {
+            setOpen(false);
+            if (uncertain) state.retry();
+          }}
+          onSaved={(mark, request) => {
+            setOpen(false);
+            toast({ tone: 'success', title: markSavedText({ id: itemId, name, baseUnit: data.baseUnit }, mark, request) });
+            state.retry();
+          }}
+        />
+      ) : null}
+    </div>
+  );
+}
+
 export default function ItemFilePage() {
   const { id: itemId = '' } = useParams();
   const [search, setSearch] = useSearchParams();
@@ -525,6 +577,7 @@ export default function ItemFilePage() {
       ) : null}
       {file.item.archived ? <Notice tone="info" title={t('file.archived', 'هذه المادّة مؤرشفة، فلا يُسجَّل لها شراء.')} /> : null}
       <StatStrip stats={fileStats(file)} />
+      <ItemMarkLine itemId={file.item.id} name={file.item.name} live={!file.item.archived} />
       {banners.map((banner) => (
         <PendingBanner key={banner.kind} what={banner.what} summary={banner.summary} onRetry={() => openOp(banner.kind)} action={`retry-pending-${banner.kind}`} />
       ))}

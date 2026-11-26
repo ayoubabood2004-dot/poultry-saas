@@ -193,6 +193,7 @@ function resolveSpecifier(file, specifier) {
  * و«المخزن ببساطة» (0017): بطاقات المواد وملفّ المادّة والشراء الفوري (purchases) بحزمة شاشات المخزون، والمعمل يقرأ منه «عندك».
  * والصرف لفوج القاعة (0019): ما يُصرف والصرف وإلغاؤه (flockIssues) تستورده صفحة الصرف وحدها (حزمة المخزون)، لا حزم الحقول المحفوظة.
  * و«الرصيد اليومي» (0022، وأقسامه 0035): رصيد أقسام المخزن والملاحظات (dayBalance) تستورده صفحة المخزن وحدها (حزمة المخزون).
+ * و«ترتيب الموادّ وألوانها» (0037): ترتيب الأقسام ولون المادّة وحدّها وألوان الرصيد (storeMarks) تستورده شاشات المخزن ومحلّلا dayBalance وpurchases.
  * و«ترتيب معمل العلف» (0023): تقويم العليقة وتقاريرها المطبوعة (millReport، mill_report) تستورده صفحة التقرير وحدها (حزمة المعمل).
  * و«المال بين يديك» (0024): خلاصة المال وحركة الأموال ويومية الصندوق وخلاصة الشهر (money) تستوردها صفحات المال وحدها (حزمة الحسابات).
  * و«المال بين يديك» (0024): قائمة الذمم (debts، debts_overview) تستوردها صفحتها وحدها، والكشف الاحترافي والسندات وصفحة البيع (statement:
@@ -203,7 +204,7 @@ function resolveSpecifier(file, specifier) {
  * (حزمة القاعات)، وبطاقة الفوج تصل صفحة الفوج المحفوظة باستيراد كسول لحزمة القاعات (farm/shared)، لا استيراداً ثابتاً.
  * و«القاعة كالورقة» (0035): قارئ الورقة وإرسال العلف من «رصيد العلف» وإلغاؤه والقرار على المركون (hallSheet) تستوردها صفحات القاعات وحدها (حزمة القاعات).
  */
-export const PAGE_MODULES = new Set(['inventory', 'scopes', 'members', 'home', 'parties', 'cash', 'signin', 'uses', 'counts', 'purchasing', 'flocks', 'mill', 'purchases', 'flockIssues', 'dayBalance', 'millReport', 'money', 'debts', 'statement', 'halls', 'hallReports', 'weighTickets', 'flockClose', 'birdSales', 'flockEdits', 'sales', 'hallSheet']);
+export const PAGE_MODULES = new Set(['inventory', 'scopes', 'members', 'home', 'parties', 'cash', 'signin', 'uses', 'counts', 'purchasing', 'flocks', 'mill', 'purchases', 'flockIssues', 'dayBalance', 'millReport', 'money', 'debts', 'statement', 'halls', 'hallReports', 'weighTickets', 'flockClose', 'birdSales', 'flockEdits', 'sales', 'hallSheet', 'storeMarks']);
 
 /** المسار ملف وحدة كسول بـrepo (src/lib/repo/inventory.ts …). */
 const isPageModule = (resolved) => {
