@@ -54,8 +54,7 @@ export function paginate(breaks: readonly number[], total: number, capacity: num
   let start = 0;
   let head: readonly [number, number] | null = null;
   for (;;) {
-    // الصفّ المكرَّر لا يأخذ أكثر من نصف الصفحة (رأسٌ غير معقول لا يمنع التقدّم).
-    const room = capacity - (head ? Math.min(head[1] - head[0], capacity / 2) : 0);
+    const room = capacity - (head ? head[1] - head[0] : 0);
     // نصف نقطة سماحٌ للتقريب: صفحة ارتفاعها سعة الورقة بالضبط لا تُقسم.
     if (total - start <= room + 0.5) {
       pages.push({ from: start, to: total, head });
@@ -67,7 +66,9 @@ export function paginate(breaks: readonly number[], total: number, capacity: num
     if (cut < 0) cut = limit;
     pages.push({ from: start, to: cut, head });
     const inside = tables.find((table) => cut > table.headBottom + 0.5 && cut < table.bottom - 0.5);
-    head = inside ? [inside.headTop, inside.headBottom] : null;
+    // صفّ أطول من نصف الصفحة لا يُكرَّر (رأسٌ غير معقول لا يمنع التقدّم): يُرسم بارتفاعه كلّه فوق الشريحة، فلو كُرّر لضاق ما تحته أو خرج عن الورقة
+    // (مراجعة 2026-11-27).
+    head = inside && inside.headBottom - inside.headTop <= capacity / 2 ? [inside.headTop, inside.headBottom] : null;
     start = cut;
   }
 }

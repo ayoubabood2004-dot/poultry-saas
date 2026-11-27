@@ -450,9 +450,10 @@ export function DayBalanceView({ orgName, by }: { orgName: string; by: string })
   const rootRef = useRef<HTMLElement>(null);
   // ملفّ PDF: يُجهَّز ثمّ يُرسل؛ وإن رفض المتصفّح فتح المشاركة بعد التجهيز (الضغطة «قديمة») يبقى جاهزاً لضغطة «أرسله» (كصورة تقرير القاعات).
   const [making, setMaking] = useState(false);
-  const [ready, setReady] = useState<{ key: string; file: File; title: string } | null>(null);
-  // ملفّ يومٍ آخر لا يبقى جاهزاً: رجع المستخدم أو انتقل بالأسهم.
-  if (ready !== null && ready.key !== here) setReady(null);
+  const [ready, setReady] = useState<{ key: string; data: DayBalanceSections; file: File; title: string } | null>(null);
+  // الملفّ الجاهز لما يُعرض وحده: لا يبقى لعرضٍ آخر (رجع المستخدم أو انتقل بالأسهم)، ولا بعد قراءة جديدة لما يُعرض (ملاحظة حُفظت، أو تجاوز يوم الخادم
+  // منتصف الليل في عرض «اليوم»): يُرسل ما على الشاشة لا ما كان قبلها (مراجعة 2026-11-27).
+  if (ready !== null && (ready.key !== here || ready.data !== data)) setReady(null);
 
   const today = meta?.today ?? null;
   const on = data?.on ?? day ?? today;
@@ -461,9 +462,9 @@ export function DayBalanceView({ orgName, by }: { orgName: string; by: string })
   const sections = data ? shownSections(data) : [];
   const printable = data !== null && data.sections.some((section) => section.rows.length > 0);
   const title = data ? `${reportTitle()} ${reportDate(data.on)}` : reportTitle();
-  const deliver = async (file: File, fileTitle: string) => {
+  const deliver = async (file: File, fileTitle: string, from: DayBalanceSections) => {
     const outcome = await sendFile(file, fileTitle);
-    setReady(outcome === 'blocked' ? { key: here, file, title: fileTitle } : null);
+    setReady(outcome === 'blocked' ? { key: here, data: from, file, title: fileTitle } : null);
     if (outcome === 'downloaded') toast({ tone: 'success', title: t('dayb.pdf.downloaded', 'حُفظ الملفّ «{name}» في التنزيلات على هذا الجهاز: أرسله من هناك إلى من تريد.', { name: file.name }) });
   };
   const sendPdf = async () => {
@@ -483,7 +484,7 @@ export function DayBalanceView({ orgName, by }: { orgName: string; by: string })
       return;
     }
     setMaking(false);
-    await deliver(file, title);
+    await deliver(file, title, data);
   };
   const noteRow = open?.kind === 'note' ? (data?.sections.flatMap((section) => section.rows).find((row) => row.itemId === open.item.id) ?? null) : null;
   const closeAfter = (uncertain: boolean) => {
@@ -532,7 +533,7 @@ export function DayBalanceView({ orgName, by }: { orgName: string; by: string })
               title={t('dayb.pdf.ready', 'الملفّ جاهز: اضغط «أرسله» لتختار التطبيق ومن ترسله إليه.')}
               action={
                 <div className="flex flex-wrap gap-2">
-                  <Button onClick={() => void deliver(ready.file, ready.title)} data-action="day-pdf-send-ready">
+                  <Button onClick={() => void deliver(ready.file, ready.title, ready.data)} data-action="day-pdf-send-ready">
                     {t('dayb.pdf.send_ready', 'أرسله')}
                   </Button>
                   <Button
@@ -551,7 +552,12 @@ export function DayBalanceView({ orgName, by }: { orgName: string; by: string })
           ) : null}
         </div>
       ) : null}
-      {state.error ? <Refusal failure={state.error} day={day} onToday={() => go(null)} onRetry={state.retry} /> : null}
+      {state.error ? (
+        // رسالة الشاشة لا تُطبع ولا تدخل ملفّ PDF (النسخة المصوَّرة تُخفي print:hidden): الورقة وحدها (مراجعة 2026-11-27).
+        <div className="print:hidden" data-action="day-error">
+          <Refusal failure={state.error} day={day} onToday={() => go(null)} onRetry={state.retry} />
+        </div>
+      ) : null}
       {data ? (
         // الورقة الرسمية (ما يُطبع ويُرسل PDF): الرأس بشبكة البيانات، ثمّ جدول لكلّ قسم بشريط اسمه، ثمّ التذييل بالتوقيعات.
         <article className="ofc-paper" data-action="day-report">

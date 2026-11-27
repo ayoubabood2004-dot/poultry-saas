@@ -149,19 +149,28 @@ function dataUrlBytes(url: string): Uint8Array {
  */
 export async function reportPdf(page: HTMLElement, name: string, title: string, width: number = IMAGE_WIDTH, options: ImageOptions = {}): Promise<File> {
   return withCopy(page, width, options, async (copy, ratio) => {
-    const top = copy.getBoundingClientRect().top;
+    const box = copy.getBoundingClientRect();
+    const top = box.top;
     const breaks = Array.from(copy.querySelectorAll(PDF_BREAKS)).map((node) => node.getBoundingClientRect().bottom - top);
     // صفّ أسماء أعمدة كلّ جدول وأسفله: يُكرَّر فوق كلّ صفحة تبدأ داخل جسمه.
     const tables = Array.from(copy.querySelectorAll('table')).flatMap((table) => {
       const head = table.tHead?.getBoundingClientRect();
       return head && head.height > 0 ? [{ headTop: head.top - top, headBottom: head.bottom - top, bottom: table.getBoundingClientRect().bottom - top }] : [];
     });
-    const url = await toJpeg(copy, { ...captureOptions(width, ratio, { ...options, background: options.background ?? 'rgb(255, 255, 255)' }), quality: 0.92 });
+    // ارتفاع النسخة يُعطى لـhtml-to-image صريحاً، ويُستعمل نفسه ارتفاعاً للصورة في الملفّ: html-to-image يمطّ النسخة (عرضها × ارتفاعها) على لوحةٍ عرضها
+    // وارتفاعها مقرَّبان كلٌّ وحده ومحدودان بحدّ اللوحة (16,384 نقطة)، فمقياسا الطول والعرض يختلفان في تقرير طويل، وارتفاعٌ من نسبة الصورة يزيح كلّ حدّ
+    // صفّ عن صفّه في الصورة (مراجعة 2026-11-27: حتى 12 نقطة في 480 صفّاً، فانقسم صفّ بين صفحتين). وكلّ حدّ صفّ نسبةٌ من هذا الارتفاع في النسخة وفي الصورة.
+    const measured = box.height;
+    const url = await toJpeg(copy, {
+      ...captureOptions(width, ratio, { ...options, background: options.background ?? 'rgb(255, 255, 255)' }),
+      ...(measured > 0 ? { height: measured } : {}),
+      quality: 0.92,
+    });
     const bytes = dataUrlBytes(url);
     const size = jpegSize(bytes);
     if (!size) throw new Error('report_pdf_image');
-    // الارتفاع بنقاط CSS من الصورة نفسها (ما رُسم فعلاً)، لا من قياس النسخة قبل الرسم.
-    const height = (width * size.height) / size.width;
+    // وبلا تخطيط يُقاس (لا يقع في متصفّح) فمن نسبة الصورة.
+    const height = measured > 0 ? measured : (width * size.height) / size.width;
     const pdf = imagePdf({ bytes, pixelWidth: size.width, pixelHeight: size.height }, { cssWidth: width, cssHeight: height, pages: paginate(breaks, height, pageCapacity(width), tables), title });
     return new File([pdf], name, { type: 'application/pdf' });
   });

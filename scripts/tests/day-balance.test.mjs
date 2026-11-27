@@ -694,6 +694,124 @@ export default async function (t) {
         await settle();
         t.same([shared.length, globalThis.__db.toasts.length, byAction('day-pdf-send-ready').length], [0, 0, 0], 'S11: إلغاء نافذة المشاركة: لا رسالة ولا «أرسله»');
       });
+      // ── مراجعة 2026-11-27 ──────────────────────────────────────────────────────────────────────────────────────────
+      await step('S11-height', async () => {
+        // ارتفاع الصورة في الملفّ هو ارتفاع النسخة الذي رُسمت به (يُعطى لـhtml-to-image صريحاً)، لا نسبة الصورة: في تقرير طويل يختلف مقياسا اللوحة طولاً
+        // وعرضاً فيزيح الارتفاعُ من النسبة كلَّ حدّ صفّ عن صفّه في الصورة (انقسم صفّ بين صفحتين في 480 صفّاً).
+        const shared = [];
+        const captured = [];
+        sharing(shared);
+        fresh(MANAGER, {}, { day_balance_sections: answer(OWN) });
+        globalThis.__db.toJpeg = async (node, options) => {
+          captured.push(options);
+          return JPEG;
+        };
+        proto.getBoundingClientRect = function measure() {
+          return this.hasAttribute('data-capture') ? { top: 0, bottom: 1000, left: 0, right: 720, width: 720, height: 1000 } : { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 };
+        };
+        try {
+          await mount(urlAt(OWN));
+          await click(byAction('share-day')[0]);
+          await settle();
+        } finally {
+          proto.getBoundingClientRect = () => ({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 });
+        }
+        const content = shared[0]?.files?.[0] ? await pdfText(shared[0].files[0]) : '';
+        const drawn = Math.round(((1000 * (595.28 - 2 * 28.35)) / 720) * 100) / 100;
+        t.same(
+          [captured[0]?.height, content.includes(` 0 0 ${drawn} `)],
+          [1000, true],
+          `S11: ارتفاع النسخة (1000) يُعطى لـhtml-to-image ويُرسم به في الملفّ (${drawn} نقطة)، لا من نسبة الصورة (3×4)`,
+        );
+      });
+      const NEW_NOTE = 'وصل حمل ذرة بعد الظهر';
+      const withNote = (sample) => {
+        const next = clone(sample);
+        next.sections.find((entry) => entry.key === 'feed').rows.find((row) => row.item_id === plain.item_id).note = { text: NEW_NOTE, version: F.set_day_note.saved.note.version };
+        return next;
+      };
+      const writeNote = async () => {
+        await click(withId('edit-note', plain.item_id));
+        typeIn(byAction('note-text')[0], NEW_NOTE);
+        await settle();
+        await submitDialog();
+        await settle();
+      };
+      await step('S12-ready-note', async () => {
+        // رفض المتصفّح المشاركة فصار الملفّ جاهزاً، ثمّ حُفظت ملاحظة فقُرئ الرصيد من جديد: «أرسله» لا يبقى بملفّ ما قبل الملاحظة.
+        const shared = [];
+        const captured = [];
+        const refuse = { now: true };
+        sharing(shared, () => (refuse.now ? Object.assign(new Error('late'), { name: 'NotAllowedError' }) : null));
+        fresh(MANAGER, {}, {
+          day_balance_sections: async (args, count) => {
+            const json = clone(count === 1 ? OWN : withNote(OWN));
+            json.on = args.p_on ?? json.today;
+            return json;
+          },
+          set_day_note: async () => clone(F.set_day_note.saved),
+        });
+        globalThis.__db.toJpeg = async (node) => {
+          captured.push(node.textContent);
+          return JPEG;
+        };
+        await mount(urlAt(OWN));
+        await click(byAction('share-day')[0]);
+        await settle();
+        t.eq(byAction('day-pdf-send-ready').length, 1, 'S12: المتصفّح رفض المشاركة: «أرسله»');
+        await writeNote();
+        t.ok(byAction('day-note').some((n) => n.textContent === NEW_NOTE), 'S12: الجدول قُرئ من جديد بالملاحظة');
+        t.eq(byAction('day-pdf-send-ready').length, 0, 'S12: بعد قراءة جديدة لما يُعرض لا يبقى ملفّ ما قبلها جاهزاً');
+        refuse.now = false;
+        await click(byAction('share-day')[0]);
+        await settle();
+        t.same([shared.length, captured.at(-1)?.includes(NEW_NOTE)], [1, true], 'S12: «أرسل PDF» بعدها يبني ملفّاً بما على الشاشة (فيه الملاحظة)');
+      });
+      await step('S12-ready-midnight', async () => {
+        // عرض «اليوم»: القراءة بعد حفظ الملاحظة تجاوزت منتصف ليل الخادم فصار المعروض اليوم التالي: ملفّ اليوم السابق لا يبقى جاهزاً.
+        const shared = [];
+        const refuse = { now: true };
+        sharing(shared, () => (refuse.now ? Object.assign(new Error('late'), { name: 'NotAllowedError' }) : null));
+        const day1 = OWN.today;
+        const day2 = shift(OWN.today, 1);
+        fresh(MANAGER, {}, {
+          day_balance_sections: async (args, count) => {
+            const json = clone(count === 1 ? OWN : withNote(OWN));
+            json.today = count === 1 ? day1 : day2;
+            json.on = args.p_on ?? json.today;
+            return json;
+          },
+          set_day_note: async () => clone({ ...F.set_day_note.saved, on: day1 }),
+        });
+        globalThis.__db.toJpeg = async () => JPEG;
+        await mount('/inventory?view=day');
+        t.eq(infoText('day'), fmt(day1), 'S12: اليوم معروض');
+        await click(byAction('share-day')[0]);
+        await settle();
+        t.eq(byAction('day-pdf-send-ready').length, 1, 'S12: «أرسله» لليوم');
+        await writeNote();
+        t.same([infoText('day'), byAction('day-pdf-send-ready').length], [fmt(day2), 0], `S12: بعد منتصف الليل يُعرض ${fmt(day2)} ولا يبقى ملفّ ${fmt(day1)} جاهزاً`);
+      });
+      await step('S12-error-card', async () => {
+        // القراءة بعد حفظ الملاحظة فشلت: الجداول باقية ومعها رسالة الخطأ؛ الرسالة لا تُطبع ولا تدخل الملفّ (print:hidden، والنسخة المصوَّرة تُخفيه).
+        const shared = [];
+        sharing(shared);
+        fresh(MANAGER, {}, {
+          day_balance_sections: async (args, count) => {
+            if (count > 1) throw new Error('Failed to fetch');
+            const json = clone(OWN);
+            json.on = args.p_on ?? json.today;
+            return json;
+          },
+          set_day_note: async () => clone(F.set_day_note.saved),
+        });
+        globalThis.__db.toJpeg = async () => JPEG;
+        await mount(urlAt(OWN));
+        await writeNote();
+        const alert = all().find((n) => n.getAttribute('role') === 'alert');
+        t.ok(alert && byAction('day-report').length === 1 && !disabled(byAction('share-day')[0]), 'S12: القراءة فشلت: الجداول باقية برسالة الخطأ');
+        t.ok(underClass(alert, 'print:hidden'), 'S12: رسالة الخطأ تحت print:hidden فلا تُطبع ولا تدخل ملفّ PDF');
+      });
     } finally {
       delete proto.cloneNode;
       delete textProto.cloneNode;
