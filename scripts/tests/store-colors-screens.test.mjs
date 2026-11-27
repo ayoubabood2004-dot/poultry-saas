@@ -55,7 +55,6 @@ async function bundle() {
     "export { moveItem, indexAt, reconcile } from './src/pages/inventory/ArrangeDialog.tsx';",
     "export { qtyInputText, lowFromText } from './src/pages/inventory/MarkDialog.tsx';",
     "export { MARK_LOOK, tintStyle } from './src/pages/inventory/markColors.ts';",
-    "export { shareText } from './src/pages/inventory/DayBalanceView.tsx';",
     "export { RowShapeError } from './src/lib/repo/inventory.ts';",
     "export { onlineStore } from './src/lib/online.ts';",
     "export { RejectedError, UnknownOutcomeError } from './src/lib/errors.ts';",
@@ -222,21 +221,6 @@ export default async function (t) {
         'P lowFromText: فارغ يزيل، والموجب يُقبل، والصفر وكسر المعدود والنصّ مرفوضة',
       );
       t.same(m.tintStyle('yellow').backgroundImage, `linear-gradient(${m.MARK_LOOK.yellow.tint}, ${m.MARK_LOOK.yellow.tint})`, 'P التظليل صورة خلفية فوق لون الخليّة (العمود الثابت يبقى معتماً)');
-      const share = m.shareText(parsed).text.split('\n');
-      const cornLine = share.find((line) => line.includes('ذرة'));
-      const premixLine = share.find((line) => line.includes('برمكس'));
-      const wheatLine = share.find((line) => line.includes('حنطة'));
-      t.same(
-        [cornLine?.startsWith(`${m.MARK_LOOK.yellow.emoji} 2. ذرة`), cornLine?.endsWith('(قليلة)'), premixLine?.startsWith(m.MARK_LOOK.red.emoji), premixLine?.endsWith('(نفدت)'), wheatLine?.startsWith('1. حنطة')],
-        [true, true, true, true, true],
-        'P المشاركة: علامة اللون أوّل السطر وكلمة الحالة آخره، وبلا لون السطر كما كان',
-      );
-      const off = m.shareText(m.parseDayBalanceSections({ ...clone(DB), colors: { auto: false, low: 'orange', out: 'red', version: 2 } })).text.split('\n');
-      t.same(
-        [off.find((line) => line.includes('ذرة'))?.startsWith(m.MARK_LOOK.yellow.emoji), off.find((line) => line.includes('ذرة'))?.includes('(قليلة)'), off.find((line) => line.includes('برمكس'))?.startsWith('4. برمكس')],
-        [true, false, true],
-        'P المشاركة والتلقائيّ مطفأ: اللون باليد وحده، بلا كلمة حالة ولا علامة للنافدة',
-      );
     }
 
     // ── D1: التظليل وكلمة الحالة والأزرار ───────────────────────────────────────────────────────────────────────────
@@ -256,6 +240,18 @@ export default async function (t) {
       const note = withId('edit-note', I.corn);
       t.eq(note?.parentNode?.children[0], note, 'D1: زرّ الملاحظة يبقى أوّل خليّتها (مراجعة 0022 P1) وزرّ اللون بعده');
       t.same([withKey('arrange-section', 'feed_materials') !== undefined, withKey('arrange-section', 'feed'), byAction('day-colors').length], [true, undefined, 1], 'D1: «رتّب» لقسم فيه أكثر من مادّة، و«ألوان الرصيد» مرّة');
+      // الورقة الرسمية (تُطبع وتُرسل PDF): التظليل فيها، و«رتّب» وزرّ اللون خارجها بالطباعة والملفّ (print:hidden).
+      const paper = byAction('day-report')[0];
+      const hiddenInPrint = (node) => {
+        for (let n = node; n && n.nodeType === 1; n = n.parentNode) if ((n.getAttribute('class') ?? '').split(/\s+/).includes('print:hidden')) return true;
+        return false;
+      };
+      const inside = (node) => {
+        for (let n = node; n; n = n.parentNode) if (n === paper) return true;
+        return false;
+      };
+      t.same([inside(cornCell), hiddenInPrint(cornCell), hiddenInPrint(withKey('arrange-section', 'feed_materials')), hiddenInPrint(withId('mark-item', I.corn))], [true, false, true, true],
+        'D1: الصفّ الملوّن في الورقة التي تُطبع وتُرسل PDF، و«رتّب» وزرّ اللون لا يُطبعان');
     });
 
     // ── D2: لمسة على لون تحفظه ───────────────────────────────────────────────────────────────────────────────────────
