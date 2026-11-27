@@ -8,8 +8,9 @@ import { Num } from './DataTable';
 import './official.css';
 
 // التقرير الرسميّ «مثل تقارير المستشفيات» (عقد 0036 S1، كلمة المالك 2026-11-24): رأسٌ باسم المنشأة وعنوان التقرير وشبكة بيانات بمربّعات، وأشرطة أقسام
-// ملوّنة، وجداول DataTable الرسمية، وتذييلٌ بـ«أعدّه» و«طُبع في» وسطرَي «المسؤول» و«التوقيع». يُستورد من صفحات حزمة القاعات وحدها (تقرير الوجبة والتقرير
-// اليوميّ و«منذ أن بدأنا» وورقة القاعة)، ومعه official.css الكسول: من يستعمل variant="official" يستورد من هنا فيحمل أنماطه (فحص official-tables W).
+// ملوّنة، وجداول DataTable الرسمية، وتذييلٌ بـ«أعدّه» و«طُبع في» وسطرَي «المسؤول» و«التوقيع». يُستورد من صفحات حزمة القاعات (تقرير الوجبة والتقرير
+// اليوميّ و«منذ أن بدأنا» وورقة القاعة) ومن «الرصيد اليوميّ» في حزمة المخزون (رسالة الزبون 2026-11-26: «ترتيب رسمي مثل باقي السستم»)، ومعه official.css
+// الكسول: من يستعمل variant="official" يستورد من هنا فيحمل أنماطه (فحص official-tables W). والحزمة المشتركة بينهما باسم stores-admin (vite.config.ts).
 
 /** الصفحة عريضة ما دامت مركّبة (lib/wide.ts): القشرة تضع data-wide على <main>. */
 export function useWidePage(): void {
@@ -62,10 +63,28 @@ export const infoColumns = (count: number): number => (count <= 5 ? Math.max(cou
 
 /**
  * رأس التقرير: اسم المنشأة (من مساحة العمل في الجلسة) ثمّ العنوان ثمّ ما يُمرَّر (سطر حالٍ إن وُجد) ثمّ شبكة البيانات. orgAction وtitleAction أسماء
- * data-action التي تعرفها الصفحة وفحوصها (rep-org/batch-title، day-org/day-title).
+ * data-action التي تعرفها الصفحة وفحوصها (rep-org/batch-title، day-org/day-title). والعنوان h1، أو h2 في تقريرٍ داخل صفحة لها عنوانها (الرصيد اليوميّ
+ * تحت «المخزن»).
  */
-export function ReportHeader({ org, title, info, orgAction, titleAction, children }: { org: string; title: string; info: readonly InfoItem[]; orgAction: string; titleAction: string; children?: ReactNode }) {
+export function ReportHeader({
+  org,
+  title,
+  info,
+  orgAction,
+  titleAction,
+  level = 1,
+  children,
+}: {
+  org: string;
+  title: string;
+  info: readonly InfoItem[];
+  orgAction: string;
+  titleAction: string;
+  level?: 1 | 2;
+  children?: ReactNode;
+}) {
   const columns = { '--ofc-cols': String(infoColumns(info.length)) } as CSSProperties;
+  const Title = level === 1 ? 'h1' : 'h2';
   return (
     <header className="ofc-head" data-action="report-head">
       {org ? (
@@ -73,9 +92,9 @@ export function ReportHeader({ org, title, info, orgAction, titleAction, childre
           {org}
         </p>
       ) : null}
-      <h1 className="ofc-title" data-action={titleAction}>
+      <Title className="ofc-title" data-action={titleAction}>
         {title}
-      </h1>
+      </Title>
       {children}
       {info.length ? (
         <dl className="ofc-info" style={columns} data-action="report-info">

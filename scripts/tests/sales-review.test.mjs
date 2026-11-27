@@ -25,7 +25,7 @@ const STUBS = {
   session: 'export const useSession = () => globalThis.__sr.session; export const sessionStore = { get: () => globalThis.__sr?.session ?? { status: "loading" } };',
   Toast: 'export const toast = (spec) => { globalThis.__sr.toasts.push(spec); }; export function Toaster() { return null; }',
   purchasing: routed('purchasing', ['searchSuppliers', 'supplierTwins', 'createCustomer', 'listBoxes']),
-  image: 'export const toBlob = (node, options) => globalThis.__sr.toBlob(node, options);',
+  image: 'export const toBlob = (node, options) => globalThis.__sr.toBlob(node, options); export const toJpeg = () => Promise.reject(new Error("toJpeg_unused"));',
 };
 const CORE = `import { RejectedError, ZeroRowsError } from ${ERRORS};
 export const call = (fn, args) => globalThis.__sr.rpc(fn, args);

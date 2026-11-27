@@ -1,5 +1,6 @@
-import { toBlob } from 'html-to-image';
+import { toBlob, toJpeg } from 'html-to-image';
 import type { Day } from '../../domain/dates';
+import { imagePdf, jpegSize, pageCapacity, paginate } from '../../lib/pdf';
 
 // «أرسل صورة» في تقرير القاعات اليومي (عقد 0031، كلمة المالك 2026-11-17: «اكدر ارسلهه»): التقرير المعروض صورة PNG بضغطة، ثمّ نافذة المشاركة في
 // الجهاز إن قبلت الملفّات، وإلّا تنزيله. html-to-image مستوردة هنا داخل حزمة القاعات (خارج التثبيت المسبق بالاسم)، لا استيراداً كسولاً: ذاك يفصلها
@@ -78,10 +79,10 @@ export interface ImageOptions {
 }
 
 /**
- * صورة الصفحة page (جذر التقرير): نسخة منها خارج الشاشة بـdata-capture وعرض width (IMAGE_WIDTH للتقرير؛ وورقة فاتورة البيع أضيق، عقد 0033)، تُرسم ثمّ
- * تُزال. يرمي إن تعذّر الرسم (لا صورة فارغة صامتة).
+ * نسخة الصفحة page خارج الشاشة بـdata-capture وعرض width، فاتحةً إن طُلب (ImageOptions)، تُعطى لـdraw ثمّ تُزال ولو رمى. المقياس ratio: 2 إلّا لتقرير
+ * طويل جدّاً (حدّ نقاط اللوحة).
  */
-export async function reportImage(page: HTMLElement, name: string, width: number = IMAGE_WIDTH, options: ImageOptions = {}): Promise<File> {
+async function withCopy<T>(page: HTMLElement, width: number, options: ImageOptions, draw: (copy: HTMLElement, ratio: number) => Promise<T>): Promise<T> {
   const host = document.createElement('div');
   host.setAttribute('aria-hidden', 'true');
   host.style.position = 'fixed';
@@ -103,17 +104,61 @@ export async function reportImage(page: HTMLElement, name: string, width: number
   try {
     const height = copy.clientHeight || copy.scrollHeight || 0;
     const ratio = height > 0 ? Math.min(PIXEL_RATIO, Math.sqrt(MAX_PIXELS / (width * height))) : PIXEL_RATIO;
-    const blob = await toBlob(
-      copy,
-      options.light
-        ? { width, pixelRatio: ratio, backgroundColor: options.background ?? LIGHT_SURFACE, preferredFontFormat: 'woff2', style: { margin: '0' }, imagePlaceholder: IMAGE_PLACEHOLDER }
-        : { width, pixelRatio: ratio, backgroundColor: surfaceColor(), preferredFontFormat: 'woff2', style: { margin: '0' } },
-    );
-    if (!blob) throw new Error('report_image_empty');
-    return new File([blob], name, { type: 'image/png' });
+    return await draw(copy, ratio);
   } finally {
     host.parentNode?.removeChild(host);
   }
+}
+
+/** خيارات html-to-image للنسخة: العرض والمقياس والخلفية والخطّ، وصورة شفّافة مكان صورة فاشلة في الفاتحة. */
+const captureOptions = (width: number, ratio: number, options: ImageOptions) =>
+  options.light
+    ? { width, pixelRatio: ratio, backgroundColor: options.background ?? LIGHT_SURFACE, preferredFontFormat: 'woff2', style: { margin: '0' }, imagePlaceholder: IMAGE_PLACEHOLDER }
+    : { width, pixelRatio: ratio, backgroundColor: surfaceColor(), preferredFontFormat: 'woff2', style: { margin: '0' } };
+
+/**
+ * صورة الصفحة page (جذر التقرير): نسخة منها خارج الشاشة بـdata-capture وعرض width (IMAGE_WIDTH للتقرير؛ وورقة فاتورة البيع أضيق، عقد 0033)، تُرسم ثمّ
+ * تُزال. يرمي إن تعذّر الرسم (لا صورة فارغة صامتة).
+ */
+export async function reportImage(page: HTMLElement, name: string, width: number = IMAGE_WIDTH, options: ImageOptions = {}): Promise<File> {
+  return withCopy(page, width, options, async (copy, ratio) => {
+    const blob = await toBlob(copy, captureOptions(width, ratio, options));
+    if (!blob) throw new Error('report_image_empty');
+    return new File([blob], name, { type: 'image/png' });
+  });
+}
+
+/**
+ * حدود الصفحات المسموحة في ملفّ PDF: أسفل كلّ صفّ بيانات وكلّ صفّ مجموع، وأسفل رأس التقرير وكلّ قسم وتذييله (لا أسفل صفّ أسماء الأعمدة ولا شريط
+ * العنوان: لا ينفصلان عن جدولهما).
+ */
+const PDF_BREAKS = 'tbody > tr, tfoot > tr, header, section, footer';
+
+/** بايتات صورة من عنوان data: بترميز base64. */
+function dataUrlBytes(url: string): Uint8Array {
+  const binary = atob(url.slice(url.indexOf(',') + 1));
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+/**
+ * ملفّ PDF بحجم A4 من الصفحة page (رسالة الزبون 2026-11-26: الرصيد اليومي يُرسل PDF لا رسالة): النسخة نفسها التي تُصوَّر، صورةً JPEG (ورقة بيضاء إن لم
+ * تُعطَ خلفية)، ثمّ تُقسم صفحاتٍ عند حدود الصفوف والأقسام (paginate) وتُلفّ بـimagePdf. يرمي إن تعذّر الرسم.
+ */
+export async function reportPdf(page: HTMLElement, name: string, title: string, width: number = IMAGE_WIDTH, options: ImageOptions = {}): Promise<File> {
+  return withCopy(page, width, options, async (copy, ratio) => {
+    const top = copy.getBoundingClientRect().top;
+    const breaks = Array.from(copy.querySelectorAll(PDF_BREAKS)).map((node) => node.getBoundingClientRect().bottom - top);
+    const url = await toJpeg(copy, { ...captureOptions(width, ratio, { ...options, background: options.background ?? 'rgb(255, 255, 255)' }), quality: 0.92 });
+    const bytes = dataUrlBytes(url);
+    const size = jpegSize(bytes);
+    if (!size) throw new Error('report_pdf_image');
+    // الارتفاع بنقاط CSS من الصورة نفسها (ما رُسم فعلاً)، لا من قياس النسخة قبل الرسم.
+    const height = (width * size.height) / size.width;
+    const pdf = imagePdf({ bytes, pixelWidth: size.width, pixelHeight: size.height }, { cssWidth: width, cssHeight: height, pages: paginate(breaks, height, pageCapacity(width)), title });
+    return new File([pdf], name, { type: 'application/pdf' });
+  });
 }
 
 /** تنزيل الملفّ برابط مؤقّت (حين لا تقبل نافذة المشاركة الملفّات، أو باختيار «نزّلها»). */

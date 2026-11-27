@@ -1,5 +1,5 @@
-import { ChevronLeft, ChevronRight, NotebookPen, Printer, Share2 } from 'lucide-react';
-import { useCallback, useId, useState, type FormEvent } from 'react';
+import { ChevronLeft, ChevronRight, FileDown, NotebookPen, Printer } from 'lucide-react';
+import { useCallback, useId, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
@@ -8,6 +8,7 @@ import { Dialog } from '../../components/ui/Dialog';
 import { Field } from '../../components/ui/Field';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
+import { PrintedAt, ReportFooter, ReportHeader, usePrintedAt, type InfoItem } from '../../components/ui/OfficialReport';
 import { toast } from '../../components/ui/Toast';
 import { addDays, type Day } from '../../domain/dates';
 import { parseDayText } from '../../lib/dayText';
@@ -18,7 +19,8 @@ import * as dayBalance from '../../lib/repo/dayBalance';
 import type { DayBalanceSections, DayNote, DayNoteResult, DayRow, DaySection, DaySectionKey, Named } from '../../lib/repo/dayBalance';
 import { baseUnitLabel } from '../../lib/storeLabels';
 import { useLoad } from '../../lib/useLoad';
-import { baseQty, itemFilePath } from './simple-shared';
+import { downloadFile, IMAGE_WIDTH, reportPdf, sendFile } from '../halls/reportImage';
+import { itemFilePath } from './simple-shared';
 import { itemsCountText } from './storeSections';
 
 // «الرصيد اليومي» (كلمة المالك 2026-11-09، 0022، بصورة ورقته «رصيد مواد العلف — 4/11/2026»): جداول ليوم واحد مثل ورقته
@@ -27,8 +29,11 @@ import { itemsCountText } from './storeSections';
 // و«رصيد العلف» دائماً، و«أخرى» إن لم يكن فارغاً — بلا اختيار تصنيف ولا مخزن («ازرار واضحة وبلا قوائم داخل قوائم»): التصنيفات ترتّب الصفوف
 // بالخادم وتُدار من «إعداد المخزن». اليوم وحده في الرابط (?view=day&day=)، فالرجوع والنسخ يعيدان العرض نفسه، ورابط المادّة يحمل ?back= إليه.
 // الأيام بسهمين («يحرك بالايام عن طريق سهمين يمين ويسار»): بالعربية السهم الأيمن إلى الخلف («اليوم السابق») والأيسر إلى الأمام، ولا يوم
-// بعد اليوم. والتقرير يُطبع أو يُحفظ PDF من المتصفّح (لا مكتبة PDF: تشكيل العربية فيها غير مضمون) بكلّ جداوله في مستند واحد، ويُشارك نصّاً
-// (واتساب)؛ والطباعة تُخفي كلّ ما سوى العنوان والجداول (print:hidden)، ويظهر فيها اسم المنشأة. والملاحظة لكلّ مادّة لكلّ يوم لمن يعمل في
+// بعد اليوم. والتقرير رسميّ كتقارير القاعات (رسالة الزبون 2026-11-26: «ترتيب رسمي مرتب… وبالاعلى الاسماء الدالة»؛ كانت الطباعة ترسم صفّ أسماء
+// الأعمدة الثابت بالتمرير في وسط الجدول فوق الصفّ الرابع): رأسٌ باسم المنشأة والعنوان وشبكة بيانات (التاريخ وعدد موادّ كلّ قسم ووقت الطباعة)، ثمّ
+// لكلّ قسم جدول رسميّ بشريط اسمه وصفّ أسماء أعمدته (يتكرّر في كلّ صفحة مطبوعة)، ثمّ «أعدّه» والتوقيعات. يُطبع أو يُحفظ PDF من المتصفّح، و«أرسل
+// PDF» يرسل ملفّ PDF بحجم A4 لا رسالة نصّية (رسالة الزبون نفسها: «لازم يروح على شكل بي دي اف»): الورقة نفسها صورةً ملفوفةً صفحاتٍ (reportPdf، لا
+// مكتبة PDF: تشكيل العربية فيها غير مضمون). والطباعة والملفّ يُخفيان كلّ ما سوى الورقة (print:hidden). والملاحظة لكلّ مادّة لكلّ يوم لمن يعمل في
 // المخازن (stock_note.write) بشرط ما رآه، فلا يمحو أحدٌ ملاحظة كتبها غيره دون أن يراها.
 
 /** حدّ الملاحظة بعد القصّ، بالحروف (لا بوحدات UTF-16) كما يعدّها الخادم. */
@@ -109,41 +114,22 @@ export function shownSections(data: Pick<DayBalanceSections, 'sections'>): DaySe
   return data.sections.filter((section) => section.key !== 'other' || section.rows.length > 0);
 }
 
-/** الرصيد نصّاً بوحدته، والصفر «-» كما في ورقة المالك. */
-const qtyText = (row: DayRow): string => (row.qty === 0n ? '-' : baseQty(row.qty, row.baseUnit));
+/** اسم ملفّ PDF باليوم (لاتينيّ كاسم صورة تقرير القاعات: يُحفظ ويُرسل بلا مشكلة في كلّ جهاز). */
+export const pdfName = (on: Day): string => `daily-balance-${on}.pdf`;
 
-/**
- * نصّ المشاركة (واتساب): سطر العنوان والتاريخ، ثمّ لكلّ قسم فيه موادّ سطر باسمه و«1. ذرة: 69,448 كغم — ملاحظة» لكلّ مادّة (الترقيم لكلّ جدول
- * كما في عمود «ت»).
- */
-export function shareText(data: DayBalanceSections): { title: string; text: string } {
-  const title = `${reportTitle()} ${reportDate(data.on)}`;
-  const blocks = data.sections
-    .filter((section) => section.rows.length > 0)
-    .map((section) => {
-      const lines = section.rows.map((row, index) => {
-        const line = t('dayb.share.row', '{n}. {name}: {qty}', { n: fmtInt(index + 1), name: row.name, qty: qtyText(row) });
-        // سطر واحد لكلّ مادّة: سطر جديد داخل الملاحظة يصير فراغاً.
-        return row.note ? t('dayb.share.note', '{line} — {note}', { line, note: row.note.text.replace(/\s+/gu, ' ') }) : line;
-      });
-      return [`${sectionTitle(section.key)}:`, ...lines].join('\n');
-    });
-  return { title, text: [title, ...blocks].join('\n\n') };
-}
-
-/** المشاركة بنافذة الجهاز إن وُجدت، وإلّا النسخ. إلغاء المستخدم نافذة المشاركة ليس فشلاً؛ وغيره يجرّب النسخ. */
-export async function shareReport(title: string, text: string): Promise<'shared' | 'cancelled' | 'copied'> {
-  if (typeof navigator.share === 'function') {
-    try {
-      await navigator.share({ title, text });
-      return 'shared';
-    } catch (error) {
-      if ((error as { name?: unknown } | null)?.name === 'AbortError') return 'cancelled';
-    }
-  }
-  await navigator.clipboard.writeText(text);
-  return 'copied';
-}
+// الورقة A4 بالطول وحاشية 10 مم، وجداولها بخطّ 11 نقطة على الورق و12 في ملفّ PDF (والحشوة وتكرار صفّ الأسماء والجدول بلا تمرير في official.css)؛ واسم
+// المادّة بلون النصّ لا بلون الرابط، وما يُخفى عند الطباعة يُخفى في الملفّ.
+const PRINT_STYLE = [
+  '@page { size: A4 portrait; margin: 10mm; }',
+  '@media print {',
+  '[data-action="day-report"] table { font-size: 11px; }',
+  '[data-action="day-report"] a { color: inherit; }',
+  '}',
+  '[data-capture] { padding: 16px; }',
+  '[data-capture] .print\\:hidden { display: none !important; }',
+  '[data-capture] table { font-size: 12px; }',
+  '[data-capture] a { color: inherit; }',
+].join(' ');
 
 /** رابط ملفّ المادّة ومعه طريق الرجوع إلى العرض نفسه. */
 function itemLink(row: DayRow, here: string): string {
@@ -429,7 +415,16 @@ function Refusal({ failure, day, onToday, onRetry }: { failure: unknown; day: Da
   );
 }
 
-export function DayBalanceView({ orgName }: { orgName: string }) {
+/** شبكة بيانات الرصيد: التاريخ، وعدد موادّ كلّ قسم معروض، ووقت الطباعة. */
+export function dayInfo(on: Day, sections: readonly DaySection[], printedAt: Date): InfoItem[] {
+  return [
+    { key: 'day', label: t('dayb.info.day', 'التاريخ'), value: <Num>{fmtDay(on)}</Num> },
+    ...sections.map((section) => ({ key: `count-${section.key}`, label: sectionTitle(section.key), value: itemsCountText(section.rows.length) })),
+    { key: 'printed', label: t('report.info.printed', 'طُبع في'), value: <PrintedAt at={printedAt} /> },
+  ];
+}
+
+export function DayBalanceView({ orgName, by }: { orgName: string; by: string }) {
   const navigate = useNavigate();
   const [search, setSearch] = useSearchParams();
   const day = dayOf(search.get('day'));
@@ -449,6 +444,13 @@ export function DayBalanceView({ orgName }: { orgName: string }) {
   // نافذة ملاحظة لعرض آخر (رجع المستخدم بزرّ المتصفّح) لا تبقى: ملاحظتها ليوم غير المعروض.
   if (open?.kind === 'note' && open.key !== here) setOpen(null);
   const go = (next: Day | null) => setSearch(dayQuery({ day: next }));
+  const printed = usePrintedAt();
+  const paperRef = useRef<HTMLElement>(null);
+  // ملفّ PDF: يُجهَّز ثمّ يُرسل؛ وإن رفض المتصفّح فتح المشاركة بعد التجهيز (الضغطة «قديمة») يبقى جاهزاً لضغطة «أرسله» (كصورة تقرير القاعات).
+  const [making, setMaking] = useState(false);
+  const [ready, setReady] = useState<{ key: string; file: File; title: string } | null>(null);
+  // ملفّ يومٍ آخر لا يبقى جاهزاً: رجع المستخدم أو انتقل بالأسهم.
+  if (ready !== null && ready.key !== here) setReady(null);
 
   const today = meta?.today ?? null;
   const on = data?.on ?? day ?? today;
@@ -456,14 +458,30 @@ export function DayBalanceView({ orgName }: { orgName: string }) {
   const toDay = (target: Day) => go(today !== null && target >= today ? null : target);
   const sections = data ? shownSections(data) : [];
   const printable = data !== null && data.sections.some((section) => section.rows.length > 0);
-  const share = async () => {
-    if (!data) return;
-    const { title, text } = shareText(data);
+  const title = data ? `${reportTitle()} ${reportDate(data.on)}` : reportTitle();
+  const deliver = async (file: File, fileTitle: string) => {
+    const outcome = await sendFile(file, fileTitle);
+    setReady(outcome === 'blocked' ? { key: here, file, title: fileTitle } : null);
+    if (outcome === 'downloaded') toast({ tone: 'success', title: t('dayb.pdf.downloaded', 'حُفظ الملفّ «{name}» في التنزيلات على هذا الجهاز: أرسله من هناك إلى من تريد.', { name: file.name }) });
+  };
+  const sendPdf = async () => {
+    const paper = paperRef.current;
+    if (!data || !paper || making) return;
+    setMaking(true);
+    setReady(null);
+    // «طُبع في» لحظة الملفّ، مكتوبةً في الورقة قبل أن تُنسخ.
+    printed.stamp();
+    let file: File;
     try {
-      if ((await shareReport(title, text)) === 'copied') toast({ tone: 'success', title: t('dayb.share.copied', 'نُسخ التقرير: الصقه في واتساب أو في أيّ رسالة.') });
+      // فاتحٌ دائماً على ورقة بيضاء كالمطبوع: يُرسل لغير صاحب الجهاز، ولو كانت الصفحة بالسمة الداكنة.
+      file = await reportPdf(paper, pdfName(data.on), title, IMAGE_WIDTH, { light: true, background: 'rgb(255, 255, 255)' });
     } catch {
-      toast({ tone: 'danger', title: t('dayb.share.failed', 'تعذّرت المشاركة والنسخ على هذا الجهاز. اطبع التقرير أو احفظه PDF بدلاً من ذلك.') });
+      setMaking(false);
+      toast({ tone: 'danger', title: t('dayb.pdf.failed', 'تعذّر تجهيز ملفّ PDF على هذا الجهاز. اطبع التقرير واختر «حفظ بصيغة PDF» بدلاً من ذلك.') });
+      return;
     }
+    setMaking(false);
+    await deliver(file, title);
   };
   const noteRow = open?.kind === 'note' ? (data?.sections.flatMap((section) => section.rows).find((row) => row.itemId === open.item.id) ?? null) : null;
   const closeAfter = (uncertain: boolean) => {
@@ -474,6 +492,7 @@ export function DayBalanceView({ orgName }: { orgName: string }) {
 
   return (
     <section className="flex flex-col gap-4" aria-label={t('board.view.day', 'الرصيد اليومي')} data-action="day-view">
+      <style>{PRINT_STYLE}</style>
       {meta && on !== null && today !== null ? (
         <div className="flex flex-col gap-3 print:hidden" data-action="day-controls">
           <div className="flex flex-wrap items-center gap-2" data-action="day-bar">
@@ -496,57 +515,62 @@ export function DayBalanceView({ orgName }: { orgName: string }) {
             ) : null}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="secondary" onClick={() => (data ? printAs(`${reportTitle()} ${reportDate(data.on)}`) : undefined)} disabled={!printable} data-action="print-day">
+            <Button variant="secondary" onClick={() => (data ? printAs(title) : undefined)} disabled={!printable} data-action="print-day">
               <Printer aria-hidden="true" className="size-5" />
               {t('dayb.print', 'اطبع أو احفظ PDF')}
             </Button>
-            <Button variant="secondary" onClick={() => void share()} disabled={!printable} data-action="share-day">
-              <Share2 aria-hidden="true" className="size-5" />
-              {t('dayb.share', 'شارك')}
+            <Button variant="secondary" busy={making} onClick={() => void sendPdf()} disabled={!printable} data-action="share-day">
+              <FileDown aria-hidden="true" className="size-5" />
+              {t('dayb.pdf.send', 'أرسل PDF')}
             </Button>
           </div>
+          {ready ? (
+            <Notice
+              tone="info"
+              title={t('dayb.pdf.ready', 'الملفّ جاهز: اضغط «أرسله» لتختار التطبيق ومن ترسله إليه.')}
+              action={
+                <div className="flex flex-wrap gap-2">
+                  <Button onClick={() => void deliver(ready.file, ready.title)} data-action="day-pdf-send-ready">
+                    {t('dayb.pdf.send_ready', 'أرسله')}
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      downloadFile(ready.file);
+                      setReady(null);
+                    }}
+                    data-action="day-pdf-download-ready"
+                  >
+                    {t('dayb.pdf.download', 'نزّله')}
+                  </Button>
+                </div>
+              }
+            />
+          ) : null}
         </div>
       ) : null}
       {state.error ? <Refusal failure={state.error} day={day} onToday={() => go(null)} onRetry={state.retry} /> : null}
       {data ? (
-        <div className="flex flex-col gap-4" data-action="day-report">
-          <div className="flex flex-col gap-1">
-            {orgName ? (
-              <p className="hidden text-sm text-ink-muted print:block" data-action="day-org">
-                {orgName}
-              </p>
-            ) : null}
-            <h2 className="text-lg font-semibold" data-action="day-title">
-              {reportTitle()}
-            </h2>
-            <p className="text-sm text-ink-muted" data-action="day-date">
-              {reportDate(data.on)}
-            </p>
-          </div>
+        // الورقة الرسمية (ما يُطبع ويُرسل PDF): الرأس بشبكة البيانات، ثمّ جدول لكلّ قسم بشريط اسمه، ثمّ التذييل بالتوقيعات.
+        <article ref={paperRef} className="ofc-paper" data-action="day-report">
+          <ReportHeader org={orgName} orgAction="day-org" title={reportTitle()} titleAction="day-title" level={2} info={dayInfo(data.on, sections, printed.at)} />
           {sections.map((section) => (
-            <section key={section.key} className="flex flex-col gap-2" aria-label={sectionTitle(section.key)} data-action="day-section" data-key={section.key}>
-              <div className="flex flex-wrap items-baseline justify-between gap-2">
-                <h3 className="text-lg font-semibold" data-action="day-section-title">
-                  {sectionTitle(section.key)}
-                </h3>
-                <span className="text-sm text-ink-muted" data-action="day-section-count">
-                  {itemsCountText(section.rows.length)}
-                </span>
-              </div>
-              {/* بالطباعة الجدول بكلّ صفوفه: حدّ ارتفاع DataTable وتمريره للشاشة وحدها. */}
-              <div className="print:[&>div]:max-h-none print:[&>div]:overflow-visible">
-                <DataTable
-                  caption={`${sectionTitle(section.key)} ${reportDate(data.on)}`}
-                  columns={dayColumns(section.rows, data.on, here, onNote, state.loading)}
-                  rows={section.rows}
-                  rowKey={(row) => row.itemId}
-                  onRowClick={(row) => navigate(itemLink(row, here))}
-                  empty={sectionEmpty(section.key)}
-                />
-              </div>
+            <section key={section.key} aria-label={sectionTitle(section.key)} data-action="day-section" data-key={section.key}>
+              <DataTable
+                variant="official"
+                title={sectionTitle(section.key)}
+                titleLevel={3}
+                caption={`${sectionTitle(section.key)} ${reportDate(data.on)}`}
+                columns={dayColumns(section.rows, data.on, here, onNote, state.loading)}
+                rows={section.rows}
+                rowKey={(row) => row.itemId}
+                onRowClick={(row) => navigate(itemLink(row, here))}
+                empty={sectionEmpty(section.key)}
+              />
             </section>
           ))}
-        </div>
+          <ReportFooter by={by} at={printed.at} />
+        </article>
       ) : !state.error ? (
         <p role="status" className="text-sm text-ink-muted">
           {t('page.loading', 'جارٍ الفتح…')}

@@ -19,8 +19,8 @@ import { downloadFile, IMAGE_WIDTH, reportImage, sendFile } from './reportImage'
 
 // «تقرير الوجبة» (طلب المالك 2026-11-21: «تقارير مبسّطة بجداول أرقام مثل ورقته»؛ عقد 0034/0035 S2، docs/HALLS_SHEET_PLAN.md المرحلة ٣):
 // /halls/report/:flockId بقراءة hall_sheet واحدة. خلاصة الوجبة جدولاً (الداخل، والهلاكات ونسبتها، والباقي، والعلف المرسل بالكيلو والأكياس، والغاز،
-// والمباع وصافي وزنه ومعدّل الوزن، ومعامل التحويل = العلف المرسل ÷ صافي المباع) من خلاصة الخادم، ثمّ جدول الورقة نفسه حتى اليوم بمجموعَي الهلاكات
-// والعلف التراكميين (جمع أيام الورقة بترتيبها)، وصفّ مجموع الخادم. بلا رسوم وزن يوميّ ولا علف مأكول. و«أرسل صورة» (reportImage) و«اطبع / PDF»
+// والمباع وصافي وزنه ومعدّل الوزن، ومعامل التحويل = العلف المرسل ÷ صافي المباع) من خلاصة الخادم، ثمّ جدول الورقة نفسه حتى اليوم وصفّ مجموع الخادم في
+// آخره (رسالة الزبون 2026-11-26: «ماكو داعي مجموع الهلاكات… بالأخير ينكتب المجموع»، والعلف كذلك: لا عمودَي مجموع تراكميّ). بلا رسوم وزن يوميّ ولا علف مأكول. و«أرسل صورة» (reportImage) و«اطبع / PDF»
 // (printAs)؛ والتقرير المفصّل (العلف بمستنداته والأدوية واللقاحات والكلفة، والإغلاق و«أعد فتح الدورة») رابطٌ إلى /halls/cycle/:flockId.
 // وبالشكل الرسميّ (عقد 0036 S1، «مثل تقارير المستشفيات»): رأسٌ باسم المنشأة والعنوان وشبكة بيانات الوجبة، والجدولان رسميّان بشريط اسميهما، وتذييلٌ بـ«أعدّه»
 // و«طُبع في» والتوقيعات؛ والصفحة عريضة في الشاشات الكبيرة.
@@ -43,8 +43,8 @@ const PRINT_STYLE = [
 ].join(' ');
 
 type SummaryRow = { key: string; label: string; value: string };
-/** صفّ الورقة في التقرير: اليوم ومجموعا الهلاكات والعلف حتى آخره. */
-type ReportDay = { day: SheetDay; deadCum: number; feedCum: Milli };
+/** صفّ الورقة في التقرير: اليوم كما في الورقة (بلا مجموع تراكميّ: المجموع في آخر الجدول وحده، رسالة الزبون 2026-11-26). */
+type ReportDay = { day: SheetDay };
 
 const dash = () => t('halls.rep.dash', '—');
 const kg = (value: Milli | null): string => (value === null ? dash() : fmtQtyCell(value, columnDecimals([value], 3) as 0 | 1 | 2 | 3));
@@ -71,16 +71,12 @@ export function summaryRows(sheet: HallSheet): SummaryRow[] {
   ];
 }
 
-/** أيام التقرير: من التسكين حتى اليوم (أو نهاية الوجبة المغلقة)، بالمجموعين التراكميين. */
+/** أيام التقرير: من التسكين حتى اليوم (أو نهاية الوجبة المغلقة). */
 export function reportDays(sheet: HallSheet): ReportDay[] {
-  let deadCum = 0;
-  let feedCum = 0n;
   const rows: ReportDay[] = [];
   for (const day of sheet.days) {
     if (day.on > sheet.today) break;
-    deadCum += day.dead;
-    feedCum += day.feedKg ?? 0n;
-    rows.push({ day, deadCum, feedCum });
+    rows.push({ day });
   }
   return rows;
 }
@@ -101,10 +97,8 @@ function BatchBody({ sheet }: { sheet: HallSheet }) {
       cell: (row) => (row.day.dayVersion === null && row.day.dead === 0 ? '' : <Num>{fmtInt(row.day.dead)}</Num>),
       total: <Num>{fmtInt(sheet.totals.dead)}</Num>,
     },
-    { key: 'dead_cum', header: t('batch.col.dead_cum', 'مجموع الهلاكات'), kind: 'number', cell: (row) => <Num>{fmtInt(row.deadCum)}</Num>, total: '' },
     { key: 'gas', header: t('sheet.col.gas', 'الغاز'), kind: 'number', cell: (row) => (row.day.gas === null ? '' : <Num>{fmtInt(row.day.gas)}</Num>), total: <Num>{fmtInt(sheet.totals.gas)}</Num> },
     { key: 'feed', header: t('sheet.col.feed', 'العلف (كغم)'), kind: 'number', cell: (row) => kgCell(row.day.feedKg, feedDecimals), total: <Num>{fmtQtyCell(sheet.totals.feedKg, feedDecimals)}</Num> },
-    { key: 'feed_cum', header: t('batch.col.feed_cum', 'مجموع العلف (كغم)'), kind: 'number', cell: (row) => <Num>{fmtQtyCell(row.feedCum, feedDecimals)}</Num>, total: '' },
     ...(layer
       ? [
           {

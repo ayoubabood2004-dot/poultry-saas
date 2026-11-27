@@ -29,7 +29,7 @@ const ERRORS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'errors.ts'));
 const STUBS = {
   session: 'export const useSession = () => globalThis.__hh.session; export const sessionStore = { get: () => globalThis.__hh?.session ?? { status: "loading" } };',
   Toast: 'export const toast = (spec) => { globalThis.__hh.toasts.push(spec); }; export function Toaster() { return null; }',
-  image: 'export const toBlob = (node, options) => globalThis.__hh.toBlob(node, options);',
+  image: 'export const toBlob = (node, options) => globalThis.__hh.toBlob(node, options); export const toJpeg = () => Promise.reject(new Error("toJpeg_unused"));',
 };
 const CORE = `import { RejectedError, ZeroRowsError } from ${ERRORS};
 export const call = (fn, args) => globalThis.__hh.rpc(fn, args);
