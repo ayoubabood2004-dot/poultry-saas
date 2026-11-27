@@ -485,7 +485,7 @@ async function scenario(t, db) {
     },
     {
       name: 'عكس الكلفة بإشارة معاكسة',
-      // 0037: الأثر في النواة المشتركة مع حذف القاعة (private.flock_issue_reverse)، فالطفرة فيها.
+      // 0039: الأثر في النواة المشتركة مع حذف القاعة (private.flock_issue_reverse)، فالطفرة فيها.
       fns: [[FN.reverse, [['values (c.org_id, c.flock_id, c.site_id, c.kind, -c.amount,', 'values (c.org_id, c.flock_id, c.site_id, c.kind, c.amount,']]]],
       run: async ({ attempt }) => {
         const o = args({ item: I.finisher, qty: 3 });

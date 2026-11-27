@@ -1,5 +1,6 @@
--- 0037_delete_hall — «احذف القاعة» كأنها لم تكن (الزبون عبر المالك 2026-11-26 بصورتين ورسالتين صوتيتين وجوابَي المالك؛ العقد
---   docs/plans/0037/contract-0037.md «الجزء D»؛ DECISIONS 2026-11-26).
+-- 0039_delete_hall — «احذف القاعة» كأنها لم تكن (الزبون عبر المالك 2026-11-26 بصورتين ورسالتين صوتيتين وجوابَي المالك؛ العقد
+--   docs/plans/0039/contract-0039.md «الجزء D»؛ DECISIONS 2026-11-26). بُنيت 0037 ثمّ صارت 0039 فوق 0037_kerosene و0038_hall_sections (كلمة المالك:
+--   أقسام القاعة أوّلاً)، فكلّ جسم تعيد كتابته من آخر جسم قبلها (الكاز والأقسام فيه كما هما)، ويرجّعه rollback_0039 حرفاً (درس 2026-11-16).
 -- المشكلة: في منشأة الزبون خمس قاعات تجريبية، في كلّ واحدة فوج جارٍ بأيّام جولات وإرسالات علف من «رصيد العلف»، ولا طريق لحذفها: «أرشف» للقاعة
 --   بلا فوج قائم وحدها (halls_check يرفض أرشفة قاعة فيها فوج قائم). وجواب المالك: حذف قاعة فيها فوج جارٍ «كأنها لم تكن» — ما أُرسل إليها من المخزن
 --   يرجع بحركة عكسية، وأيّامها (الهلاكات والغاز والأوزان) تختفي من كلّ التقارير، والقاعة تختفي من كلّ مكان، ويبقى الأثر في سجلّ التدقيق وحده.
@@ -34,12 +35,15 @@
 --   بعد الأقفال. وهو ترتيب كلّ من يمسّ الصفوف نفسها: void_flock_issue (الفترة ← الصرف ← الفوج ← المخزن والمادّة ← الرصيد)، وundo_vaccination للمربوط
 --   (الفترة ← الصرف ← الفوج ← المخزن والمادّة ← الرصيد ← التأشير) ولغير المربوط (الفوج ← التأشير)، وrecord_flock_issue (الفترة ← الفوج ← المخزن
 --   والمادّة ← الرصيد؛ صرفه جديد لا يُقفل قبل الفوج)، وgive_to_flocks (الفترة ← الأفواج ← اللقاحات وجداولها ← المخزن والمادّة ← الرصيد ← صرفه الجديد)،
---   وclose_flock (الفترة ← القاعة ← الفوج ← المخزن والمادّة ← الرصيد)، وreopen_flock وopen_flock وreturn_hall_carry (القاعة قبل الفوج). والقاعة والفوج
+--   وclose_flock (الفترة ← القاعة ← الفوج ← المخزن والمادّة ← الرصيد)، وreopen_flock وopen_flock وreturn_hall_carry (القاعة قبل الفوج)، وset_hall_sections
+--   (الفترة ← القاعة ← الوجبة القائمة؛ والقاعة for no key update كالحذف فيتتابعان عليها)، وset_flock_kerosene (الفترة ← الوجبة ← صفّ الكاز، كالغاز). والقاعة والفوج
 --   for no key update لا for update: الحذف لا يمسّ مفتاحاً (والتعديل نفسه يأخذ هذا القفل)، وfor update يحبس فحص المفتاح الأجنبيّ (key share) لكاتب
 --   جولة يمسك الفوج ثمّ يضيف صفّاً يشير إلى القاعة، وهو ينتظر الفوج: تقافل. والبرهان بجلستين (delete-hall.test، pg_blocking_pids على الجلسة بعينها):
---   الحذف أمام void_flock_issue وrecord_flock_issue وundo_vaccination وclose_flock وrecord_flock_count_adjust في الاتّجاهين بلا تقافل والخاسر يرى سببه،
+--   الحذف أمام void_flock_issue وrecord_flock_issue وundo_vaccination وclose_flock وrecord_flock_count_adjust وset_flock_kerosene وset_hall_sections في
+--   الاتّجاهين بلا تقافل والخاسر يرى سببه،
 --   وثلاثة ضوابط بأجسام مثبَّتة ثمّ تعود حرفاً تتقافل كلّها: الفوج قبل الصرف، والأرصدة قبل الفوج، والقاعة for update أمام كاتب جولة.
--- قرّاء الأفواج وكتّابها (الكتالوج: select proname from pg_proc where prosrc ~ 'public\.flocks\M' بعد 0036 = 59 دالّة)، لكلّ واحدة سطر:
+-- قرّاء الأفواج وكتّابها (الكتالوج: select proname from pg_proc where prosrc ~ 'public\.flocks\M' بعد 0038 = 63 دالّة: الـ59 بعد 0036
+--   وset_flock_kerosene من 0037_kerosene وset_hall_sections وverify_hall_sections وverify_kerosene)، لكلّ واحدة سطر:
 --   private.flock_count_days — سليمة: مساعد لفوج بمعرّفه، ومن ينادونها يمرّون بـflock_for أو بفحص الإلغاء أو يختارون أفواجاً غير ملغاة.
 --   private.flock_counts_total — سليمة: كذلك.
 --   private.flock_for — تغيّرت: flock_void للفوج الملغى قراءةً وكتابةً، بعد فحص النطاق وقبل فحوص الكتابة.
@@ -48,15 +52,15 @@
 --   private.flock_slots — سليمة: لقاحات فوج بمعرّفه لقرّاء وكتّاب يمرّون بـflock_for أو يختارون الأفواج القائمة.
 --   private.flock_ticketed — سليمة: لقرّاء الأفواج القائمة (weigh_ticket_options وhalls_day بعد استثنائه).
 --   private.halls_check — تغيّرت: لا تعود من الأرشيف قاعة فيها فوج ملغى (hall_deleted)؛ وhall_in_use (preparing/active) يترك الحذف يؤرشف بعد الإلغاء.
---   private.reopen_block — سليمة: قاعة الفوج الملغى مؤرشفة دائماً، وhall_archived يسبق hall_reused.
+--   private.reopen_block — سليمة: قاعة الفوج الملغى مؤرشفة دائماً، وhall_archived يسبق hall_reused (وsections_changed الذي زاده 0038 بعدهما).
 --   private.weigh_ticket_json — سليمة: تذكرة غير ملغاة على الفوج تمنع الحذف (tickets)، فلا يظهر الفوج الملغى إلّا في تذكرة ملغاة تبقى مستنداً،
 --     وflock_status فيها 'void' (محلّل التذكرة في الشاشات يقبله: مسألة دمج في الرأس أدناه).
 --   public.add_flock_gas — تغيّرت: من الطابور يُركن بسبب flock_void أوّلاً، وبنداء مباشر flock_void (flock_day_check).
 --   public.bird_sale_detail — سليمة: فاتورة مرحَّلة على الفوج تمنع الحذف (sales)، فللفوج الملغى فواتير ملغاة وحدها، can_void لها false.
 --   public.bird_sale_form — سليمة: التذكرة التي تذكر فوجاً ملغى ملغاة، فـwhy = void ولا فاتورة.
 --   public.close_flock — تغيّرت: بعد قفل الفوج flock_void (وflock_for قبل الأقفال يرميه أيضاً)، فالخاسر أمام الحذف يرى سببه لا flock_not_placed.
---   public.delete_flock — تغيّرت: الملغى flock_void بعد النطاق، فلا يُحذف حذفاً (ولو بلا سجلّ).
---   public.edit_flock — تغيّرت: الملغى flock_void بعد النطاق.
+--   public.delete_flock — تغيّرت (على جسم 0037_kerosene بالكاز): الملغى flock_void بعد النطاق، فلا يُحذف حذفاً (ولو بلا سجلّ).
+--   public.edit_flock — تغيّرت (على جسم 0038 بأعداد الأقسام، والكاز من 0037_kerosene): الملغى flock_void بعد النطاق.
 --   public.finish_weigh_ticket — سليمة: مسوّدة على الفوج تمنع الحذف، وكلاهما يقفل صفّ الفوج، فلا مسوّدة على فوج ملغى.
 --   public.flock_close_form — سليمة: flock_for(…، false) يرمي flock_void.
 --   public.flock_cycle_report — سليمة: flock_for يرمي flock_void.
@@ -66,26 +70,29 @@
 --   public.flock_issue_options — تغيّرت: كذلك.
 --   public.flock_month — سليمة: flock_for يرمي flock_void.
 --   public.flock_sales — سليمة: flock_for يرمي flock_void.
---   public.flocks_overview — سليمة: الفوج القائم (preparing/active) في القاعات الفعّالة وحده.
+--   public.flocks_overview — سليمة (0038 زاد أقسام القاعة): الفوج القائم (preparing/active) في القاعات الفعّالة وحده.
 --   public.give_to_flocks — سليمة: flock_for(…، true) لكلّ فوج قبل الأقفال ولكلّ سطر بعدها يرمي flock_void.
---   public.hall_sheet — سليمة: flock_for يرمي flock_void.
+--   public.hall_sheet — سليمة (0037_kerosene زاد الكاز، و0038 الأقسام والخطّة العامّة): flock_for يرمي flock_void، فورقة القاعة وتقرير الوجبة
+--     (/halls/report من الجواب نفسه) بلا الملغى، بكازه وأقسامه.
 --   public.halls_day — تغيّرت: فوج القاعة في اليوم ومؤشّر «اليوم السابق» بلا الملغى (والقاعة المؤرشفة لا تظهر إلّا بفوج ذلك اليوم).
 --   public.halls_history — تغيّرت: الأفواج المسكَّنة عدا الملغاة (منها كلّ أقسامه: الأيّام والأشهر والمجموع والأحداث).
---   public.open_flock — سليمة: القاعة المحذوفة مؤرشفة (hall_archived)، والفوج القائم preparing/active.
+--   public.open_flock — سليمة (0038 زاد أعداد الأقسام): القاعة المحذوفة مؤرشفة (hall_archived)، والفوج القائم preparing/active.
 --   public.record_bird_sale — سليمة: التذكرة والفاتورة على الفوج تمنعان الحذف وهي تقفل صفوف الأفواج، وغير القائم يُرفض فيها أصلاً.
 --   public.record_flock_count_adjust — تغيّرت: بعد قفل الفوج flock_void (وflock_for قبله).
 --   public.record_flock_issue — تغيّرت: flock_void قبل قفل الفوج وبعده.
 --   public.record_flock_weight — تغيّرت: قراءة بنفسه، flock_void بعد النطاق.
 --   public.remove_flock_log — سليمة: قفل الفوج ثمّ flock_for(…، true).
---   public.reopen_flock — سليمة: قاعة الملغى مؤرشفة (hall_archived) قبل hall_reused.
+--   public.reopen_flock — سليمة (0038 زاد sections_changed وقفل القاعة for no key update): قاعة الملغى مؤرشفة (hall_archived) قبل hall_reused.
 --   public.return_hall_carry — سليمة: العلف المعلَّق في قاعة يمنع حذفها (carry)، ويقرأ فوج الدورة المغلقة.
 --   public.round_visits — تغيّرت: القائمة بلا الملغى، والفوج المطلوب بمعرّفه flock_void.
---   public.save_flock_day — تغيّرت: من الطابور يُركن بسبب flock_void أوّلاً، وبنداء مباشر flock_void.
---   public.save_flock_visit — تغيّرت: كذلك.
+--   public.save_flock_day — تغيّرت (على جسم 0038 بأقسام الهلاكات وتوقيعه الجديد): من الطابور يُركن بسبب flock_void أوّلاً، وبنداء مباشر flock_void.
+--   public.save_flock_visit — تغيّرت (على جسم 0038): كذلك.
 --   public.save_weigh_ticket — سليمة: كلّ وقفة بقاعتها الفعّالة (المحذوفة hall_archived) وفوجها القائم preparing/active (الملغى ليس قائماً: no_active_flock).
 --   public.send_flock_feed — سليمة: flock_for(…، false) وflock_day_check وrecord_flock_issue ترمي flock_void.
---   public.set_flock_dead — تغيّرت: من الطابور يُركن بسبب flock_void أوّلاً، وبنداء مباشر flock_void (flock_day_check).
+--   public.set_flock_dead — تغيّرت (على جسم 0038 بأقسامها وتوقيعه الجديد): من الطابور يُركن بسبب flock_void أوّلاً، وبنداء مباشر flock_void (flock_day_check).
 --   public.set_flock_gas — تغيّرت: كذلك.
+--   public.set_flock_kerosene — تغيّرت (جسم 0037_kerosene): كذلك، كالغاز (كان من الطابور يرمي flock_void من flock_day_check بدل أن يُركن).
+--   public.set_hall_sections — تغيّرت (جسم 0038): القاعة المحذوفة (المؤرشفة) hall_archived بعد النطاق (كانت تتغيّر أقسامها)؛ وتقسيم الوجبة للقائمة وحدها.
 --   public.undo_vaccination — سليمة: flock_for(…، true) يرمي flock_void؛ وأمام الحذف ينتظر الصرف أو الفوج ثمّ يجد التأشير ملغى فيرجع حاله بلا كتابة.
 --   public.vaccine_board — سليمة: الفوج النشط في القاعات الفعّالة وحده.
 --   public.vaccine_reminders — سليمة: الأفواج النشطة وحدها.
@@ -93,9 +100,12 @@
 --   public.verify_flock_close — سليمة: الملغى ليس مغلقاً، وكلفة صرفه = −قيمة حركاته (صفر بعد العكس).
 --   public.verify_flock_issues — سليمة: الصرف الملغى بالنواة معكوس حركاتٍ وكلفةً كما يفحص.
 --   public.verify_flocks — سليمة: live_flock_on_archived_hall للقائم وحده، وأيّام الملغى وعدّه متّسقة كما كانت.
---   public.verify_hall_sheet — تغيّرت: لا يقارن ورقة فوج ملغى (hall_sheet يرفضها flock_void).
+--   public.verify_hall_sections — تغيّرت (جسم 0038): لا يقرأ ورقة وجبة ملغاة (hall_sheet يرفضها flock_void فكانت تُعدّ خرقاً)، وأقسام زياراتها
+--     وأيّامها صفوف تفحصها فحوصه الأخرى كما هي.
+--   public.verify_hall_sheet — تغيّرت (على جسم 0038 بمفاتيح الكاز): لا يقارن ورقة فوج ملغى (hall_sheet يرفضها flock_void).
 --   public.verify_halls — سليمة: التأشيرات تُلغى مع صرفها.
 --   public.verify_halls_history — سليمة: يقارن halls_history بنفسه، والملغى مستثنى فيه كلّه.
+--   public.verify_kerosene — تغيّرت (جسم 0038): كذلك لا يقرأ ورقة وجبة ملغاة؛ وصفوف كازها داخل أيّامها وبقاعتها كما يفحص.
 --   public.verify_round_visits — سليمة: زيارات الملغى وأيّامه صفوف متّسقة.
 --   public.void_bird_sale — سليمة: الفاتورة المرحَّلة تمنع الحذف، فلا فاتورة مرحَّلة لفوج ملغى.
 --   public.void_flock_issue — تغيّرت: الأثر في النواة المشتركة، والأقفال والفحوص والجواب كما هي؛ وflock_void بعد قفل الفوج حارساً ثانياً (صرف الملغى ملغى،
@@ -105,14 +115,18 @@
 --   وflock_alive_days وflock_live وflock_live_check وflock_eggs_live_check وflock_activity_after وflock_left_in_hall وhall_left وhall_flock_json)
 --   يختار من ينادونها أفواجها؛ وhalls_day_totals على جواب halls_day؛ وmoney_flock_issue للصرف المرحَّل وحده؛ وstock_doc_label وstock_doc_memo يُبقيان
 --   الإرسال وعكسه في دفتر المادّة باسم القاعة (العقد: دفتر المادّة يُظهر الإرسال والعكس)؛ وitem_uses تبقى المادّة «مستعملة» (حركاتها باقية)؛
---   وdecide_flock_reject يحسم مركوناً بمعرّفه (مركون الفوج الملغى لا يُعرض بعده)؛ وrecord_expense يرفض الفوج أصلاً.
+--   وdecide_flock_reject يحسم مركوناً بمعرّفه (مركون الفوج الملغى لا يُعرض بعده)؛ وrecord_expense يرفض الفوج أصلاً. ومن 0037_kerosene: flock_activity_after
+--   يعدّ الكاز (ينادونها close_flock وflock_close_form وهما يرفضان الملغى، وverify_flock_close للمغلق وحده)، وflock_kerosene_json لـset_flock_kerosene
+--   وحدها. ومن 0038: flock_summary بأقسامه (flock_detail يرفض الملغى، وflocks_overview للقائم وحده)، وflock_day_json وflock_day_rebuild
+--   وflock_parts_check وflock_parts_input (كتّاب الجولة يرفضون الملغى أو يركنونه قبلها، وset_hall_sections تمسّ الوجبة القائمة وحدها)، وparts_valid
+--   وparts_sum وparts_add وparts_even حساب صافٍ.
 -- قرارات بلا سؤال (داخل الخطوط الحمر والعقد):
 --   • القاعة والفوج for no key update لا for update (السبب في ترتيب الأقفال أعلاه).
 --   • المنع permission أوّلاً ووحده، وخارج النطاق تُرجع المعاينة flock: null وended: 0 (لا يُسمّى شيء من فوج خارج النطاق)، والبصمة نفسها.
 --   • مخزن الصرف المرحَّل خارج نطاق الكاتب منع permission، كقاعدة إلغاء الصرف (stock_wh)، فالنواة المشتركة لا تُنادى بما ترفضه دالّتها.
 --   • القاعة بلا فوج قائم: لا منع بقفل الفترة (لا يُكتب مستند مؤرَّخ)، والعلف المنقول المعلَّق منع carry بما يُفعل (halls_check يمنع الأرشفة بلاه).
 --   • العلف المنقول المطبَّق على الفوج منع carry: لا دالّة تعكس نقلاً مطبَّقاً، فالجملة تقول أغلق الدورة ثمّ احذف.
---   • ما يرفض به apply_move عكس الإرسال منعان في المعاينة (المراجعة المستقلّة لـ0037: كان الحذف يرفض بما لم تعرضه المعاينة): revalued وcounted، بشرطي
+--   • ما يرفض به apply_move عكس الإرسال منعان في المعاينة (المراجعة المستقلّة لهذه الهجرة: كان الحذف يرفض بما لم تعرضه المعاينة): revalued وcounted، بشرطي
 --     private.check_draw_not_revalued وprivate.check_move_not_counted حرفاً على حركات الإرسال الأصلية للصرف المرحَّل، وبترتيب reopen_block لإعادة فتح
 --     الدورة (0029: بعد carry وperiod_locked، والتصحيح قبل الجرد)؛ وجملتاهما تسمّيان المادّة ومستند السعر أو رقم الجرد ومخزنه ويومه وتقولان «ألغِ التصحيح
 --     أوّلاً» و«ألغِ الجرد أوّلاً». والحذف يرميهما من المنع نفسه تحت الأقفال برمزي apply_move (lot_consumed وcount_superseded) فلا يصل إليه بهما. والعقد
@@ -121,11 +135,12 @@
 --     حقيقية: الحذف بلا منعه (v_block := null) داخل معاملة ترجع.
 --   • القاعة المؤرشفة بـ«أرشف» قبل الحذف «already» أيضاً: الحذف إخفاء، وقد اختفت.
 -- مسألة دمج (للشاشات): التذكرة الملغاة التي تذكر فوجاً ملغى ترجع flock_status = 'void' في weigh_ticket_json (والعيّنة في
---   scripts/tests/fixtures/delete-hall-0037.json)، ومحلّل weighTickets.ts يقبل preparing/active/closed وحدها.
--- تراجع: rollback_0037.sql — يرجّع flock_for وvoid_flock_issue وrecord_flock_issue وflock_issue_options كما في 0019 و0026، وhalls_check وclose_flock
+--   scripts/tests/fixtures/delete-hall-0039.json)، ومحلّل weighTickets.ts يقبل preparing/active/closed وحدها.
+-- تراجع: rollback_0039.sql — يرجّع flock_for كما في 0026، وvoid_flock_issue وrecord_flock_issue وflock_issue_options كما في 0019، وhalls_check وclose_flock
 --   وrecord_flock_count_adjust وflock_detail وflock_feed وhalls_day وflock_cycles كما في 0029، وround_visits كما في 0032، وflock_day_check وrecord_flock_weight
---   وedit_flock وdelete_flock وset_flock_gas وverify_hall_sheet كما في 0035، وsave_flock_visit وsave_flock_day وset_flock_dead وadd_flock_gas وhalls_history
---   كما في 0036، حرفاً بحرف؛ وقيدي الحالة وأسباب الركن كما كانا؛ ويُسقط الدوالّ الجديدة وقيدي الإلغاء وأعمدته. **طريق رفض**: فوج ملغى (حُذفت قاعته)
+--   وset_flock_gas كما في 0035، وadd_flock_gas وhalls_history كما في 0036، وdelete_flock وset_flock_kerosene كما في 0037_kerosene، وsave_flock_visit
+--   وsave_flock_day وset_flock_dead وedit_flock وset_hall_sections وverify_hall_sheet وverify_kerosene وverify_hall_sections كما في 0038، حرفاً بحرف
+--   وبتواقيعها؛ وقيدي الحالة وأسباب الركن كما كانا؛ ويُسقط الدوالّ الجديدة وقيدي الإلغاء وأعمدته. **طريق رفض**: فوج ملغى (حُذفت قاعته)
 --   يوقف التراجع بصوت (النموذج القديم لا يعرف فوجاً ملغى، وقيد حالته يرفضه).
 -- تنعاد بأمان: add column if not exists، وdrop constraint if exists قبل القيد، وcreate or replace، وrevoke وgrant.
 
@@ -145,7 +160,7 @@ alter table public.flocks drop constraint if exists flocks_void_reason_check,
 alter table public.flock_day_rejects drop constraint if exists flock_day_rejects_reason_check,
   add constraint flock_day_rejects_reason_check check (reason in ('flock_closed', 'out_of_scope', 'date_too_old', 'period_locked', 'dead_recorded', 'flock_void'));
 
--- ─── ب. لا يُعرض الفوج الملغى ولا يُكتب له: المدخل الواحد للفوج بمعرّفه، وقاعدة يوم القاعة، والقاعة المحذوفة لا تعود ───────────────────
+-- ─── ب. لا يُعرض الفوج الملغى ولا يُكتب له: المدخل الواحد للفوج بمعرّفه، وقاعدة يوم القاعة، والقاعة المحذوفة لا تعود ولا تتغيّر أقسامها ─────────
 -- الجسم الأخير من 0026، ومعه flock_void بعد النطاق.
 create or replace function private.flock_for(p_flock uuid, p_write boolean) returns public.flocks
 language plpgsql stable security definer set search_path = public, pg_temp as $$
@@ -160,7 +175,7 @@ begin
   if not public.in_scope_site(f.site_id) then
     raise exception 'out_of_scope' using hint = 'قاعة هذا الفوج خارج نطاقك. اطلب من مالك المنشأة إضافة حقلها إلى نطاقك.';
   end if;
-  -- 0037: فوج حُذفت قاعته (ملغى) لا يُعرض ولا يُكتب له، قراءةً أو كتابةً.
+  -- 0039: فوج حُذفت قاعته (ملغى) لا يُعرض ولا يُكتب له، قراءةً أو كتابةً.
   if f.status = 'void' then
     raise exception 'flock_void' using hint = 'حُذفت قاعة هذا الفوج، فلا يُعرض ولا يُسجَّل له شيء.';
   end if;
@@ -185,7 +200,7 @@ declare
   v_lock date;
   v_hall text;
 begin
-  -- 0037: الوجبة التي حُذفت قاعتها أوّلاً، قبل أيّ فحص ليومها.
+  -- 0039: الوجبة التي حُذفت قاعتها أوّلاً، قبل أيّ فحص ليومها.
   if f.status = 'void' then
     raise exception 'flock_void' using hint = 'حُذفت قاعة هذا الفوج، فلا يُعرض ولا يُسجَّل له شيء.';
   end if;
@@ -250,7 +265,7 @@ begin
        where l.org_id = new.org_id and l.hall_id = new.id and l.carry_status = 'pending' and c.status = 'closed') then
     raise exception 'hall_has_carry' using hint = format('في القاعة «%s» علف منقول للدورة التالية، فلا تُؤرشف قبل أن يُرجَع إلى مخزن.', btrim(new.name));
   end if;
-  -- 0037: القاعة المحذوفة بفوجها (الملغى) لا تعود من الأرشيف: فوجها ملغى في كلّ مكان، وقاعة فعّالة بفوج ملغى خرق للثابت.
+  -- 0039: القاعة المحذوفة بفوجها (الملغى) لا تعود من الأرشيف: فوجها ملغى في كلّ مكان، وقاعة فعّالة بفوج ملغى خرق للثابت.
   if tg_op = 'UPDATE' and new.archived_at is null and old.archived_at is not null
      and exists (select 1 from public.flocks f where f.org_id = new.org_id and f.hall_id = new.id and f.status = 'void') then
     raise exception 'hall_deleted' using hint = format('حُذفت القاعة «%s» بفوجها، فلا تعود من الأرشيف. أضف قاعة جديدة بالاسم نفسه.', btrim(new.name));
@@ -259,8 +274,80 @@ begin
 end
 $$;
 
+-- الجسم الأخير من 0038، ومعه رفض القاعة المحذوفة (المؤرشفة) بعد النطاق: hall_archived.
+create or replace function public.set_hall_sections(p_hall uuid, p_sections integer, p_expected_version integer, p_client_ref uuid) returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_fn constant text := 'set_hall_sections';
+  v_cached jsonb;
+  h public.halls;
+  f public.flocks;
+  v_day date;
+  v_lock date;
+begin
+  v_cached := private.ref_claim(v_fn, p_client_ref, jsonb_build_object('hall', p_hall, 'sections', p_sections, 'version', p_expected_version));
+  if v_cached is not null then
+    return v_cached;
+  end if;
+  perform private.require('flock.manage');
+  set local lock_timeout = '5s';
+  perform private.period_guard();
+  select * into h from public.halls x where x.org_id = public.auth_org() and x.id = p_hall for no key update;
+  if h.id is null then
+    raise exception 'hall_not_found' using hint = 'هذه القاعة غير موجودة في منشأتك. حدّث الشاشة.';
+  end if;
+  if not public.in_scope_site(h.site_id) then
+    raise exception 'out_of_scope' using hint = 'هذه القاعة خارج نطاقك. اطلب من مالك المنشأة إضافة حقلها إلى نطاقك.';
+  end if;
+  -- 0039: القاعة المحذوفة (المؤرشفة، ولو بفوجها الملغى) لا تتغيّر أقسامها: لا تُعرض في أيّ مكان، ولا تعود من الأرشيف بفوج ملغى.
+  if h.archived_at is not null then
+    raise exception 'hall_archived' using hint = format('حُذفت القاعة «%s»، فلا تتغيّر أقسامها.', h.name);
+  end if;
+  if p_sections is null or p_sections not between 1 and 4 then
+    raise exception 'bad_value' using hint = 'أقسام القاعة من 1 (غير مقسومة) إلى 4.';
+  end if;
+  select * into f from public.flocks x where x.org_id = h.org_id and x.hall_id = h.id and x.status in ('preparing', 'active') for update;
+  if p_expected_version is distinct from h.version then
+    return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'stale_hall',
+      'hall', jsonb_build_object('id', h.id, 'version', h.version, 'sections', h.sections)));
+  end if;
+  if p_sections = h.sections then
+    return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'saved',
+      'hall', jsonb_build_object('id', h.id, 'version', h.version, 'sections', h.sections), 'section_counts', f.section_counts));
+  end if;
+  if f.id is not null and exists (select 1 from public.flock_daily d where d.org_id = f.org_id and d.flock_id = f.id and d.dead + d.culled > 0) then
+    raise exception 'sections_after_deaths' using hint = format('في القاعة «%s» وجبة سُجّلت هلاكاتها، فلا تتغيّر أقسامها حتى تُغلق.', h.name);
+  end if;
+  -- مراجعة 2026-11-27: أعداد أقسام الوجبة القائمة وأيّامها تُقفل بالفترة كعددها (edit_flock): وجبة تسكينها داخل الفترة المقفلة لا تتغيّر أقسامها
+  -- (كانت تُعاد كتابة أيّامها في الفترة، وsave_flock_day يرفض اليوم نفسه).
+  if f.id is not null then
+    select l.locked_through into v_lock from public.period_locks l where l.org_id = h.org_id;
+    if v_lock is not null and f.placed_on <= v_lock then
+      raise exception 'period_locked' using hint = format('الحسابات مقفلة حتى %s، وتسكين الوجبة في «%s» يوم %s داخلها، فلا تتغيّر أقسامها. إن كان التغيير صحيحاً فاطلب من مالك المنشأة فتح الفترة.',
+        to_char(v_lock, 'DD/MM/YYYY'), h.name, to_char(f.placed_on, 'DD/MM/YYYY'));
+    end if;
+  end if;
+  update public.halls x set sections = p_sections where x.org_id = h.org_id and x.id = h.id
+  returning * into h;
+  if f.id is not null then
+    update public.flocks x set section_counts = private.parts_even(x.placed_count, p_sections), version = x.version + 1
+    where x.org_id = f.org_id and x.id = f.id
+    returning * into f;
+    update public.flock_visits v set dead_parts = case when p_sections > 1 and v.dead_parts is not null then array_fill(0, array[p_sections]) end,
+        version = v.version + 1, updated_at = now(), updated_by = auth.uid()
+    where v.org_id = f.org_id and v.flock_id = f.id and v.voided_at is null;
+    for v_day in select distinct v.on_date from public.flock_visits v where v.org_id = f.org_id and v.flock_id = f.id and v.voided_at is null order by 1 loop
+      perform private.flock_day_rebuild(f, v_day);
+    end loop;
+  end if;
+  return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'saved',
+    'hall', jsonb_build_object('id', h.id, 'version', h.version, 'sections', h.sections), 'section_counts', f.section_counts));
+end
+$$;
+
 -- ─── ج. الكتّاب: الركن من الطابور بسبب flock_void، والرفض بنداء مباشر ─────────────────────────────────────────────────────────
--- الأجسام الأخيرة من 0036 (save_flock_visit وsave_flock_day وset_flock_dead وadd_flock_gas) و0035 (set_flock_gas)، والسبب الأوّل للركن flock_void.
+-- الأجسام الأخيرة من 0038 (save_flock_visit، وsave_flock_day وset_flock_dead بأقسام الهلاكات) و0036 (add_flock_gas) و0035 (set_flock_gas)
+-- و0037_kerosene (set_flock_kerosene)، والسبب الأوّل للركن flock_void.
 create or replace function public.save_flock_visit(p_visit uuid, p_flock uuid, p_date date, p_recorded_at timestamptz,
   p_dead integer, p_culled integer, p_feed_kg numeric, p_eggs_total integer, p_eggs_cracked integer, p_eggs_broken integer,
   p_note text, p_base_version integer, p_void boolean, p_client_ref uuid, p_queued boolean default false)
@@ -307,7 +394,7 @@ begin
   end if;
   select l.locked_through into v_lock from public.period_locks l where l.org_id = f.org_id;
   -- الثلاثة التي تتغيّر والعملية بالطابور (0035: بلا حدّ الأيّام السبعة؛ كلّ أيّام الوجبة القائمة): بنداء مباشر ترمي، ومن الطابور (queued) تُركن وترجع parked.
-  -- 0037: ورابعها فوج حُذفت قاعته: بنداء مباشر flock_void، ومن الطابور يُركن بسببه كالمغلق.
+  -- 0039: ورابعها فوج حُذفت قاعته: بنداء مباشر flock_void، ومن الطابور يُركن بسببه كالمغلق.
   if f.status = 'void' then
     if not v_queued then
       raise exception 'flock_void' using hint = 'حُذفت قاعة هذا الفوج، فلا يُعرض ولا يُسجَّل له شيء.';
@@ -447,7 +534,10 @@ begin
   else
     update public.flock_visits x
     set dead = coalesce(p_dead, 0), culled = coalesce(p_culled, 0), feed_kg = p_feed_kg, eggs_total = p_eggs_total, eggs_cracked = p_eggs_cracked,
-        eggs_broken = p_eggs_broken, note = v_note, dead_entry = v_mark, version = x.version + 1, updated_at = now(), updated_by = auth.uid()
+        eggs_broken = p_eggs_broken, note = v_note, dead_entry = v_mark, version = x.version + 1, updated_at = now(), updated_by = auth.uid(),
+        -- 0038 (مراجعة 2026-11-27): أقسام الزيارة تبقى ما بقيت هلاكاتها؛ وتغييرها من تطبيق قبل 0038 (بلا أقسام) يمحوها، فهلاكات بلا أقسام في وجبة
+        -- مقسومة تردّها flock_day_rebuild بـsections_required (قاعدة واحدة لكلّ كاتب)، والتصفير يُحفظ. وكانت تبقى فيرفض القيد الخام بلا تلميح.
+        dead_parts = case when (x.dead, x.culled) is not distinct from (coalesce(p_dead, 0), coalesce(p_culled, 0)) then x.dead_parts end
     where x.org_id = v.org_id and x.id = v.id
     returning * into v;
   end if;
@@ -463,7 +553,7 @@ $$;
 
 create or replace function public.save_flock_day(p_flock uuid, p_date date, p_dead integer, p_culled integer, p_feed_kg numeric, p_water_l numeric,
   p_temp_min numeric, p_temp_max numeric, p_eggs_total integer, p_eggs_cracked integer, p_eggs_broken integer, p_note text,
-  p_base_version integer, p_client_ref uuid, p_queued boolean default false)
+  p_base_version integer, p_client_ref uuid, p_queued boolean default false, p_dead_parts integer[] default null)
 returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -481,10 +571,13 @@ declare
   v_live bigint;
   v_bad record;
   v_mark boolean;
+  v_parts integer[];
 begin
   v_payload := jsonb_build_object('dead', p_dead, 'culled', p_culled, 'feed_kg', p_feed_kg::text, 'water_l', p_water_l::text,
     'temp_min', p_temp_min::text, 'temp_max', p_temp_max::text, 'eggs_total', p_eggs_total, 'eggs_cracked', p_eggs_cracked,
-    'eggs_broken', p_eggs_broken, 'note', p_note, 'base_version', p_base_version);
+    'eggs_broken', p_eggs_broken, 'note', p_note, 'base_version', p_base_version)
+    -- 0038: أقسام الهلاكات في بصمة المرجع وفي المركون حين تُرسل وحدها (عملية بلا أقسام ببصمتها ومركونها القديمين).
+    || case when p_dead_parts is not null then jsonb_build_object('dead_parts', p_dead_parts) else '{}'::jsonb end;
   v_cached := private.ref_claim(v_fn, p_client_ref, v_payload || jsonb_build_object('flock', p_flock, 'date', p_date, 'queued', v_queued));
   if v_cached is not null then
     return v_cached;
@@ -504,7 +597,7 @@ begin
   end if;
   select l.locked_through into v_lock from public.period_locks l where l.org_id = f.org_id;
   -- الثلاثة التي تتغيّر والعملية بالطابور (0035: بلا حدّ الأيّام السبعة؛ كلّ أيّام الوجبة القائمة): بنداء مباشر ترمي، ومن الطابور (queued) تُركن وترجع parked.
-  -- 0037: ورابعها فوج حُذفت قاعته: بنداء مباشر flock_void، ومن الطابور يُركن بسببه كالمغلق.
+  -- 0039: ورابعها فوج حُذفت قاعته: بنداء مباشر flock_void، ومن الطابور يُركن بسببه كالمغلق.
   if f.status = 'void' then
     if not v_queued then
       raise exception 'flock_void' using hint = 'حُذفت قاعة هذا الفوج، فلا يُعرض ولا يُسجَّل له شيء.';
@@ -579,6 +672,20 @@ begin
     raise exception 'empty_day' using hint = 'اكتب رقماً واحداً على الأقلّ قبل الحفظ.';
   end if;
 
+  -- 0038: هلاكات الأقسام. الوجبة المقسومة: الهلاكات في النداء بأقسامها (والصفر بلا أقسام أصفار)، والمستبعد القديم لا يُقسم؛ وبلا هلاكات في النداء
+  -- تبقى أقسام اليوم كما هي (تعديل الملاحظة أو البيض لا يمسّها). وغير المقسومة بلا أقسام.
+  if p_dead_parts is not null and p_dead is null then
+    raise exception 'bad_value' using hint = 'هلاكات الأقسام تُرسل مع مجموع هلاكات اليوم.';
+  end if;
+  if f.section_counts is not null and coalesce(p_culled, 0) > 0 then
+    raise exception 'bad_value' using hint = 'المستبعد لا يُقسم على الأقسام: في القاعة المقسومة تُكتب هلاكات كلّ قسم في خانته.';
+  end if;
+  if p_dead is null then
+    v_parts := d.dead_parts;
+  else
+    v_parts := private.flock_parts_input(f, p_dead, case when p_dead = 0 and p_dead_parts is null and f.section_counts is not null
+      then array_fill(0, array[cardinality(f.section_counts)]) else p_dead_parts end);
+  end if;
   -- القيم الجديدة: الفارغ = بلا تغيير، والملاحظة الفارغة تمسح.
   n := d;
   n.dead := coalesce(p_dead, d.dead, 0);
@@ -597,7 +704,8 @@ begin
     else exists (select 1 from public.flock_visits x where x.org_id = f.org_id and x.flock_id = f.id and x.on_date = p_date and x.voided_at is null
       and x.dead_entry) end;
   if d.id is not null and (n.dead, n.culled, n.feed_kg, n.water_l, n.temp_min, n.temp_max, n.eggs_total, n.eggs_cracked, n.eggs_broken, n.note, v_mark)
-     is not distinct from (d.dead, d.culled, d.feed_kg, d.water_l, d.temp_min, d.temp_max, d.eggs_total, d.eggs_cracked, d.eggs_broken, d.note, d.dead_entered) then
+     is not distinct from (d.dead, d.culled, d.feed_kg, d.water_l, d.temp_min, d.temp_max, d.eggs_total, d.eggs_cracked, d.eggs_broken, d.note, d.dead_entered)
+     and v_parts is not distinct from d.dead_parts then
     return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'saved', 'version', d.version));
   end if;
   if n.temp_min > n.temp_max then
@@ -640,18 +748,21 @@ begin
   -- المدموج (0036: وبعلامتها)، ثمّ يُعاد بناء صفّ اليوم منها (نسخته السابقة + 1، أو مجموع نسخ زيارات يومه لصفّ جديد؛ وعلامته منها).
   update public.flock_visits x set voided_at = now(), voided_by = auth.uid(), version = x.version + 1, updated_at = now(), updated_by = auth.uid()
   where x.org_id = f.org_id and x.flock_id = f.id and x.on_date = p_date and x.voided_at is null;
-  insert into public.flock_visits (org_id, flock_id, hall_id, site_id, division_id, on_date, recorded_at, dead, culled, feed_kg, water_l, temp_min, temp_max,
-    eggs_total, eggs_cracked, eggs_broken, note, source, version, dead_entry)
-  values (f.org_id, f.id, f.hall_id, f.site_id, f.division_id, p_date, now(), n.dead, n.culled, n.feed_kg, n.water_l, n.temp_min, n.temp_max,
+  insert into public.flock_visits (org_id, flock_id, hall_id, site_id, division_id, dead_parts, on_date, recorded_at, dead, culled, feed_kg, water_l,
+    temp_min, temp_max, eggs_total, eggs_cracked, eggs_broken, note, source, version, dead_entry)
+  values (f.org_id, f.id, f.hall_id, f.site_id, f.division_id, v_parts, p_date, now(), n.dead, n.culled, n.feed_kg, n.water_l, n.temp_min, n.temp_max,
     n.eggs_total, n.eggs_cracked, n.eggs_broken, n.note, 'day_total', 1, v_mark);
   n := private.flock_day_rebuild(f, p_date);
   -- 0028: الحيّ لا يصير سالباً في أيّ يوم (المباع وفرق العدّ بتاريخهما)، والرفض لا يُبقي شيئاً.
   perform private.flock_live_check(f);
+  -- 0038: وهلاكات كلّ قسم في الأيّام كلّها لا تزيد على عدده.
+  perform private.flock_parts_check(f);
   return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'saved', 'version', n.version));
 end
 $$;
 
-create or replace function public.set_flock_dead(p_flock uuid, p_on date, p_dead integer, p_client_ref uuid, p_queued boolean default false)
+create or replace function public.set_flock_dead(p_flock uuid, p_on date, p_dead integer, p_client_ref uuid, p_queued boolean default false,
+  p_parts integer[] default null)
 returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -664,7 +775,9 @@ declare
   f public.flocks;
   d public.flock_daily;
 begin
-  v_cached := private.ref_claim(v_fn, p_client_ref, jsonb_build_object('flock', p_flock, 'on', p_on, 'dead', p_dead, 'queued', v_queued));
+  -- 0038: الأقسام في بصمة المرجع حين تُرسل وحدها، فعملية بلا أقسام (تطبيق قبل 0038) تُعاد بالمرجع نفسه ببصمتها القديمة.
+  v_cached := private.ref_claim(v_fn, p_client_ref, jsonb_build_object('flock', p_flock, 'on', p_on, 'dead', p_dead, 'queued', v_queued)
+    || case when p_parts is not null then jsonb_build_object('parts', p_parts) else '{}'::jsonb end);
   if v_cached is not null then
     return v_cached;
   end if;
@@ -683,12 +796,13 @@ begin
   end if;
   -- الثلاثة التي تتغيّر والعملية بالطابور: بنداء مباشر ترمي، ومن الطابور تُركن وترجع parked (الأحدث للكاتب واليوم يستبدل الأقدم).
   select l.locked_through into v_lock from public.period_locks l where l.org_id = f.org_id;
-  -- 0037: وفوج حُذفت قاعته يُركن من الطابور بسببه أوّلاً، وبنداء مباشر يرمي flock_void (flock_day_check).
+  -- 0039: وفوج حُذفت قاعته يُركن من الطابور بسببه أوّلاً، وبنداء مباشر يرمي flock_void (flock_day_check).
   v_park := case when f.status = 'void' then 'flock_void' when f.status = 'closed' then 'flock_closed' when not public.in_scope_site(f.site_id) then 'out_of_scope'
     when v_lock is not null and p_on <= v_lock then 'period_locked' end;
   if v_park is not null and v_queued then
     insert into public.flock_day_rejects (org_id, flock_id, hall_id, site_id, division_id, on_date, client_ref, payload, reason, created_by, visit_id)
-    values (f.org_id, f.id, f.hall_id, f.site_id, f.division_id, p_on, p_client_ref, jsonb_build_object('dead', p_dead), v_park, auth.uid(),
+    values (f.org_id, f.id, f.hall_id, f.site_id, f.division_id, p_on, p_client_ref,
+      jsonb_build_object('dead', p_dead) || case when p_parts is not null then jsonb_build_object('parts', p_parts) else '{}'::jsonb end, v_park, auth.uid(),
       md5('dead:' || coalesce(auth.uid()::text, '') || ':' || f.id::text || ':' || to_char(p_on, 'YYYY-MM-DD'))::uuid)
     on conflict (org_id, visit_id) where visit_id is not null do update
       set client_ref = excluded.client_ref, payload = excluded.payload, reason = excluded.reason, created_at = now(),
@@ -702,20 +816,29 @@ begin
   if p_dead is null or p_dead < 0 or p_dead > 10000000 then
     raise exception 'bad_value' using hint = 'اكتب الهلاكات عدداً صحيحاً من صفر إلى 10,000,000.';
   end if;
+  -- 0038: هلاكات الأقسام: للوجبة المقسومة خانة لكلّ قسم مجموعها هلاكات اليوم، ولغيرها بلا أقسام.
+  perform private.flock_parts_input(f, p_dead, p_parts);
 
   -- اليوم الذي سُجّلت هلاكاته (علامته المشتقّة؛ ويوم فيه نافق أو مستبعد بلا علامة، احتياطاً): لا يُضاف إليه شيء.
   select * into d from public.flock_daily x where x.org_id = f.org_id and x.flock_id = f.id and x.on_date = p_on;
   if d.id is not null and (d.dead_entered or d.dead + d.culled > 0) then
+    -- 0038: والأقسام نفسها: يومٌ سُجّلت هلاكاته بأقسام أخرى (ولو بالمجموع نفسه) dead_recorded كما هو.
+    if d.dead_parts is distinct from p_parts then
+      return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'dead_recorded', 'day', private.flock_day_json(d)));
+    end if;
     return private.ref_store(v_fn, p_client_ref, jsonb_build_object(
       'status', case when d.dead + d.culled = p_dead then 'saved' else 'dead_recorded' end, 'day', private.flock_day_json(d)));
   end if;
 
-  insert into public.flock_visits (org_id, flock_id, hall_id, site_id, division_id, on_date, recorded_at, dead, culled, source, version, dead_entry)
-  values (f.org_id, f.id, f.hall_id, f.site_id, f.division_id, p_on, now(), p_dead, 0, 'visit', 1, true);
+  insert into public.flock_visits (org_id, flock_id, hall_id, site_id, division_id, dead_parts, on_date, recorded_at, dead, culled, source, version,
+    dead_entry)
+  values (f.org_id, f.id, f.hall_id, f.site_id, f.division_id, p_parts, p_on, now(), p_dead, 0, 'visit', 1, true);
   d := private.flock_day_rebuild(f, p_on);
   -- البيض لا يزيد على الحيّ أوّل اليوم (هذا اليوم وما بعده)، والحيّ لا يصير سالباً في أيّ يوم؛ والرفض لا يُبقي شيئاً.
   perform private.flock_eggs_live_check(f, p_on);
   perform private.flock_live_check(f);
+  -- 0038: وهلاكات كلّ قسم في الأيّام كلّها لا تزيد على عدده.
+  perform private.flock_parts_check(f);
   return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'saved', 'day', private.flock_day_json(d)));
 end
 $$;
@@ -753,7 +876,7 @@ begin
   end if;
   -- الثلاثة التي تتغيّر والعملية بالطابور: بنداء مباشر ترمي، ومن الطابور تُركن وترجع parked (كلّ إضافة صفّ بمرجعها).
   select l.locked_through into v_lock from public.period_locks l where l.org_id = f.org_id;
-  -- 0037: وفوج حُذفت قاعته يُركن من الطابور بسببه أوّلاً، وبنداء مباشر يرمي flock_void (flock_day_check).
+  -- 0039: وفوج حُذفت قاعته يُركن من الطابور بسببه أوّلاً، وبنداء مباشر يرمي flock_void (flock_day_check).
   v_park := case when f.status = 'void' then 'flock_void' when f.status = 'closed' then 'flock_closed' when not public.in_scope_site(f.site_id) then 'out_of_scope'
     when v_lock is not null and p_on <= v_lock then 'period_locked' end;
   if v_park is not null and v_queued then
@@ -830,7 +953,7 @@ begin
   end if;
   -- الثلاثة التي تتغيّر والعملية بالطابور: بنداء مباشر ترمي، ومن الطابور تُركن وترجع parked.
   select l.locked_through into v_lock from public.period_locks l where l.org_id = f.org_id;
-  -- 0037: وفوج حُذفت قاعته يُركن من الطابور بسببه أوّلاً، وبنداء مباشر يرمي flock_void (flock_day_check).
+  -- 0039: وفوج حُذفت قاعته يُركن من الطابور بسببه أوّلاً، وبنداء مباشر يرمي flock_void (flock_day_check).
   v_park := case when f.status = 'void' then 'flock_void' when f.status = 'closed' then 'flock_closed' when not public.in_scope_site(f.site_id) then 'out_of_scope'
     when v_lock is not null and p_on <= v_lock then 'period_locked' end;
   if v_park is not null and v_queued then
@@ -869,7 +992,80 @@ begin
 end
 $$;
 
--- الأجسام الأخيرة من 0035 (record_flock_weight وedit_flock وdelete_flock)، وflock_void بعد النطاق.
+create or replace function public.set_flock_kerosene(p_flock uuid, p_on date, p_liters integer, p_expected_version bigint, p_client_ref uuid,
+  p_queued boolean default false)
+returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_fn constant text := 'set_flock_kerosene';
+  v_cached jsonb;
+  v_today date := public.app_today();
+  v_queued boolean := coalesce(p_queued, false);
+  v_lock date;
+  v_park text;
+  f public.flocks;
+  k public.flock_day_kerosene;
+begin
+  v_cached := private.ref_claim(v_fn, p_client_ref, jsonb_build_object('flock', p_flock, 'on', p_on, 'liters', p_liters,
+    'expected_version', p_expected_version, 'queued', v_queued));
+  if v_cached is not null then
+    return v_cached;
+  end if;
+  perform private.require('flock_day.save');
+  set local lock_timeout = '5s';
+  perform private.period_guard();
+  select * into f from public.flocks x where x.org_id = public.auth_org() and x.id = p_flock for update;
+  if f.id is null then
+    raise exception 'flock_not_found' using hint = 'هذه الوجبة غير موجودة في منشأتك. حدّث الشاشة.';
+  end if;
+  if p_on is null or not isfinite(p_on) then
+    raise exception 'date_required' using hint = 'اختر يوماً من أيّام الوجبة.';
+  end if;
+  if p_on > v_today then
+    raise exception 'date_in_future' using hint = format('يوم %s لم يأتِ بعد؛ يُكتب الكاز لليوم %s أو لما قبله من أيّام الوجبة.', to_char(p_on, 'DD/MM/YYYY'), to_char(v_today, 'DD/MM/YYYY'));
+  end if;
+  -- الثلاثة التي تتغيّر والعملية بالطابور: بنداء مباشر ترمي، ومن الطابور تُركن وترجع parked.
+  select l.locked_through into v_lock from public.period_locks l where l.org_id = f.org_id;
+  -- 0039: وفوج حُذفت قاعته يُركن من الطابور بسببه أوّلاً، وبنداء مباشر يرمي flock_void (flock_day_check)، كالغاز.
+  v_park := case when f.status = 'void' then 'flock_void' when f.status = 'closed' then 'flock_closed' when not public.in_scope_site(f.site_id) then 'out_of_scope'
+    when v_lock is not null and p_on <= v_lock then 'period_locked' end;
+  if v_park is not null and v_queued then
+    insert into public.flock_day_rejects (org_id, flock_id, hall_id, site_id, division_id, on_date, client_ref, payload, reason, created_by, visit_id)
+    values (f.org_id, f.id, f.hall_id, f.site_id, f.division_id, p_on, p_client_ref, jsonb_build_object('kerosene', p_liters), v_park, auth.uid(),
+      md5('kerosene:' || coalesce(auth.uid()::text, '') || ':' || f.id::text || ':' || to_char(p_on, 'YYYY-MM-DD'))::uuid)
+    on conflict (org_id, visit_id) where visit_id is not null do update
+      set client_ref = excluded.client_ref, payload = excluded.payload, reason = excluded.reason, created_at = now(),
+          version = public.flock_day_rejects.version + 1, decision = null, decided_by = null, decided_at = null;
+    return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'parked', 'reason', v_park));
+  end if;
+  if v_park = 'out_of_scope' then
+    raise exception 'out_of_scope' using hint = 'قاعة هذه الوجبة خارج نطاقك. اطلب من مالك المنشأة إضافة حقلها إلى نطاقك.';
+  end if;
+  perform private.flock_day_check(f, p_on);
+  if p_liters < 0 or p_liters > 20000 then
+    raise exception 'bad_value' using hint = 'الكاز باللتر عدد صحيح من صفر إلى 20,000.';
+  end if;
+  select * into k from public.flock_day_kerosene x where x.org_id = f.org_id and x.flock_id = f.id and x.on_date = p_on for update;
+  if (k.id is null and p_liters is null) or (k.id is not null and k.liters is not distinct from p_liters) then
+    return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'saved', 'kerosene', private.flock_kerosene_json(p_on, k)));
+  end if;
+  if p_expected_version is distinct from k.version then
+    return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'stale_kerosene', 'server', private.flock_kerosene_json(p_on, k)));
+  end if;
+  if k.id is null then
+    insert into public.flock_day_kerosene (org_id, flock_id, hall_id, site_id, division_id, on_date, liters, version)
+    values (f.org_id, f.id, f.hall_id, f.site_id, f.division_id, p_on, p_liters, 1)
+    returning * into k;
+  else
+    update public.flock_day_kerosene x set liters = p_liters, version = x.version + 1, updated_at = now(), updated_by = auth.uid()
+    where x.org_id = k.org_id and x.id = k.id
+    returning * into k;
+  end if;
+  return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'saved', 'kerosene', private.flock_kerosene_json(p_on, k)));
+end
+$$;
+
+-- الأجسام الأخيرة من 0035 (record_flock_weight) و0038 (edit_flock بأعداد الأقسام) و0037_kerosene (delete_flock بالكاز)، وflock_void بعد النطاق.
 create or replace function public.record_flock_weight(p_flock uuid, p_date date, p_sample_count integer, p_avg_g numeric, p_client_ref uuid)
 returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
@@ -925,7 +1121,7 @@ end
 $$;
 
 create or replace function public.edit_flock(p_flock uuid, p_expected_version int, p_placed_on date, p_placed_count integer, p_age_days integer,
-  p_breed text, p_client_ref uuid) returns jsonb
+  p_breed text, p_client_ref uuid, p_section_counts integer[] default null) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
   v_fn constant text := 'edit_flock';
@@ -942,9 +1138,12 @@ declare
   v_core boolean;
   v_changed boolean;
   v_result jsonb;
+  v_counts integer[];
 begin
   v_cached := private.ref_claim(v_fn, p_client_ref, jsonb_build_object('flock', p_flock, 'version', p_expected_version, 'placed_on', p_placed_on,
-    'count', p_placed_count, 'age', p_age_days, 'breed', p_breed));
+    'count', p_placed_count, 'age', p_age_days, 'breed', p_breed)
+    -- 0038: أعداد الأقسام في بصمة المرجع حين تُرسل وحدها (عملية قبل 0038 ببصمتها).
+    || case when p_section_counts is not null then jsonb_build_object('section_counts', p_section_counts) else '{}'::jsonb end);
   if v_cached is not null then
     return v_cached;
   end if;
@@ -986,10 +1185,33 @@ begin
   if p_placed_on > v_today then
     raise exception 'date_in_future' using hint = format('تاريخ التسكين %s بعد تاريخ اليوم %s.', to_char(p_placed_on, 'DD/MM/YYYY'), to_char(v_today, 'DD/MM/YYYY'));
   end if;
+  -- 0038: أعداد الأقسام. الوجبة غير المقسومة بلا أعداد؛ والمقسومة: تغيير العدد الداخل يطلب عدد كلّ قسم، والأعداد المرسلة خانة لكلّ قسم ومجموعها
+  -- العدد الداخل (وكلّ قسم لا يقلّ عن هلاكاته: يُفحص بعد الكتابة بـflock_parts_check)؛ وبلا أعداد ولا تغيير للعدد تبقى أعداده.
+  if f.section_counts is null then
+    if p_section_counts is not null then
+      raise exception 'bad_value' using hint = format('قاعة فوج «%s» غير مقسومة أقساماً، فيُكتب عدد طيوره عدداً واحداً.', v_hall);
+    end if;
+  elsif p_section_counts is null then
+    if p_placed_count is distinct from f.placed_count then
+      raise exception 'section_counts_required' using hint = 'اكتب عدد كلّ قسم بعد تغيير العدد الداخل.';
+    end if;
+    v_counts := f.section_counts;
+  else
+    if not private.parts_valid(p_section_counts) or cardinality(p_section_counts) <> cardinality(f.section_counts) then
+      raise exception 'bad_value' using hint = format('أعداد أقسام فوج «%s» أعداد صحيحة من صفر فأكثر، خانة لكلّ قسم من أقسامه (%s).', v_hall,
+        cardinality(f.section_counts));
+    end if;
+    if private.parts_sum(p_section_counts) is distinct from p_placed_count::bigint then
+      raise exception 'bad_value' using hint = format('مجموع أعداد الأقسام (%s) لا يساوي العدد الداخل (%s).',
+        to_char(private.parts_sum(p_section_counts), 'FM999,999,999,990'), to_char(p_placed_count, 'FM999,999,999,990'));
+    end if;
+    v_counts := p_section_counts;
+  end if;
   -- التاريخ والعدد والعمر تغيّر أيّام الفوج ومؤشّراته؛ والسلالة اسم وحدها.
   v_core := p_placed_on is distinct from f.placed_on or p_placed_count is distinct from f.placed_count or coalesce(p_age_days, 0) is distinct from f.age_days_at_placement;
-  v_changed := v_core or v_breed is distinct from f.breed;
-  if v_core then
+  v_changed := v_core or v_breed is distinct from f.breed or v_counts is distinct from f.section_counts;
+  -- 0038 (مراجعة 2026-11-27): وأعداد الأقسام وحدها تُقفل بالفترة كالعدد (كانت تُحفظ داخل الفترة المقفلة).
+  if v_core or v_counts is distinct from f.section_counts then
     select l.locked_through into v_lock from public.period_locks l where l.org_id = f.org_id;
     if v_lock is not null and least(p_placed_on, f.placed_on) <= v_lock then
       raise exception 'period_locked' using hint = format('الحسابات مقفلة حتى %s، وتسكين الفوج %s داخلها، فلا يُعدَّل. إن كان التعديل صحيحاً فاطلب من مالك المنشأة فتح الفترة.',
@@ -1007,6 +1229,8 @@ begin
       -- 0035: الصرف على يومه في القاعة (لا بعد تاريخ خروجه)، والغاز المسجَّل.
       (select min(private.issue_day(x)) from public.flock_issues x where x.org_id = f.org_id and x.flock_id = f.id),
       (select min(x.on_date) from public.flock_day_gas x where x.org_id = f.org_id and x.flock_id = f.id and x.cylinders is not null),
+      -- 0037: الكاز المسجَّل.
+      (select min(x.on_date) from public.flock_day_kerosene x where x.org_id = f.org_id and x.flock_id = f.id and x.liters is not null),
       (select min(x.on_date) from public.flock_costs x where x.org_id = f.org_id and x.flock_id = f.id),
       (select min(x.on_date) from public.flock_logs x where x.org_id = f.org_id and x.flock_id = f.id),
       (select min(x.done_on) from public.flock_vaccinations x where x.org_id = f.org_id and x.flock_id = f.id and x.status = 'done'),
@@ -1016,7 +1240,7 @@ begin
         where s.org_id = f.org_id and s.flock_id = f.id and t.status <> 'void'))
     into v_first;
   if v_first is not null and p_placed_on > v_first then
-    raise exception 'records_before_placement' using hint = format('للفوج سجلّ يوم %s (جولة أو صرف أو غاز أو وزن أو دواء أو لقاح أو تذكرة وزن أو بيع أو فرق عدّ)، فلا يصير التسكين بعده. اختر تاريخاً في %s أو قبله.',
+    raise exception 'records_before_placement' using hint = format('للفوج سجلّ يوم %s (جولة أو صرف أو غاز أو كاز أو وزن أو دواء أو لقاح أو تذكرة وزن أو بيع أو فرق عدّ)، فلا يصير التسكين بعده. اختر تاريخاً في %s أو قبله.',
       to_char(v_first, 'DD/MM/YYYY'), to_char(v_first, 'DD/MM/YYYY'));
   end if;
   select coalesce(sum(x.dead + x.culled), 0) into v_losses from public.flock_daily x where x.org_id = f.org_id and x.flock_id = f.id;
@@ -1026,14 +1250,16 @@ begin
   end if;
   if v_changed then
     update public.flocks x set placed_on = p_placed_on, opened_on = p_placed_on, placed_count = p_placed_count,
-      age_days_at_placement = coalesce(p_age_days, 0), breed = v_breed, version = x.version + 1
+      age_days_at_placement = coalesce(p_age_days, 0), breed = v_breed, version = x.version + 1, section_counts = v_counts
     where x.org_id = f.org_id and x.id = f.id
     returning * into f;
     -- 0029: الحيّ بالمباع وفرق العدّ لا يصير سالباً في أيّ يوم بالعدد والتاريخ الجديدين (والرفض لا يُبقي شيئاً).
     perform private.flock_live_check(f);
+    -- 0038: وكلّ قسم لا تزيد هلاكاته على عدده الجديد (live_negative يسمّي القسم).
+    perform private.flock_parts_check(f);
   end if;
   v_result := jsonb_build_object('flock_id', f.id, 'version', f.version, 'placed_on', f.placed_on, 'placed_count', f.placed_count,
-    'age_days_at_placement', f.age_days_at_placement, 'breed', f.breed, 'changed', v_changed);
+    'age_days_at_placement', f.age_days_at_placement, 'breed', f.breed, 'changed', v_changed, 'section_counts', f.section_counts);
   return private.ref_store(v_fn, p_client_ref, v_result);
 end
 $$;
@@ -1090,6 +1316,10 @@ begin
   if exists (select 1 from public.flock_day_gas x where x.org_id = f.org_id and x.flock_id = f.id and x.cylinders is not null) then
     v_has := v_has || 'الغاز'::text;
   end if;
+  -- 0037: والكاز المسجَّل (بلترات) باسمه بعد الغاز؛ والصفّ الممسوح (لترات فارغة بنسخة) لا يمنع الحذف.
+  if exists (select 1 from public.flock_day_kerosene x where x.org_id = f.org_id and x.flock_id = f.id and x.liters is not null) then
+    v_has := v_has || 'الكاز'::text;
+  end if;
   if exists (select 1 from public.flock_issues x where x.org_id = f.org_id and x.flock_id = f.id)
       or exists (select 1 from public.flock_costs x where x.org_id = f.org_id and x.flock_id = f.id) then
     v_has := v_has || 'صرف من المخزن'::text;
@@ -1121,6 +1351,8 @@ begin
   delete from public.flock_visits x where x.org_id = f.org_id and x.flock_id = f.id and x.voided_at is not null;
   -- 0035: وصفوف الغاز الممسوحة كذلك (لا كتابة بعدها: الوجبة نفسها تُحذف، فلا ABA).
   delete from public.flock_day_gas x where x.org_id = f.org_id and x.flock_id = f.id and x.cylinders is null;
+  -- 0037: وصفوف الكاز الممسوحة كذلك.
+  delete from public.flock_day_kerosene x where x.org_id = f.org_id and x.flock_id = f.id and x.liters is null;
   begin
     delete from public.flocks x where x.org_id = f.org_id and x.id = f.id;
   exception when foreign_key_violation then
@@ -1685,7 +1917,7 @@ begin
   if not public.in_scope_site(f.site_id) then
     raise exception 'out_of_scope' using hint = 'قاعة هذا الفوج خارج نطاقك.';
   end if;
-  -- 0037: فوج حُذفت قاعته لا يُعرض.
+  -- 0039: فوج حُذفت قاعته لا يُعرض.
   if f.status = 'void' then
     raise exception 'flock_void' using hint = 'حُذفت قاعة هذا الفوج، فلا يُعرض ولا يُسجَّل له شيء.';
   end if;
@@ -1743,7 +1975,7 @@ begin
   if not public.in_scope_site(f.site_id) then
     raise exception 'out_of_scope' using hint = 'قاعة هذا الفوج خارج نطاقك.';
   end if;
-  -- 0037: فوج حُذفت قاعته لا يُعرض.
+  -- 0039: فوج حُذفت قاعته لا يُعرض.
   if f.status = 'void' then
     raise exception 'flock_void' using hint = 'حُذفت قاعة هذا الفوج، فلا يُعرض ولا يُسجَّل له شيء.';
   end if;
@@ -1816,7 +2048,7 @@ begin
   if not public.in_scope_site(f.site_id) then
     raise exception 'out_of_scope' using hint = 'قاعة هذا الفوج خارج نطاقك.';
   end if;
-  -- 0037: فوج حُذفت قاعته لا يُعرض.
+  -- 0039: فوج حُذفت قاعته لا يُعرض.
   if f.status = 'void' then
     raise exception 'flock_void' using hint = 'حُذفت قاعة هذا الفوج، فلا يُعرض ولا يُسجَّل له شيء.';
   end if;
@@ -1877,7 +2109,7 @@ begin
     if not public.in_scope_site(f.site_id) then
       raise exception 'out_of_scope' using hint = 'قاعة هذا الفوج خارج نطاقك. اطلب من مالك المنشأة إضافة حقلها إلى نطاقك.';
     end if;
-    -- 0037: فوج حُذفت قاعته لا يُعرض، ولا يدخل القائمة أدناه.
+    -- 0039: فوج حُذفت قاعته لا يُعرض، ولا يدخل القائمة أدناه.
     if f.status = 'void' then
       raise exception 'flock_void' using hint = 'حُذفت قاعة هذا الفوج، فلا يُعرض ولا يُسجَّل له شيء.';
     end if;
@@ -2203,7 +2435,7 @@ begin
     raise exception 'already_void' using hint = format('الصرف %s ملغى من قبل.', x.doc_no);
   end if;
   select * into f from public.flocks y where y.org_id = v_org and y.id = x.flock_id for share;
-  -- 0037: صرف فوج حُذفت قاعته ملغى معه دائماً (الثابت verify_delete_hall)، فهذا حارس ثانٍ.
+  -- 0039: صرف فوج حُذفت قاعته ملغى معه دائماً (الثابت verify_delete_hall)، فهذا حارس ثانٍ.
   if f.status = 'void' then
     raise exception 'flock_void' using hint = 'حُذفت قاعة هذا الفوج، فلا يُعرض ولا يُسجَّل له شيء.';
   end if;
@@ -2213,7 +2445,7 @@ begin
   select array_agg(distinct y.item_id) into v_items from public.flock_issue_lines y where y.org_id = x.org_id and y.issue_id = x.id;
   perform private.lock_masters(array[w.id], v_items, false);
   perform private.lock_balances(v_items, array_fill(w.id, array[cardinality(v_items)]));
-  -- 0037: الأثر (الحركات العكسية وصفوف الكلفة العكسية والحالة) بالنواة المشتركة مع حذف القاعة (delete_hall)، بعد أقفالها بترتيبها.
+  -- 0039: الأثر (الحركات العكسية وصفوف الكلفة العكسية والحالة) بالنواة المشتركة مع حذف القاعة (delete_hall)، بعد أقفالها بترتيبها.
   select r.reversed_moves, r.reversed_value into v_back, v_value from private.flock_issue_reverse(x, v_reason) as r;
   return private.ref_store(v_fn, p_client_ref, jsonb_build_object('id', x.id, 'doc_no', x.doc_no, 'status', 'void', 'flock_id', x.flock_id,
     'voided_on', v_today, 'reversed_moves', v_back, 'money', jsonb_build_object('value', v_value::text)));
@@ -2510,7 +2742,7 @@ end
 $$;
 
 -- ─── ز. الثوابت (مفتاح الخادم) ───────────────────────────────────────────────────────────────────────────────────────
--- الجسم الأخير من 0035، والوجبة الملغاة خارج المقارنة.
+-- الأجسام الأخيرة من 0038 (verify_hall_sheet وverify_kerosene وverify_hall_sections)، والوجبة الملغاة خارج قراءة الورقة.
 create or replace function public.verify_hall_sheet() returns table (check_name text, violations bigint)
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -2546,7 +2778,7 @@ begin
     continue when v_user is null;
     perform set_config('request.jwt.claims', jsonb_build_object('sub', v_user, 'role', 'authenticated')::text, true);
     perform set_config('request.jwt.claim.sub', v_user::text, true);
-    -- 0037: الوجبة الملغاة (حُذفت قاعتها) لا ورقة لها (hall_sheet يرفضها flock_void)، فلا تُقارن.
+    -- 0039: الوجبة الملغاة (حُذفت قاعتها) لا ورقة لها (hall_sheet يرفضها flock_void)، فلا تُقارن.
     for v_flock in select x.id, x.kind, x.status from public.flocks x where x.org_id = v_org.org_id and x.placed_on is not null and x.status <> 'void' order by x.id loop
       v_s := null;
       begin
@@ -2556,7 +2788,9 @@ begin
             select coalesce(sum((d.j ->> 'dead')::bigint), 0) as dead, coalesce(sum((d.j ->> 'gas')::bigint), 0) as gas,
               coalesce(sum((d.j ->> 'feed_kg')::numeric), 0) as feed_kg, coalesce(sum((d.j ->> 'feed_back_kg')::numeric), 0) as back_kg,
               coalesce(sum((d.j ->> 'sold_birds')::bigint), 0) as sold, coalesce(sum((d.j ->> 'sold_net_kg')::numeric), 0) as sold_kg,
-              coalesce(sum((d.j ->> 'eggs_total')::bigint), 0) as eggs
+              coalesce(sum((d.j ->> 'eggs_total')::bigint), 0) as eggs,
+              -- 0038: مفاتيح الكاز في الورقة نفسها المقروءة هنا (لا قراءة ثانية لها في verify_kerosene إلّا لوجبة بكازها).
+              coalesce(sum((d.j ->> 'kerosene')::bigint), 0) as kerosene
             from jsonb_array_elements(v_s -> 'days') as d(j)
           ) as s
           where (v_s -> 'totals' ->> 'dead')::bigint <> s.dead or (v_s -> 'totals' ->> 'gas')::bigint <> s.gas
@@ -2564,7 +2798,9 @@ begin
             or (v_s -> 'summary' ->> 'feed_net_kg')::numeric <> s.feed_kg - s.back_kg
             or (v_s -> 'totals' ->> 'sold_birds')::bigint <> s.sold
             or (v_s -> 'totals' ->> 'sold_net_kg')::numeric <> s.sold_kg
-            or (v_s -> 'totals' ->> 'eggs_total')::bigint is distinct from (case when v_flock.kind = 'layer' then s.eggs end));
+            or (v_s -> 'totals' ->> 'eggs_total')::bigint is distinct from (case when v_flock.kind = 'layer' then s.eggs end)
+            or (v_s -> 'totals' ->> 'kerosene')::bigint is distinct from s.kerosene
+            or (v_s -> 'summary' ->> 'kerosene')::bigint is distinct from (v_s -> 'totals' ->> 'kerosene')::bigint);
         v_days := v_days + (
           select count(*) from (
             select (d.j ->> 'on')::date as on_date, (d.j ->> 'feed_kg')::numeric as kg, (d.j ->> 'feed_back_kg')::numeric as back
@@ -2623,6 +2859,163 @@ begin
   return query select 'sheet_totals'::text, v_totals
     union all select 'sheet_feed_by_day'::text, v_days
     union all select 'sheet_fcr_final'::text, v_fcr;
+end
+$$;
+
+create or replace function public.verify_kerosene() returns table (check_name text, violations bigint)
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_claims text := current_setting('request.jwt.claims', true);
+  v_sub text := current_setting('request.jwt.claim.sub', true);
+  v_totals bigint := 0;
+  v_org record;
+  v_user uuid;
+  v_flock record;
+  v_s jsonb;
+begin
+  return query
+  -- للوجبة القائمة الحدّ الأعلى اليوم، ولا يقلّ عن يوم كتابة الصفّ بتوقيت بغداد: في الإنتاج هو اليوم نفسه (الساعة لا ترجع)، والحزمة تثبّت أيّاماً أقدم من
+  -- صفوف كتبتها ملفّات قبلها بساعتها الحقيقية (درس 2026-11-10).
+  select 'kerosene_days'::text, count(*) from public.flock_day_kerosene k
+  join public.flocks f on f.org_id = k.org_id and f.id = k.flock_id
+  where k.liters is not null and (f.placed_on is null or k.on_date < f.placed_on
+    or k.on_date > coalesce(f.closed_on, greatest(public.app_today(), (k.created_at at time zone 'Asia/Baghdad')::date)))
+  union all
+  select 'kerosene_versions', count(*) from public.flock_day_kerosene k where k.version < 1
+  union all
+  select 'kerosene_hall', count(*) from public.flock_day_kerosene k
+  join public.flocks f on f.org_id = k.org_id and f.id = k.flock_id
+  where (k.hall_id, k.site_id, k.division_id) is distinct from (f.hall_id, f.site_id, f.division_id);
+
+  for v_org in select distinct x.org_id from public.flocks x where x.placed_on is not null order by 1 loop
+    select m.user_id into v_user from public.members m
+    where m.org_id = v_org.org_id and m.role = 'owner' and m.archived_at is null and m.accepted_at is not null and private.account_live(m.user_id)
+    order by m.created_at, m.id limit 1;
+    continue when v_user is null;
+    perform set_config('request.jwt.claims', jsonb_build_object('sub', v_user, 'role', 'authenticated')::text, true);
+    perform set_config('request.jwt.claim.sub', v_user::text, true);
+    -- 0038: مفاتيح الكاز في ورقة كلّ وجبة يفحصها verify_hall_sheet في قراءته لها (الورقة تُقرأ مرّة)، فهنا ورقة الوجبة بكازها وحدها.
+    -- 0039: الوجبة الملغاة (حُذفت قاعتها) لا ورقة لها (hall_sheet يرفضها flock_void)، فلا تُقارن؛ وصفوف كازها باقية بقاعتها وأيّامها.
+    for v_flock in select x.id from public.flocks x where x.org_id = v_org.org_id and x.placed_on is not null and x.status <> 'void'
+        and exists (select 1 from public.flock_day_kerosene k where k.org_id = x.org_id and k.flock_id = x.id) order by x.id loop
+      begin
+        v_s := public.hall_sheet(v_flock.id);
+        v_totals := v_totals + (
+          select count(*) from (
+            select coalesce(sum((d.j ->> 'kerosene')::bigint), 0) as kerosene
+            from jsonb_array_elements(v_s -> 'days') as d(j)
+          ) as s
+          where (v_s -> 'totals' ->> 'kerosene')::bigint is distinct from s.kerosene
+            or (v_s -> 'summary' ->> 'kerosene')::bigint is distinct from (v_s -> 'totals' ->> 'kerosene')::bigint);
+      exception when others then
+        v_totals := v_totals + 1;
+      end;
+    end loop;
+  end loop;
+  perform set_config('request.jwt.claims', coalesce(v_claims, ''), true);
+  perform set_config('request.jwt.claim.sub', coalesce(v_sub, ''), true);
+  return query select 'sheet_kerosene_totals'::text, v_totals;
+end
+$$;
+
+create or replace function public.verify_hall_sections() returns table (check_name text, violations bigint)
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_claims text := current_setting('request.jwt.claims', true);
+  v_sub text := current_setting('request.jwt.claim.sub', true);
+  v_sheets bigint := 0;
+  v_org record;
+  v_user uuid;
+  v_flock record;
+  v_s jsonb;
+begin
+  return query
+  select 'hall_sections_range'::text, count(*) from public.halls h where h.sections not between 1 and 4
+  union all
+  -- الوجبة المقسومة: أعداد صالحة مجموعها العدد الداخل؛ والقائمة المسكَّنة بأقسام قاعتها (وغير المقسومة في قاعة مقسومة خرق).
+  select 'flock_counts_shape', count(*) from public.flocks f
+  join public.halls h on h.org_id = f.org_id and h.id = f.hall_id
+  where (f.section_counts is not null and (not private.parts_valid(f.section_counts) or f.placed_count is null
+      or private.parts_sum(f.section_counts) is distinct from f.placed_count::bigint))
+    or (f.status = 'active' and coalesce(cardinality(f.section_counts), 1) <> h.sections)
+    or (f.status = 'preparing' and f.section_counts is not null and cardinality(f.section_counts) <> h.sections)
+  union all
+  -- الزيارات الحيّة للوجبة المقسومة: الأقسام صالحة بطول أقسامها ومجموعها النافق والمستبعد صفر؛ ولا هلاكات بلا أقسام.
+  select 'visit_parts', count(*) from public.flock_visits v
+  join public.flocks f on f.org_id = v.org_id and f.id = v.flock_id
+  where v.voided_at is null and f.section_counts is not null
+    and case when v.dead_parts is null then v.dead + v.culled > 0
+      else not private.parts_valid(v.dead_parts) or cardinality(v.dead_parts) <> cardinality(f.section_counts)
+        or private.parts_sum(v.dead_parts) <> v.dead or v.culled <> 0 end
+  union all
+  -- صفّ اليوم للوجبة المقسومة: أقسامه صالحة بطول أقسامها ومجموعها النافق والمستبعد صفر، وكلّ خانة = مجموع خانات زياراته الحيّة (الفارغة أصفار).
+  select 'day_parts', count(*) from public.flock_daily d
+  join public.flocks f on f.org_id = d.org_id and f.id = d.flock_id
+  where f.section_counts is not null and (d.dead_parts is null or not private.parts_valid(d.dead_parts)
+    or cardinality(d.dead_parts) <> cardinality(f.section_counts) or private.parts_sum(d.dead_parts) <> d.dead or d.culled <> 0
+    or exists (
+      select 1 from (
+        select u.i, sum(u.x) as s from public.flock_visits v cross join unnest(v.dead_parts) with ordinality as u(x, i)
+        where v.org_id = d.org_id and v.flock_id = d.flock_id and v.on_date = d.on_date and v.voided_at is null
+        group by u.i
+      ) as k
+      full join unnest(d.dead_parts) with ordinality as e(x, i) on e.i = k.i
+      where e.i is null or coalesce(k.s, 0) <> e.x))
+  union all
+  -- لا أقسام لزيارة حيّة ولا لصفّ يوم في وجبة غير مقسومة.
+  select 'unsplit_parts',
+    (select count(*) from public.flock_visits v join public.flocks f on f.org_id = v.org_id and f.id = v.flock_id
+      where f.section_counts is null and v.voided_at is null and v.dead_parts is not null)
+    + (select count(*) from public.flock_daily d join public.flocks f on f.org_id = d.org_id and f.id = d.flock_id
+      where f.section_counts is null and d.dead_parts is not null)
+  union all
+  -- هلاكات كلّ قسم في الأيّام كلّها لا تزيد على عدده.
+  select 'section_live', count(*) from public.flocks f
+  cross join generate_subscripts(f.section_counts, 1) as g(i)
+  where f.section_counts is not null
+    and f.section_counts[g.i] < coalesce((select sum(d.dead_parts[g.i]) from public.flock_daily d where d.org_id = f.org_id and d.flock_id = f.id), 0);
+
+  -- الورقة لكلّ وجبة مقسومة مسكَّنة بهويّة مالك منشأتها: أقسام اليوم مجموعها هلاكاته، وtotals.dead_parts مجموع الأيّام خانةً خانة ومجموعها totals.dead، وكلّ
+  -- قسم برقمه وعدده وهلاكاته من الأيّام ونسبتها وباقيه؛ وورقة رمت خرق.
+  for v_org in select distinct x.org_id from public.flocks x where x.placed_on is not null and x.section_counts is not null order by 1 loop
+    select m.user_id into v_user from public.members m
+    where m.org_id = v_org.org_id and m.role = 'owner' and m.archived_at is null and m.accepted_at is not null and private.account_live(m.user_id)
+    order by m.created_at, m.id limit 1;
+    continue when v_user is null;
+    perform set_config('request.jwt.claims', jsonb_build_object('sub', v_user, 'role', 'authenticated')::text, true);
+    perform set_config('request.jwt.claim.sub', v_user::text, true);
+    -- 0039: الوجبة الملغاة (حُذفت قاعتها) لا ورقة لها (hall_sheet يرفضها flock_void)، فلا تُقارن؛ وأقسامها وأيّامها صفوف باقية تفحصها الفحوص أعلاه.
+    for v_flock in select x.id, x.section_counts from public.flocks x
+        where x.org_id = v_org.org_id and x.placed_on is not null and x.section_counts is not null and x.status <> 'void' order by x.id loop
+      begin
+        v_s := public.hall_sheet(v_flock.id);
+        if not coalesce(jsonb_typeof(v_s -> 'sections') = 'array' and jsonb_array_length(v_s -> 'sections') = cardinality(v_flock.section_counts)
+            and jsonb_typeof(v_s -> 'totals' -> 'dead_parts') = 'array'
+            and jsonb_array_length(v_s -> 'totals' -> 'dead_parts') = cardinality(v_flock.section_counts), false)
+          or exists (select 1 from jsonb_array_elements(v_s -> 'days') as d(j)
+            where jsonb_typeof(d.j -> 'dead_parts') = 'array'
+              and (d.j ->> 'dead')::bigint is distinct from (select sum(e::bigint) from jsonb_array_elements_text(d.j -> 'dead_parts') as e))
+          or (v_s -> 'totals' ->> 'dead')::bigint is distinct from (select sum(e::bigint) from jsonb_array_elements_text(v_s -> 'totals' -> 'dead_parts') as e)
+          or exists (select 1 from generate_subscripts(v_flock.section_counts, 1) as g(i)
+            cross join lateral (select coalesce(sum((d.j -> 'dead_parts' ->> (g.i - 1))::bigint), 0) as dead
+              from jsonb_array_elements(v_s -> 'days') as d(j)) as k
+            cross join lateral (select v_s -> 'sections' -> (g.i - 1) as e) as c
+            where (v_s -> 'totals' -> 'dead_parts' ->> (g.i - 1))::bigint is distinct from k.dead
+              or (c.e ->> 'no')::int is distinct from g.i
+              or (c.e ->> 'placed')::bigint is distinct from v_flock.section_counts[g.i]::bigint
+              or (c.e ->> 'dead')::bigint is distinct from k.dead
+              or (c.e ->> 'remaining')::bigint is distinct from v_flock.section_counts[g.i] - k.dead
+              or (c.e ->> 'mortality_pct') is distinct from coalesce(private.flock_pct(k.dead, v_flock.section_counts[g.i]), '0.00')) then
+          v_sheets := v_sheets + 1;
+        end if;
+      exception when others then
+        v_sheets := v_sheets + 1;
+      end;
+    end loop;
+  end loop;
+  perform set_config('request.jwt.claims', coalesce(v_claims, ''), true);
+  perform set_config('request.jwt.claim.sub', coalesce(v_sub, ''), true);
+  return query select 'sheet_sections'::text, v_sheets;
 end
 $$;
 

@@ -1,4 +1,4 @@
-// «احذف القاعة» كأنها لم تكن (0037، العقد docs/plans/0037/contract-0037.md «الجزء D»، DECISIONS 2026-11-26): المعاينة بأشكالها (فوج قائم بأيّامه
+// «احذف القاعة» كأنها لم تكن (0039 فوق 0037_kerosene و0038_hall_sections، العقد docs/plans/0039/contract-0039.md «الجزء D»، DECISIONS 2026-11-26): المعاينة بأشكالها (فوج قائم بأيّامه
 // وزياراته وغازه وصرفه من «رصيد العلف» وتأشيره المصروف، ودورة منتهية، وقاعة بلا فوج، وقاعة فيها بيع طيور)، وكلّ منع بجملته ورمزه في الحذف (ومنها
 // تصحيح السعر والجرد بعد الإرسال: revalued وcounted بدقّة شرطي apply_move، ورمزاه lot_consumed وcount_superseded، ويرفعهما إلغاء التصحيح أو الجرد)، والنسخة
 // والبصمة، والإعادة بالمرجع وبالحالة، والمخزون يرجع بالكمية والقيمة ودفتر المادّة يُظهر الإرسال والعكس، وكلّ قارئ بلا الفوج الملغى وكلّ كاتب يرفضه،
@@ -6,9 +6,12 @@
 // وبلا سجلّ، وبدورة أُغلقت بإرجاع ثمّ أُعيد فتحها، والثوابت كلّها صفر بعدها)، وجلستان حقيقيتان مع void_flock_issue وrecord_flock_issue وundo_vaccination
 // وclose_flock وrecord_flock_count_adjust (pg_blocking_pids على الجلسة بعينها، وضوابط بأجسام مثبَّتة بترتيب أقفال آخر تتقافل أو تخطئ السبب ثمّ تعود
 // حرفاً)، والثابت verify_delete_hall بضوابطه (ومنها منع البيع والتذاكر والنقل المطبَّق: الحذف بلا منعه داخل معاملة ترجع)، وطفرة لكلّ تغيير في القرّاء
-// والكتّاب، وملفّ التراجع (الأجسام حرفاً، ورفضه بصوت، وبلا كتلته يرجّع القديم).
-// منشأة هذا الملفّ: المعرّفات d3737000 والهواتف 964770373700+ (ومنشأة ثانية بالمعرّفات d3737000-…-0000000009xx والهواتف 9647703737090+).
-// وعيّنات القاعدة الحقيقية للشاشات: DELETE_HALL_SAMPLES_OUT=1 يكتب scripts/tests/fixtures/delete-hall-0037.json.
+// والكتّاب، وملفّ التراجع (الأجسام حرفاً، ورفضه بصوت، وبلا كتلته يرجّع القديم). ومن 0037_kerosene و0038_hall_sections: كاتب الكاز يرفض الفوج الملغى
+// ويركنه من الطابور، وset_hall_sections ترفض القاعة المحذوفة، وقاعة مقسومة بكاز تُحذف بفوجها وتبقى أقسامها وكازها صفوفاً يخفيها الحذف والثوابت صفر،
+// وجلستان مع الكاتبين في الاتّجاهين.
+// منشأة هذا الملفّ: المعرّفات d3909000 والهواتف 964770390900+ (ومنشأة ثانية بالمعرّفات d3909000-…-0000000009xx والهواتف 9647703909090+)؛
+// كانت d3737000، وkerosene.test (0037_kerosene) يحملها.
+// وعيّنات القاعدة الحقيقية للشاشات: DELETE_HALL_SAMPLES_OUT=1 يكتب scripts/tests/fixtures/delete-hall-0039.json.
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,13 +22,13 @@ import { postedOpening } from './stock-kit.mjs';
 const DIR = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.resolve(DIR, '..', '..');
 const MIGRATIONS = path.join(DIR, '..', 'migrations');
-const FIXTURE = path.join(ROOT, 'scripts', 'tests', 'fixtures', 'delete-hall-0037.json');
+const FIXTURE = path.join(ROOT, 'scripts', 'tests', 'fixtures', 'delete-hall-0039.json');
 const TODAY = '2026-11-26';
 const DAY_MS = 86400000;
 const day = (n) => new Date(Date.parse(`${TODAY}T00:00:00Z`) + n * DAY_MS).toISOString().slice(0, 10);
 const ddmm = (on) => `${on.slice(8, 10)}/${on.slice(5, 7)}/${on.slice(0, 4)}`;
-const id = (n) => `d3737000-0000-4000-8000-${String(n).padStart(12, '0')}`;
-const phone = (n) => `96477037370${String(n).padStart(2, '0')}`;
+const id = (n) => `d3909000-0000-4000-8000-${String(n).padStart(12, '0')}`;
+const phone = (n) => `96477039090${String(n).padStart(2, '0')}`;
 /** وقت تسجيل قبل الآن بدقائق (ساعة الخادم الحقيقية). */
 const ago = (minutes) => new Date(Date.now() - minutes * 60000).toISOString();
 
@@ -40,6 +43,9 @@ const DAY = 'select public.save_flock_day($1, $2, $3, $4, $5, $6, $7, $8, $9, $1
 const DEAD = 'select public.set_flock_dead($1, $2, $3, $4, $5) as v';
 const ADD = 'select public.add_flock_gas($1, $2, $3, $4, $5) as v';
 const GAS = 'select public.set_flock_gas($1, $2, $3, $4, $5, $6) as v';
+const KEROSENE = 'select public.set_flock_kerosene($1, $2, $3, $4, $5, $6) as v';
+const DEAD_PARTS = 'select public.set_flock_dead($1, $2, $3, $4, $5, $6) as v';
+const SECTIONS = 'select public.set_hall_sections($1, $2, (select version from public.halls where id = $1), $3) as v';
 const SIG = {
   del: 'public.delete_hall(uuid, integer, text, uuid)',
   blocks: 'private.delete_hall_blocks(public.halls, public.flocks)',
@@ -50,12 +56,14 @@ const SIG = {
   dayCheck: 'private.flock_day_check(public.flocks, date)',
   hallsCheck: 'private.halls_check()',
   visit: 'public.save_flock_visit(uuid, uuid, date, timestamp with time zone, integer, integer, numeric, integer, integer, integer, text, integer, boolean, uuid, boolean)',
-  day: 'public.save_flock_day(uuid, date, integer, integer, numeric, numeric, numeric, numeric, integer, integer, integer, text, integer, uuid, boolean)',
-  dead: 'public.set_flock_dead(uuid, date, integer, uuid, boolean)',
+  day: 'public.save_flock_day(uuid, date, integer, integer, numeric, numeric, numeric, numeric, integer, integer, integer, text, integer, uuid, boolean, integer[])',
+  dead: 'public.set_flock_dead(uuid, date, integer, uuid, boolean, integer[])',
   add: 'public.add_flock_gas(uuid, date, integer, uuid, boolean)',
   gas: 'public.set_flock_gas(uuid, date, integer, bigint, uuid, boolean)',
+  kerosene: 'public.set_flock_kerosene(uuid, date, integer, bigint, uuid, boolean)',
+  sections: 'public.set_hall_sections(uuid, integer, integer, uuid)',
   weight: 'public.record_flock_weight(uuid, date, integer, numeric, uuid)',
-  edit: 'public.edit_flock(uuid, integer, date, integer, integer, text, uuid)',
+  edit: 'public.edit_flock(uuid, integer, date, integer, integer, text, uuid, integer[])',
   deleteFlock: 'public.delete_flock(uuid, integer, uuid)',
   record: 'public.record_flock_issue(uuid, uuid, uuid, uuid, uuid, numeric, date, uuid)',
   close: 'public.close_flock(uuid, uuid, uuid, date, integer, integer, jsonb, text, jsonb, text, text)',
@@ -69,6 +77,8 @@ const SIG = {
   cycles: 'public.flock_cycles()',
   voidIssue: 'public.void_flock_issue(uuid, text, uuid)',
   verifySheet: 'public.verify_hall_sheet()',
+  verifyKerosene: 'public.verify_kerosene()',
+  verifySections: 'public.verify_hall_sections()',
 };
 const VERIFY_ZERO = { void_flock_posted_issue: 0, void_flock_done_vaccination: 0, void_flock_live_hall: 0, void_flock_costs: 0, void_flock_shape: 0, void_flock_posted_sale: 0,
   void_flock_live_ticket: 0, void_flock_applied_carry: 0 };
@@ -565,6 +575,7 @@ async function scenario(t, db) {
       ['set_flock_dead', DEAD, [F.t8, day(-3), 1, uid(), false]],
       ['add_flock_gas', ADD, [F.t8, TODAY, 1, uid(), false]],
       ['set_flock_gas', GAS, [F.t8, TODAY, 3, null, uid(), false]],
+      ['set_flock_kerosene', KEROSENE, [F.t8, TODAY, 100, null, uid(), false]],
       ['send_flock_feed', 'select public.send_flock_feed($1, $2, $3, $4, $5, $6, $7) as v', [uid(), uid(), uid(), F.t8, I.m1, 10, TODAY]],
       ['record_flock_issue', RF, [uid(), uid(), uid(), F.t8, I.m1, 10, TODAY, W.feed]],
       ['give_to_flocks', GIVE, [uid(), TODAY, JSON.stringify([{ kind: 'log', flock_id: F.t8, id: uid(), name: 'دواء', dose: null }])]],
@@ -592,12 +603,17 @@ async function scenario(t, db) {
       ['set_flock_dead', DEAD, [F.t8, day(-2), 3, uid(), true]],
       ['add_flock_gas', ADD, [F.t8, TODAY, 1, uid(), true]],
       ['set_flock_gas', GAS, [F.t8, day(-1), 4, null, uid(), true]],
+      ['set_flock_kerosene', KEROSENE, [F.t8, day(-1), 120, null, uid(), true]],
     ];
     const parked = {};
-    for (const [name, sql, params] of queued) parked[name] = (await call(db, U.worker, sql, params)).value;
+    for (const [name, sql, params] of queued) {
+      const result = await call(db, U.worker, sql, params);
+      parked[name] = result.ok ? result.value : refusal(result);
+    }
     samples.parked_flock_void = parked.set_flock_dead;
-    same(parked, Object.fromEntries(queued.map(([name]) => [name, { status: 'parked', reason: 'flock_void' }])), 'من الطابور: كلّ عملية جولة parked بسبب flock_void');
-    same(await scalar("select count(*)::int from public.flock_day_rejects where flock_id = $1 and reason = 'flock_void'", [F.t8]), 5, 'وخمسة صفوف مركونة بسببها');
+    samples.parked_kerosene_flock_void = parked.set_flock_kerosene;
+    same(parked, Object.fromEntries(queued.map(([name]) => [name, { status: 'parked', reason: 'flock_void' }])), 'من الطابور: كلّ عملية جولة (والكاز من 0037_kerosene) parked بسبب flock_void');
+    same(await scalar("select count(*)::int from public.flock_day_rejects where flock_id = $1 and reason = 'flock_void'", [F.t8]), 6, 'وستّة صفوف مركونة بسببها');
   });
 
   // ── ٨) القاعات الأخرى: الدورة المنتهية تبقى، والفارغة، والفوج بلا سجلّ، والبيع الملغى ─────────────────────────────────────────
@@ -752,6 +768,82 @@ async function scenario(t, db) {
       [[counted], [], [], 2, 2], 'إلغاء الجرد يرفع counted: «قاعة الجرد» و«قاعة الجرد والسعر» بلا منع فتُحذفان بصرفهما');
     same([await stockOf(), await scalar("select count(*)::int from public.flocks where id = any ($1) and status = 'void'", [[FK, FR, FB]])], [start, 3],
       'والأفواج الثلاثة ملغاة، ورصيد «علف م/3» و«علف م/4» و«علف م/5» في «رصيد العلف» كما قبل الإرسال بالكمية والقيمة');
+  });
+
+  // ── ٨ج) القاعة المقسومة والكاز (0038_hall_sections و0037_kerosene): القاعة المحذوفة لا تتغيّر أقسامها، وقاعة مقسومة بفوجها القائم (هلاكات أقسام
+  //    وكاز وإرسال علف) تُحذف كغيرها: أقسامها وكازها صفوف باقية تخفيها حالة الفوج كأيّامه، والورقة وتقرير الوجبة (hall_sheet) والتقرير اليوميّ وجدول الحقل
+  //    بلاها، والثوابت كلّها صفر؛ وجلستان مع set_flock_kerosene وset_hall_sections في الاتّجاهين.
+  await section('القاعة المقسومة والكاز', async () => {
+    // القاعة المحذوفة (بفوجها الملغى، وبلا فوج) لا تتغيّر أقسامها.
+    const sectionsOf = async (hallId) => refusal(await dry(U.manager, SECTIONS, [hallId, 2, uid()]));
+    samples.refusal_sections_hall_archived = await sectionsOf(H.t8);
+    same([samples.refusal_sections_hall_archived, await sectionsOf(H.empty)],
+      [{ code: 'hall_archived', hint: `حُذفت القاعة «${NAMES.t8}»، فلا تتغيّر أقسامها.` }, { code: 'hall_archived', hint: `حُذفت القاعة «${NAMES.empty}»، فلا تتغيّر أقسامها.` }],
+      'set_hall_sections على قاعة محذوفة (بفوجها الملغى، أو بلا فوج): hall_archived بجملته');
+    same((await db.admin('select sections from public.halls where id = any ($1) order by name', [[H.t8, H.empty]])).rows.map((r) => r.sections), [1, 1], 'وأقسامهما كما كانت');
+
+    // قاعة مقسومة قسمين بفوجها: 2,000 بالتساوي قبل ستّة أيّام، وهلاكات قسمين يومين، وكاز يومين، وإرسال علف.
+    const split = await one(U.owner, "insert into public.halls (site_id, name, capacity, sections) values ($1, 'قاعة مقسومة', 30000, 2) returning id", [site]);
+    const flock = await open(split, day(-6), 2000);
+    await one(U.worker, DEAD_PARTS, [flock, day(-2), 5, uid(), false, [3, 2]]);
+    await one(U.worker, DEAD_PARTS, [flock, day(-1), 4, uid(), false, [1, 3]]);
+    await one(U.worker, KEROSENE, [flock, day(-1), 150, null, uid(), false]);
+    await one(U.worker, KEROSENE, [flock, TODAY, 40, null, uid(), false]);
+    await issue(U.keeper, { flock, item: I.m1, qty: 100 });
+    const sheet = await one(U.manager, 'select public.hall_sheet($1) as v', [flock]);
+    same([sheet.sections?.map((x) => [x.no, x.placed, x.dead]), sheet.totals?.dead_parts, sheet.totals?.kerosene, sheet.summary?.kerosene],
+      [[[1, 1000, 4], [2, 1000, 5]], [4, 5], 190, 190], 'قبل الحذف: الورقة بقسمين وهلاكاتهما وكاز 190 لتراً');
+    const p = await preview(split);
+    samples.preview_sectioned = p;
+    const done = await del(U.manager, split, p);
+    samples.delete_sectioned = done.value;
+    same([p.blocks, p.flock?.days, p.flock?.back?.map((r) => [r.item, r.qty]), done.ok ? [done.value.voided_issues, done.value.flock_id] : refusal(done)],
+      [[], 2, [['علف م/1', '100.000']], [1, flock]], 'القاعة المقسومة بفوجها القائم بلا منع، وتُحذف بصرفها');
+    const hidden = {};
+    for (const [name, sql] of [['hall_sheet', 'select public.hall_sheet($1) as v'], ['flock_cycle_report', 'select public.flock_cycle_report($1) as v'],
+      ['flock_detail', 'select public.flock_detail($1) as v']]) hidden[name] = refusal(await call(db, U.manager, sql, [flock]));
+    same(hidden, { hall_sheet: { code: 'flock_void', hint: VOID_HINT }, flock_cycle_report: { code: 'flock_void', hint: VOID_HINT }, flock_detail: { code: 'flock_void', hint: VOID_HINT } },
+      'بعد الحذف: ورقة القاعة وتقرير الوجبة (hall_sheet) وتقرير الدورة والتفاصيل flock_void، فلا أقسام ولا كاز يُعرض');
+    const listed = (await one(U.manager, 'select public.flocks_overview() as v', [])).sites.some((x) => x.halls.some((h) => h.id === split));
+    const daily = (await one(U.manager, 'select public.halls_day(null) as v', [])).sites.some((x) => x.halls.some((h) => h.hall_id === split));
+    same([listed, daily], [false, false], 'ولا تظهر القاعة في جدول الحقل ولا في التقرير اليوميّ');
+    same(await scalar(`select (select count(*) from public.flock_visits where flock_id = $1 and dead_parts is not null) || '/' ||
+      (select count(*) from public.flock_daily where flock_id = $1 and dead_parts is not null) || '/' || (select count(*) from public.flock_day_kerosene where flock_id = $1)
+      || '/' || (select array_to_string(section_counts, ',') from public.flocks where id = $1)`, [flock]), '2/2/2/1000,1000',
+    'وأقسامها وكازها صفوف باقية (سجلّ التدقيق) كأيّامها: زيارتان ويومان بأقسامهما، وكاز يومين، وعدد كلّ قسم');
+    const zero = (rows) => Object.fromEntries(rows.map((r) => [r.check_name, Number(r.violations)]));
+    const checks = await db.asService(async (q) => ({
+      kerosene: zero((await q('select * from public.verify_kerosene()')).rows),
+      sections: zero((await q('select * from public.verify_hall_sections()')).rows),
+      sheet: zero((await q('select * from public.verify_hall_sheet()')).rows),
+    }));
+    same([Object.entries(checks.kerosene).filter(([, v]) => v !== 0), Object.entries(checks.sections).filter(([, v]) => v !== 0), Object.entries(checks.sheet).filter(([, v]) => v !== 0)],
+      [[], [], []], `والثوابت verify_kerosene وverify_hall_sections وverify_hall_sheet صفر والوجبة الملغاة بكازها وأقسامها فيها (${JSON.stringify(checks)})`);
+
+    // جلستان: الحذف أمام كاتب الكاز وكاتب الأقسام في الاتّجاهين (pg_blocking_pids على الجلسة بعينها)، بلا تقافل والخاسر يرى سببه.
+    const HX = {};
+    for (const key of ['k1', 'k2', 's1', 's2']) {
+      HX[key] = await hall(`قاعة الجلستين ${key}`);
+      HX[`${key}Flock`] = await open(HX[key], day(-4), 1000);
+    }
+    const plan = async (key) => preview(HX[key]);
+    const pk1 = await plan('k1');
+    const k1 = await duel({ user: U.worker, sql: KEROSENE, params: [HX.k1Flock, TODAY, 60, null, uid(), false] },
+      { user: U.manager, sql: DELETE, params: [HX.k1, pk1.hall.version, pk1.plan, uid()] });
+    const pk2 = await plan('k2');
+    const k2 = await duel({ user: U.manager, sql: DELETE, params: [HX.k2, pk2.hall.version, pk2.plan, uid()] },
+      { user: U.worker, sql: KEROSENE, params: [HX.k2Flock, TODAY, 60, null, uid(), false] });
+    const ps1 = await plan('s1');
+    const s1 = await duel({ user: U.manager, sql: SECTIONS, params: [HX.s1, 2, uid()] }, { user: U.manager, sql: DELETE, params: [HX.s1, ps1.hall.version, ps1.plan, uid()] });
+    const ps2 = await plan('s2');
+    const s2 = await duel({ user: U.manager, sql: DELETE, params: [HX.s2, ps2.hall.version, ps2.plan, uid()] }, { user: U.manager, sql: SECTIONS, params: [HX.s2, 2, uid()] });
+    const shown = (r) => (r.ok ? (r.rows[0].v.status ?? (r.rows[0].v.deleted ? 'deleted' : 'ok')) : r.error);
+    same({ k1: [shown(k1.first), k1.blocked, shown(k1.second)], k2: [shown(k2.first), k2.blocked, shown(k2.second), k2.second.hint ?? null],
+      s1: [shown(s1.first), s1.blocked, shown(s1.second)], s2: [shown(s2.first), s2.blocked, shown(s2.second)] },
+    { k1: ['saved', true, 'deleted'], k2: ['deleted', true, 'flock_void', VOID_HINT], s1: ['saved', true, 'stale_hall'], s2: ['deleted', true, 'hall_archived'] },
+    'جلستان: الكاز ثمّ الحذف (ينتظر الوجبة ثمّ يحذف، والكاز صفّ يخفيه الحذف)، والحذف ثمّ الكاز (ينتظر ثمّ flock_void)، والأقسام ثمّ الحذف (ينتظر القاعة ثمّ stale_hall)، والحذف ثمّ الأقسام (ينتظر ثمّ hall_archived)');
+    same(await scalar("select string_agg(f.status || ':' || coalesce(k.liters::text, '-'), ',' order by h.name) from public.halls h join public.flocks f on f.hall_id = h.id left join public.flock_day_kerosene k on k.flock_id = f.id where h.id = any ($1)",
+      [[HX.k1, HX.k2]]), 'void:60,void:-', 'وبعد الجلستين: الوجبتان ملغاتان، وكاز الأولى صفّ باقٍ والثانية بلا كاز');
   });
 
   // ── ٩) جلستان حقيقيتان ─────────────────────────────────────────────────────────────────────────────────────────────
@@ -935,9 +1027,9 @@ async function scenario(t, db) {
       ['record_flock_issue (قبل القفل)', SIG.record, [["  select * into h from public.halls y where y.org_id = f.org_id and y.id = f.hall_id;\n  if f.status = 'void' then",
         '  select * into h from public.halls y where y.org_id = f.org_id and y.id = f.hall_id;\n  if false then']],
       (a) => inside(a, U.manager, RF, [uid(), uid(), uid(), F.t8, I.m1, 10, day(1), W.feed]).then((v) => v?.code ?? 'ok')],
-      ['flock_detail', SIG.detail, [off("  -- 0037: فوج حُذفت قاعته لا يُعرض.\n  if f.status = 'void' then")], (a) => inside(a, U.manager, 'select public.flock_detail($1) as v', [F.t8]).then((v) => v?.code ?? 'ok')],
-      ['flock_feed', SIG.feed, [off("  -- 0037: فوج حُذفت قاعته لا يُعرض.\n  if f.status = 'void' then")], (a) => inside(a, U.manager, 'select public.flock_feed($1) as v', [F.t8]).then((v) => v?.code ?? 'ok')],
-      ['flock_issue_options', SIG.options, [off("  -- 0037: فوج حُذفت قاعته لا يُعرض.\n  if f.status = 'void' then")],
+      ['flock_detail', SIG.detail, [off("  -- 0039: فوج حُذفت قاعته لا يُعرض.\n  if f.status = 'void' then")], (a) => inside(a, U.manager, 'select public.flock_detail($1) as v', [F.t8]).then((v) => v?.code ?? 'ok')],
+      ['flock_feed', SIG.feed, [off("  -- 0039: فوج حُذفت قاعته لا يُعرض.\n  if f.status = 'void' then")], (a) => inside(a, U.manager, 'select public.flock_feed($1) as v', [F.t8]).then((v) => v?.code ?? 'ok')],
+      ['flock_issue_options', SIG.options, [off("  -- 0039: فوج حُذفت قاعته لا يُعرض.\n  if f.status = 'void' then")],
         (a) => inside(a, U.manager, 'select public.flock_issue_options($1) as v', [F.t8]).then((v) => v?.code ?? 'ok')],
       ['round_visits (بمعرّفه)', SIG.visits, [off("    if f.status = 'void' then")], (a) => inside(a, U.manager, 'select public.round_visits($1, $2, $3) as v', [TODAY, 'broiler', F.t8]).then((v) => v?.code ?? 'ok')],
       ['round_visits (القائمة)', SIG.visits, [["and fl.status <> 'void' and", 'and']],
@@ -950,6 +1042,15 @@ async function scenario(t, db) {
         (a) => inside(a, U.manager, 'select public.flock_cycles() as v', []).then((v) => v.cycles.some((c) => c.id === F.t8))],
       ['verify_hall_sheet', SIG.verifySheet, [["and x.placed_on is not null and x.status <> 'void' order by x.id loop", 'and x.placed_on is not null order by x.id loop']],
         (a) => a(U.owner, async (q) => (await q('select coalesce(sum(violations), 0)::int as v from public.verify_hall_sheet()')).rows[0].v, 'postgres').then((r) => r.value)],
+      // 0037_kerosene و0038_hall_sections.
+      ['set_flock_kerosene', SIG.kerosene, [["case when f.status = 'void' then 'flock_void' when", "case when false then 'flock_void' when"]],
+        (a) => inside(a, U.worker, KEROSENE, [F.t8, day(-5), 7, null, uid(), true])],
+      ['set_hall_sections', SIG.sections, [["  if h.archived_at is not null then\n    raise exception 'hall_archived'", "  if false then\n    raise exception 'hall_archived'"]],
+        (a) => inside(a, U.manager, SECTIONS, [H.t8, 2, uid()]).then((v) => v?.code ?? v?.status)],
+      ['verify_kerosene', SIG.verifyKerosene, [["x.placed_on is not null and x.status <> 'void'\n        and exists", 'x.placed_on is not null\n        and exists']],
+        (a) => a(U.owner, async (q) => (await q('select coalesce(sum(violations), 0)::int as v from public.verify_kerosene()')).rows[0].v, 'postgres').then((r) => r.value)],
+      ['verify_hall_sections', SIG.verifySections, [["x.section_counts is not null and x.status <> 'void' order by x.id loop", 'x.section_counts is not null order by x.id loop']],
+        (a) => a(U.owner, async (q) => (await q('select coalesce(sum(violations), 0)::int as v from public.verify_hall_sections()')).rows[0].v, 'postgres').then((r) => r.value)],
     ];
     const results = [];
     for (const [name, sig, pairs, probe] of MUTATIONS) {
@@ -965,6 +1066,7 @@ async function scenario(t, db) {
       set_flock_dead: parkedVoid, add_flock_gas: parkedVoid, set_flock_gas: parkedVoid, record_flock_weight: 'flock_void', edit_flock: 'flock_void', delete_flock: 'flock_void',
       'record_flock_issue (قبل القفل)': 'flock_void', flock_detail: 'flock_void', flock_feed: 'flock_void', flock_issue_options: 'flock_void', 'round_visits (بمعرّفه)': 'flock_void',
       'round_visits (القائمة)': false, halls_day: false, halls_history: false, flock_cycles: false, verify_hall_sheet: 0,
+      set_flock_kerosene: parkedVoid, set_hall_sections: 'hall_archived', verify_kerosene: 0, verify_hall_sections: 0,
     }, 'والأجسام الحقيقية بالنتائج المطلوبة');
     // void_flock_issue: صرف فوج ملغى ملغى دائماً (الثابت)، فحارسه الثاني يُفحص بخرق الثابت داخل معاملة ترجع.
     const issueOf = await scalar("select id from public.flock_issues where flock_id = $1 and status = 'void' order by doc_no limit 1", [F.t8]);
@@ -981,8 +1083,8 @@ async function scenario(t, db) {
   await section('اليوم السابق', async () => {
     const G2 = await makeOrg(db, {
       name: 'مزرعة الحذف الثانية',
-      id: (n) => `d3737000-0000-4000-8000-0000000009${String(n).padStart(2, '0')}`,
-      phone: (n) => `964770373709${n}`,
+      id: (n) => `d3909000-0000-4000-8000-0000000009${String(n).padStart(2, '0')}`,
+      phone: (n) => `964770390909${n}`,
       roles: [['owner', 'owner']],
     });
     const owner = G2.users.owner;
@@ -1000,19 +1102,21 @@ async function scenario(t, db) {
 
   // ── ١٢) ملفّ التراجع ──────────────────────────────────────────────────────────────────────────────────────────────
   await section('ملفّ التراجع', async () => {
-    const rollback = readFileSync(path.join(MIGRATIONS, 'rollback_0037.sql'), 'utf8');
-    const forward = readFileSync(path.join(MIGRATIONS, '0037_delete_hall.sql'), 'utf8');
+    const rollback = readFileSync(path.join(MIGRATIONS, 'rollback_0039.sql'), 'utf8');
+    const forward = readFileSync(path.join(MIGRATIONS, '0039_delete_hall.sql'), 'utf8');
     const BODIES = [['0026_halls_v2.sql', 'private.flock_for'], ['0035_hall_sheet.sql', 'private.flock_day_check'], ['0029_bird_sales_close.sql', 'private.halls_check'],
-      ['0036_round_once.sql', 'public.save_flock_visit'], ['0036_round_once.sql', 'public.save_flock_day'], ['0036_round_once.sql', 'public.set_flock_dead'],
+      ['0038_hall_sections.sql', 'public.save_flock_visit'], ['0038_hall_sections.sql', 'public.save_flock_day'], ['0038_hall_sections.sql', 'public.set_flock_dead'],
       ['0036_round_once.sql', 'public.add_flock_gas'], ['0035_hall_sheet.sql', 'public.set_flock_gas'], ['0035_hall_sheet.sql', 'public.record_flock_weight'],
-      ['0035_hall_sheet.sql', 'public.edit_flock'], ['0035_hall_sheet.sql', 'public.delete_flock'], ['0019_flock_issue.sql', 'public.record_flock_issue'],
+      ['0038_hall_sections.sql', 'public.edit_flock'], ['0037_kerosene.sql', 'public.delete_flock'], ['0019_flock_issue.sql', 'public.record_flock_issue'],
       ['0029_bird_sales_close.sql', 'public.close_flock'], ['0029_bird_sales_close.sql', 'public.record_flock_count_adjust'], ['0029_bird_sales_close.sql', 'public.flock_detail'],
       ['0029_bird_sales_close.sql', 'public.flock_feed'], ['0019_flock_issue.sql', 'public.flock_issue_options'], ['0032_round_visits.sql', 'public.round_visits'],
       ['0029_bird_sales_close.sql', 'public.halls_day'], ['0036_round_once.sql', 'public.halls_history'], ['0029_bird_sales_close.sql', 'public.flock_cycles'],
-      ['0019_flock_issue.sql', 'public.void_flock_issue'], ['0035_hall_sheet.sql', 'public.verify_hall_sheet']];
+      ['0019_flock_issue.sql', 'public.void_flock_issue'], ['0038_hall_sections.sql', 'public.verify_hall_sheet'],
+      ['0037_kerosene.sql', 'public.set_flock_kerosene'], ['0038_hall_sections.sql', 'public.set_hall_sections'], ['0038_hall_sections.sql', 'public.verify_kerosene'],
+      ['0038_hall_sections.sql', 'public.verify_hall_sections']];
     same(BODIES.filter(([file, head]) => !rollback.includes(bodyOf(file, head))).map(([, head]) => head), [], `ملفّ التراجع يرجّع الأجسام (${BODIES.length}) كما في آخر هجرة عرّفتها حرفاً`);
-    same(BODIES.map(([, head]) => head).filter((head) => forward.split(`create or replace function ${head}(`).length !== 2), [], 'وكلّ جسم منها معرَّف في 0037 مرّة واحدة');
-    same(BODIES.filter(([file, head]) => bodyOf(file, head) === bodyOf('0037_delete_hall.sql', head)).map(([, head]) => head), [], 'وكلّ جسم منها تغيّر في 0037');
+    same(BODIES.map(([, head]) => head).filter((head) => forward.split(`create or replace function ${head}(`).length !== 2), [], 'وكلّ جسم منها معرَّف في 0039 مرّة واحدة');
+    same(BODIES.filter(([file, head]) => bodyOf(file, head) === bodyOf('0039_delete_hall.sql', head)).map(([, head]) => head), [], 'وكلّ جسم منها تغيّر في 0039');
     const run = async (oq, sql) => {
       await oq('savepoint rollback_probe');
       try {
@@ -1042,7 +1146,7 @@ async function scenario(t, db) {
   same(await db.asService(verifyOf), VERIFY_ZERO, 'الثابت صفر في نهاية الملفّ');
   if (process.env.DELETE_HALL_SAMPLES_OUT) {
     writeFileSync(FIXTURE, JSON.stringify({
-      _note: `عيّنات القاعدة الحقيقية (supabase/tests/delete-hall.test.mjs بـDELETE_HALL_SAMPLES_OUT=1، اليوم المثبَّت ${TODAY})؛ محلّلات الشاشات (الجزء H) تقرؤها. منشأة كمنشأة الزبون: «${NAMES.t8}» بفوج قائم (14 يوماً من الجولات وغاز وسبع إرسالات علف من «رصيد العلف» وتأشير لقاح مصروف ودواء ووزن وفرق عدّ وتذكرة ملغاة)، و«${NAMES.ended}» بدورة منتهية، و«${NAMES.empty}» بلا فوج، و«${NAMES.sale}» بفاتورة طيور، و«قاعة الجرد» و«قاعة السعر» و«قاعة الجرد والسعر» لمنعي counted وrevalued (جرد معتمد وسعر أُكمل بعد الإرسال). والصلاحية (permission) لا تقع بعد 0034 لعضو في منشأته، فعيّناتها من معاملة ترجع ودالّة النطاق أو الفعل تقول لا.`,
+      _note: `عيّنات القاعدة الحقيقية (supabase/tests/delete-hall.test.mjs بـDELETE_HALL_SAMPLES_OUT=1، اليوم المثبَّت ${TODAY})؛ محلّلات الشاشات (الجزء H) تقرؤها. منشأة كمنشأة الزبون: «${NAMES.t8}» بفوج قائم (14 يوماً من الجولات وغاز وسبع إرسالات علف من «رصيد العلف» وتأشير لقاح مصروف ودواء ووزن وفرق عدّ وتذكرة ملغاة)، و«${NAMES.ended}» بدورة منتهية، و«${NAMES.empty}» بلا فوج، و«${NAMES.sale}» بفاتورة طيور، و«قاعة الجرد» و«قاعة السعر» و«قاعة الجرد والسعر» لمنعي counted وrevalued (جرد معتمد وسعر أُكمل بعد الإرسال)، و«قاعة مقسومة» بقسمين وكاز (0038 و0037_kerosene). والصلاحية (permission) لا تقع بعد 0034 لعضو في منشأته، فعيّناتها من معاملة ترجع ودالّة النطاق أو الفعل تقول لا.`,
       ...samples,
     }, null, 1) + '\n');
   }
