@@ -582,10 +582,10 @@ const halls28Seed = (variant) => async (db) => {
 };
 
 /**
- * 0037 (طريق الرفض): ترتيب قسم ولون مادّة وإعدادات ألوان، والتراجع يُسقط جداولها؛ ثلاث حالات كلّ واحدة ببذرتها (المدير بدوالّ 0037): ترتيب
+ * 0039 (طريق الرفض): ترتيب قسم ولون مادّة وإعدادات ألوان، والتراجع يُسقط جداولها؛ ثلاث حالات كلّ واحدة ببذرتها (المدير بدوالّ 0039): ترتيب
  * «موادّ العلف» مقلوباً (order)، ولون «ذرة صفراء» (mark)، و«لوّن تلقائيّاً» (colors).
  */
-const store37Seed = (variant) => async (db) => {
+const store39Seed = (variant) => async (db) => {
   await seedThroughRpcs(db);
   await db.asUser(U.manager, async (q) => {
     if (variant === 'order') {
@@ -837,25 +837,25 @@ const roundSeed = (variant) => async (db) => {
 };
 
 export const BLOCKING_SEEDS = {
-  37: [
+  39: [
     {
       name: 'ترتيب قسم محفوظ',
       code: 'rollback_blocked',
-      seed: store37Seed('order'),
+      seed: store39Seed('order'),
       data: "select (select count(*) from public.store_orders where cardinality(item_ids) > 0)::text || '/' || (select count(*) from public.items)::text as v",
       mutate: (sql) => sql.replace('if v_orders + v_marks + v_settings > 0 then', 'if v_marks + v_settings > 0 then'),
     },
     {
       name: 'لون مادّة',
       code: 'rollback_blocked',
-      seed: store37Seed('mark'),
+      seed: store39Seed('mark'),
       data: "select (select count(*) from public.item_marks where color is not null)::text || '/' || (select count(*) from public.items)::text as v",
       mutate: (sql) => sql.replace('if v_orders + v_marks + v_settings > 0 then', 'if v_orders + v_settings > 0 then'),
     },
     {
       name: 'إعدادات ألوان',
       code: 'rollback_blocked',
-      seed: store37Seed('colors'),
+      seed: store39Seed('colors'),
       data: "select (select count(*) from public.store_color_settings where auto)::text || '/' || (select count(*) from public.items)::text as v",
       mutate: (sql) => sql.replace('if v_orders + v_marks + v_settings > 0 then', 'if v_orders + v_marks > 0 then'),
     },
@@ -1376,7 +1376,7 @@ export const BLOCKING_REQUIRED = [
   [33, 8, 'فاتورة بأكثر من سطر، وبخصم، ومن صندوقين، وبدفع جزئيّ، وبوحدة بيع، وبملاحظة، ولزبون نقديّ، وساق مدقَّقة لفاتورة جديدة مدفوعة كلّها، كلّ واحدة توقف التراجع'],
   [35, 3, 'خانة غاز، وعلف أُرسل ليوم فات، وغاز مركون، كلّ واحد يوقف التراجع'],
   [36, 3, 'يوم سُجّلت هلاكاته صفراً، وهلاكات مركونة، وغاز مضاف مركون، كلّ واحد يوقف التراجع'],
-  [37, 3, 'ترتيب قسم محفوظ، ولون مادّة، وإعدادات ألوان، كلّ واحد يوقف التراجع'],
+  [39, 3, 'ترتيب قسم محفوظ، ولون مادّة، وإعدادات ألوان، كلّ واحد يوقف التراجع'],
 ];
 
 /**

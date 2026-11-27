@@ -1,7 +1,7 @@
-// ترتيب الموادّ وألوان الرصيد على الشاشات (0037؛ رسالتا الزبون الصوتيّتان 2026-11-26 وأجوبة المالك؛ DECISIONS 2026-11-26): react-dom/client الحقيقي
+// ترتيب الموادّ وألوان الرصيد على الشاشات (0039؛ رسالتا الزبون الصوتيّتان 2026-11-26 وأجوبة المالك؛ DECISIONS 2026-11-26): react-dom/client الحقيقي
 // على DOM صغير (dom.mjs) يشغّل StockRoutes الحقيقية، وrepo/storeMarks وrepo/dayBalance وrepo/purchases الحقيقيين (المحلّلات وبناء النداءات) على core
-// بديل يسجّل كلّ نداء ويجيب بعيّنات القاعدة الحقيقية (fixtures/store-colors-0037.json من supabase/tests/store-colors.test.mjs بـ
-// STORE_COLORS_SAMPLES_OUT=1). الحالات: P المحلّلات بكلّ عيّنة وتسامحها مع خادم قبل 0037 وصرامتها، واللون الظاهر، ومساعدات السحب والحدّ؛
+// بديل يسجّل كلّ نداء ويجيب بعيّنات القاعدة الحقيقية (fixtures/store-colors-0039.json من supabase/tests/store-colors.test.mjs بـ
+// STORE_COLORS_SAMPLES_OUT=1). الحالات: P المحلّلات بكلّ عيّنة وتسامحها مع خادم قبل 0039 وصرامتها، واللون الظاهر، ومساعدات السحب والحدّ؛
 // D الرصيد اليوميّ: تظليل الصفّ بلونه وكلمة الحالة، وزرّ اللون (اللون والإزالة وmark_changed والنتيجة المجهولة)، وحدّ القلّة، و«رتّب» بالسهمين
 // والسحب وorder_changed، و«ألوان الرصيد» وcolors_changed، والمشاركة بعلامة اللون، ومن لا يملك الأفعال؛ B البطاقات بلونها وحالتها و«رتّب»؛
 // F ملفّ المادّة بلونها وحدّها وزرّها.
@@ -12,8 +12,8 @@ import { fileURLToPath } from 'node:url';
 import { descendants, fire, installDom, settle } from './dom.mjs';
 
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
-const F = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'store-colors-0037.json'), 'utf8'));
-// عيّنة الرصيد اليوميّ قبل 0037 (مكتوبة باليد بمفاتيح 0035): بلا mark ولا state ولا colors ولا can_arrange.
+const F = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'store-colors-0039.json'), 'utf8'));
+// عيّنة الرصيد اليوميّ قبل 0039 (مكتوبة باليد بمفاتيح 0035): بلا mark ولا state ولا colors ولا can_arrange.
 const OLD = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'day-balance-sections.hand.json'), 'utf8')).day_balance_sections.owner;
 const clone = (value) => JSON.parse(JSON.stringify(value));
 const real = (name) => JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', `${name}.ts`));
@@ -188,7 +188,7 @@ export default async function (t) {
       t.same([file.itemId, file.baseUnit, file.canMark, file.mark?.version, file.colors.version], [I.corn, 'kg', true, 4, 1], 'P item_mark');
       t.eq(m.parseItemMark(clone(F.item_mark_none)).mark, null, 'P item_mark لمادّة بلا لون ولا حدّ: mark = null');
       const old = m.parseDayBalanceSections(clone(OLD));
-      t.same([old.colors, old.canArrange, old.sections[0].rows[0].mark, old.sections[0].rows[0].state], [m.DEFAULT_COLORS, false, null, null], 'P خادم قبل 0037 (بين النشر والتطبيق): بلا لون ولا ترتيب ولا حالة، ولا رمي');
+      t.same([old.colors, old.canArrange, old.sections[0].rows[0].mark, old.sections[0].rows[0].state], [m.DEFAULT_COLORS, false, null, null], 'P خادم قبل 0039 (بين النشر والتطبيق): بلا لون ولا ترتيب ولا حالة، ولا رمي');
       const row0 = rowsOf(DB, 'feed_materials')[1];
       const withRow = (patch) => () => m.parseDayBalanceSections({ ...clone(DB), sections: [{ key: 'feed_materials', rows: [{ ...clone(row0), ...patch }] }] });
       t.throws(withRow({ mark: { color: 'gold', low_qty: null, version: 1 } }), 'P صرامة: لون ليس من الثمانية');
@@ -343,7 +343,7 @@ export default async function (t) {
 
     // ── D6: «رتّب» بالسهمين والسحب، وorder_changed ─────────────────────────────────────────────────────────────────
     await step('D6', async () => {
-      const added = { id: 'aaaaaaaa-0000-4000-8000-000000000037', kind: 'raw', name: 'كلس' };
+      const added = { id: 'aaaaaaaa-0000-4000-8000-000000000039', kind: 'raw', name: 'كلس' };
       const log = fresh(KEEPER, {
         day_balance_sections: dayAnswer(),
         store_section_items: async (_args, n) => (n === 1 ? clone(F.store_section_items) : { ...clone(F.store_section_items), items: [...F.store_section_items.items.filter((x) => x.id !== I.premix), added] }),

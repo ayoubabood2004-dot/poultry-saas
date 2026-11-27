@@ -5,9 +5,9 @@ import type { BaseUnit } from '../../domain/units';
 import { call } from './core';
 import { arr, bool, count, obj, oneOf, RowShapeError, scaled, str } from './inventory';
 
-// ترتيب الموادّ وألوان الرصيد (0037، رسالتا الزبون الصوتيّتان 2026-11-26؛ DECISIONS 2026-11-26): ترتيب كلّ قسم من أقسام المخزن بالسحب
+// ترتيب الموادّ وألوان الرصيد (0039، رسالتا الزبون الصوتيّتان 2026-11-26؛ DECISIONS 2026-11-26): ترتيب كلّ قسم من أقسام المخزن بالسحب
 // (store_section_items وset_store_order)، ولون كلّ مادّة وحدّ قلّتها (set_item_color وset_item_low وitem_mark)، و«لوّن تلقائيّاً» ولونا القلّة
-// والنفاد (set_store_colors). ومحلّلات mark وstate وcolors يستعملها الرصيد اليوميّ وبطاقات المخزن. مفاتيح 0037 تغيب في جواب خادم قبلها (بين
+// والنفاد (set_store_colors). ومحلّلات mark وstate وcolors يستعملها الرصيد اليوميّ وبطاقات المخزن. مفاتيح 0039 تغيب في جواب خادم قبلها (بين
 // النشر والتطبيق) فتُقرأ بلا لون ولا ترتيب، وما يُرسل يُقرأ بشكله كلّه أو يُرفض. ملف كسول بحزمة المخزن، وindex ما يصدّره.
 
 type Row = Record<string, unknown>;
@@ -47,7 +47,7 @@ const nat = (row: Row, field: string): number => {
   return value;
 };
 
-/** mark صفّ: غيابه (خادم قبل 0037) أو null = بلا لون ولا حدّ؛ وما يُرسل بلونه من الثمانية أو null، وحدّه موجباً أو null، ونسخته ≥ 1. */
+/** mark صفّ: غيابه (خادم قبل 0039) أو null = بلا لون ولا حدّ؛ وما يُرسل بلونه من الثمانية أو null، وحدّه موجباً أو null، ونسخته ≥ 1. */
 export function markOf(row: Row, field = 'mark'): ItemMark | null {
   const value = row[field];
   if (value === null || value === undefined) return null;
@@ -67,7 +67,7 @@ export function stateOf(row: Row, field = 'state'): StockState | null {
   return oneOf(row, field, STATES);
 }
 
-/** colors الجواب: غيابه (خادم قبل 0037) = الافتراض؛ وما يُرسل بشكله كلّه. */
+/** colors الجواب: غيابه (خادم قبل 0039) = الافتراض؛ وما يُرسل بشكله كلّه. */
 export function colorsOf(json: Row, field = 'colors'): StoreColors {
   const value = json[field];
   if (value === undefined) return DEFAULT_COLORS;
@@ -75,7 +75,7 @@ export function colorsOf(json: Row, field = 'colors'): StoreColors {
   return { auto: bool(box, 'auto'), low: oneOf(box, 'low', MARK_COLORS), out: oneOf(box, 'out', MARK_COLORS), version: nat(box, 'version') };
 }
 
-/** علم can_arrange: غيابه (خادم قبل 0037) = لا ترتيب. */
+/** علم can_arrange: غيابه (خادم قبل 0039) = لا ترتيب. */
 export function arrangeOf(json: Row): boolean {
   return json.can_arrange === undefined ? false : bool(json, 'can_arrange');
 }

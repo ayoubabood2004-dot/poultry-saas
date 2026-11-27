@@ -77,9 +77,9 @@ export interface DayRow {
   note: DayNote | null;
   /** تصنيف المادّة (يرتّب الصفوف بالخادم) أو null. */
   category: Named | null;
-  /** لونها باليد وحدّ قلّتها (0037)، أو null. */
+  /** لونها باليد وحدّ قلّتها (0039)، أو null. */
   mark: ItemMark | null;
-  /** نافدة أو قليلة برصيد اليوم المعروض (0037)، أو null. */
+  /** نافدة أو قليلة برصيد اليوم المعروض (0039)، أو null. */
   state: StockState | null;
 }
 
@@ -98,9 +98,9 @@ export interface DayBalanceSections {
   canNote: boolean;
   /** الأقسام الثلاثة دائماً وبترتيب DAY_SECTION_KEYS (قسم غاب من الجواب = بلا صفوف). */
   sections: readonly DaySection[];
-  /** «لوّن تلقائيّاً» ولونا القلّة والنفاد (0037). */
+  /** «لوّن تلقائيّاً» ولونا القلّة والنفاد (0039). */
   colors: StoreColors;
-  /** can('stores.manage'): «رتّب» (0037). */
+  /** can('stores.manage'): «رتّب» (0039). */
   canArrange: boolean;
 }
 

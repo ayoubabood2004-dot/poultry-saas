@@ -1,4 +1,4 @@
-// ترتيب الموادّ وألوان الرصيد (0037؛ رسالتا الزبون الصوتيّتان 2026-11-26: «انا ارتب المواد… نريد نحط الأساسيات بالبداية»، و«أدوس عليها تتأشر أصفر،
+// ترتيب الموادّ وألوان الرصيد (0039؛ رسالتا الزبون الصوتيّتان 2026-11-26: «انا ارتب المواد… نريد نحط الأساسيات بالبداية»، و«أدوس عليها تتأشر أصفر،
 // أي لون أريد، حتى من أدزلهم الرصيد اليومي تكون مضللة»؛ وأجوبة المالك: اللون يبقى حتى يُشال، و«قليلة» بحدّ لكلّ مادّة؛ DECISIONS 2026-11-26):
 // (١) ترتيب القسم بشرط القائمة التي رآها الكاتب، ومنه يُرتَّب الرصيد اليوميّ وبطاقات المخزن معاً، والمادّة الجديدة بعده؛ (٢) لون المادّة وحدّ قلّتها
 // بشرط النسخة، والإعادة بالقيمة نفسها بلا رفض، والحالة (نافدة وقليلة) برصيد اليوم المعروض؛ (٣) إعدادات الألوان؛ (٤) «احذف» كما كان؛ وطفرات تكسر
@@ -10,8 +10,8 @@ import { call, makeOrg, uid } from './ledger-kit.mjs';
 import { mutant } from './purchase-kit.mjs';
 import { postedOpening } from './stock-kit.mjs';
 
-// وعيّنات القاعدة الحقيقية للشاشات: STORE_COLORS_SAMPLES_OUT=1 يكتب scripts/tests/fixtures/store-colors-0037.json.
-const FIXTURE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'scripts', 'tests', 'fixtures', 'store-colors-0037.json');
+// وعيّنات القاعدة الحقيقية للشاشات: STORE_COLORS_SAMPLES_OUT=1 يكتب scripts/tests/fixtures/store-colors-0039.json.
+const FIXTURE = path.join(path.dirname(fileURLToPath(import.meta.url)), '..', '..', 'scripts', 'tests', 'fixtures', 'store-colors-0039.json');
 const TODAY = '2026-11-26';
 const id = (n) => `d3710000-0000-4000-8000-${String(n).padStart(12, '0')}`;
 const phone = (n) => `96477037100${String(n).padStart(2, '0')}`;

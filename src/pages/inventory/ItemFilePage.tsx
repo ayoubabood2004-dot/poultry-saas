@@ -417,7 +417,7 @@ export function savedText(result: RecordedPurchase, file: Pick<ItemFile, 'item'>
 }
 
 /**
- * لون المادّة وحدّ قلّتها في ملفّها (0037): بقراءة item_mark وحدها (item_file كما هو)، وزرّ «اللون وحدّ القلّة» لمن يكتبهما (can_mark) والمادّة
+ * لون المادّة وحدّ قلّتها في ملفّها (0039): بقراءة item_mark وحدها (item_file كما هو)، وزرّ «اللون وحدّ القلّة» لمن يكتبهما (can_mark) والمادّة
  * ظاهرة. فشل القراءة يُقال بسطره ولا يوقف الملفّ.
  */
 function ItemMarkLine({ itemId, name, live }: { itemId: string; name: string; live: boolean }) {

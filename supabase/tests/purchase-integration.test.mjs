@@ -448,7 +448,7 @@ async function scenario(t, db) {
       t.same(
         [v.today, v.canRecord, v.canAddItem, v.items.map((x) => x.name), cardOf(v, CORN), cardOf(v, OIL), cardOf(v, BAGS)],
         [
-          // 0037: القسم بترتيب عرضه ثمّ الاسم: الذرة والزيت (موادّ العلف) قبل الأكياس (أخرى).
+          // 0039: القسم بترتيب عرضه ثمّ الاسم: الذرة والزيت (موادّ العلف) قبل الأكياس (أخرى).
           TODAY, ...flags, ['ذرة الدمج', 'زيت الدمج', 'أكياس الدمج'],
           ['raw', 'kg', 2893833n, 2893833n, TODAY, money ? { sellPrice: 50000n, avgUnitPrice: 38623n } : null],
           ['raw', 'L', 200500n, 200500n, TODAY, money ? { sellPrice: 140075n, avgUnitPrice: 125025n } : null],
