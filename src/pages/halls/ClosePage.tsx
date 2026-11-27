@@ -119,7 +119,7 @@ function confirmText(pending: ClosePending): string {
 }
 
 /** رفوض تعني أنّ ما عرضته الشاشة تغيّر: يُقرأ النموذج من جديد ويبقى ما كُتب. */
-const REREAD = new Set(['live_changed', 'sales_changed', 'pool_changed', 'tickets_pending', 'activity_after_close', 'flock_closed', 'not_in_pool', 'pool_unit_mixed', 'not_from_store']);
+const REREAD = new Set(['live_changed', 'sales_changed', 'pool_changed', 'tickets_pending', 'activity_after_close', 'flock_closed', 'flock_void', 'not_in_pool', 'pool_unit_mixed', 'not_from_store']);
 
 function CloseView({ flockId }: { flockId: string }) {
   const id = useId();

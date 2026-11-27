@@ -427,6 +427,32 @@ export default async function (t) {
       );
     });
 
+    // ── S flock_void (مراجعة 0037 H 7): حُذفت قاعة الفوج من جهاز آخر، فرفض التعديل يقرأ الحقل من جديد كالفوج المغلق ─────────────────────────────
+    await step('S flock_void', async () => {
+      const HINT = 'حُذفت قاعة هذا الفوج، فلا يُعرض ولا يُسجَّل له شيء.';
+      let reads = 0;
+      fresh(
+        'manager',
+        {
+          loadOverviewJson: () => {
+            reads += 1;
+            return overview();
+          },
+        },
+        {
+          edit_flock: () => {
+            throw new m.RejectedError('flock_void', HINT);
+          },
+        },
+      );
+      await mount('/broiler');
+      await click(inRow('قاعة 5', 'flock-edit')[0]);
+      type(field('-count'), '5300');
+      await settle();
+      await click(byAction('flock-edit-save')[0]);
+      t.same([dialogText().includes(HINT), reads], [true, 2], 'S flock_void: التلميح، والحقل يُقرأ من جديد');
+    });
+
     // ── S: stale_flock ──────────────────────────────────────────────────────────────────────────────────────────────
     await step('S', async () => {
       const HINT = 'تغيّر هذا الفوج بعد أن فتحت النافذة. أغلقها وافتحها من جديد لترى قيمه الحالية.';

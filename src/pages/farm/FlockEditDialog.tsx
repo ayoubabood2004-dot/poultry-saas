@@ -32,7 +32,7 @@ function wholeNumber(text: string, max = MAX_COUNT): number | null {
  * رفوض تعني أنّ ما تعرضه الصفحة قديم: نسخة الفوج تغيّرت بعد فتح النافذة، أو أُغلق أو حُذف من جهاز آخر، أو مرجع النافذة استُعمل لقيم
  * أخرى بعد جواب ضاع (فقد يكون التعديل الأوّل حُفظ). الصفحة تقرأ من جديد، والتلميح يبقى في النافذة لتُفتح من جديد بالقيم الحالية.
  */
-const REREAD: ReadonlySet<string> = new Set(['stale_flock', 'flock_not_found', 'flock_closed', 'ref_reused']);
+const REREAD: ReadonlySet<string> = new Set(['stale_flock', 'flock_not_found', 'flock_closed', 'flock_void', 'ref_reused']);
 
 /** جملة الرفض: تلميح الخادم كما هو، وإلّا وصف الخطأ. */
 function problemText(problem: unknown): string {

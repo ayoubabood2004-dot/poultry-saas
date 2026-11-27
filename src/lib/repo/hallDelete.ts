@@ -99,7 +99,8 @@ export interface DeleteHallFlock {
   days: number;
   visits: number;
   gasDays: number;
-  weights: number;
+  /** عدد أوزان العيّنات (weights في الجواب): عدد لا وزن. */
+  weighings: number;
   logs: number;
   vaccinations: number;
   issues: number;
@@ -137,7 +138,7 @@ export function parseDeleteHallPreview(value: unknown, hallId: string): DeleteHa
           days: count(flock, 'days'),
           visits: count(flock, 'visits'),
           gasDays: count(flock, 'gas_days'),
-          weights: count(flock, 'weights'),
+          weighings: count(flock, 'weights'),
           logs: count(flock, 'logs'),
           vaccinations: count(flock, 'vaccinations'),
           issues: count(flock, 'issues'),

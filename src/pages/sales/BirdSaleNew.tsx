@@ -123,7 +123,7 @@ function failureText(problem: unknown): string {
 }
 
 /** رفوض تعني أنّ ما قرأته الشاشة تغيّر (التذكرة أو فاتورتها أو حيّ القاعات أو أفواجها أو الدفتر): يُقرأ النموذج من جديد ويبقى ما كُتب. */
-const REREAD = new Set(['stale_ticket', 'ticket_invoiced', 'ticket_not_done', 'ticket_not_found', 'birds_over_live', 'flock_closed', 'no_active_flock', 'before_placement', 'no_sales_book']);
+const REREAD = new Set(['stale_ticket', 'ticket_invoiced', 'ticket_not_done', 'ticket_not_found', 'birds_over_live', 'flock_closed', 'flock_void', 'no_active_flock', 'before_placement', 'no_sales_book']);
 
 /** «بتاريخ اليوم 13/11/2026» ليوم الخادم، وإلّا «بتاريخ 10/11/2026». */
 const dayPhrase = (day: string, today: string): string => (day === today ? t('birds.on_today', 'بتاريخ اليوم {day}', { day: fmtDay(day) }) : t('birds.on_day', 'بتاريخ {day}', { day: fmtDay(day) }));

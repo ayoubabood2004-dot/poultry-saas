@@ -11,7 +11,7 @@
 // كلّ فحص هنا يفشل على 31aa9e0 (لا hallDelete ولا نافذة الحذف ولا «احذف» ولا النموذجان)، إلّا ما وُسم «ضابط».
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { descendants, fire, installDom, settle } from './dom.mjs';
@@ -175,7 +175,7 @@ export default async function (t) {
       safe(() => ({ hall: parsed.hall, flock: { ...parsed.flock, back: undefined }, ended: parsed.ended, blocks: parsed.blocks, plan: parsed.plan })),
       {
         hall: { id: H8, name: 'قاعة 8 تجريبي', siteId: PREVIEW.running.hall.site_id, site: 'حقل لحم', version: 3 },
-        flock: { id: PREVIEW.running.flock.id, version: 9, status: 'active', placedOn: '2026-11-13', placedCount: 25250, days: 14, visits: 14, gasDays: 13, weights: 0, logs: 0, vaccinations: 1, issues: 7 },
+        flock: { id: PREVIEW.running.flock.id, version: 9, status: 'active', placedOn: '2026-11-13', placedCount: 25250, days: 14, visits: 14, gasDays: 13, weighings: 0, logs: 0, vaccinations: 1, issues: 7 },
         ended: 2,
         blocks: [],
         plan: PREVIEW.running.plan,
@@ -322,7 +322,7 @@ export default async function (t) {
       ['الفترة حتى 30/11/2026 مقفلة.', 'في الفوج بيع طيور (فاتورة BS-00012).'],
       'T تلميح الخادم يُعرض كما هو حين يحمله',
     );
-    t.same(safe(() => p.deleteHallFailure(reject('mystery'))), 'الخادم رفض العملية لم يُحفظ شيء (الرمز: mystery).', 'T رمز لا جملة له: وصف الخطأ برمزه');
+    t.same(safe(() => p.deleteHallFailure(reject('mystery'))), 'الخادم رفض العملية. لم يُحفظ شيء (الرمز: mystery).', 'T رمز لا جملة له: وصف الخطأ برمزه جملتين (مراجعة H 8)');
     t.same(
       safe(() => p.deletedToast(p.parseDeletedHall(DELETED.running, H8), 'قاعة 8 تجريبي')),
       {
@@ -365,13 +365,29 @@ export default async function (t) {
         "export { onlineStore } from './src/lib/online.ts';",
         "export { localDay, addDays } from './src/domain/dates.ts';",
         "export { parkText } from './src/pages/farm/roundText.ts';",
-        "export { RejectedError, NetworkError, UnknownOutcomeError } from './src/lib/errors.ts';",
+        "export { RejectedError, NetworkError, UnknownOutcomeError, RetryableError } from './src/lib/errors.ts';",
+        "export { isWindowDirty } from './src/lib/pwa/dirty.ts';",
       ].join('\n'),
     );
     m.onlineStore.set(true);
 
     // سبب ركن عملية جولة لفوج حُذفت قاعته (D1: الطابور يركنها flock_void) بجملة لا «رُدّ من الخادم».
     t.same(m.parkText('flock_void'), 'كانت قاعة الوجبة محذوفة حين وصل', 'T سبب الركن flock_void بجملة في الجولة وورقة القاعة');
+    // مراجعة H 7: كلّ شاشة تقرأ من جديد حين يُرفض فوج مغلق (flock_closed) تقرأ من جديد حين يُرفض فوج قاعته محذوفة (flock_void، عقد 0037 D1).
+    {
+      const sets = [];
+      const walk = (dir) => {
+        for (const entry of readdirSync(dir, { withFileTypes: true })) {
+          const at = path.join(dir, entry.name);
+          if (entry.isDirectory()) walk(at);
+          else if (entry.name.endsWith('.tsx')) for (const [, list] of readFileSync(at, 'utf8').matchAll(/const REREAD\b[^=]*=\s*new Set\(\[([^\]]*)\]\)/g)) sets.push([path.relative(ROOT, at).split(path.sep).join('/'), list]);
+        }
+      };
+      walk(path.join(ROOT, 'src'));
+      const closing = sets.filter(([, list]) => list.includes("'flock_closed'"));
+      t.ok(closing.length >= 3, `W ضابط: مجموعات القراءة من جديد التي تذكر flock_closed (${closing.length})`);
+      t.same(closing.filter(([, list]) => !list.includes("'flock_void'")).map(([file]) => file), [], 'W كلّ مجموعة REREAD فيها flock_closed فيها flock_void');
+    }
 
     const TODAY = m.localDay();
     const PLACED = m.addDays(TODAY, -13);
@@ -527,9 +543,10 @@ export default async function (t) {
           'يرجع إلى «رصيد العلف» 1,500 كغم «علف م/2»',
           'يرجع إلى «مخزن الأدوية» 2.5 لتر «فيتامين AD3»',
           'تختفي أيّامه (14 يوماً) من كلّ التقارير',
+          'يُلغى تأشير لقاحاته (1)',
           'الدورات المنتهية في القاعة (2) تبقى في التقارير',
         ],
-        'E سطر لكلّ ما يرجع إلى مخزنه بكمّيته ووحدته، ثمّ أيّامه، ثمّ الدورات المنتهية التي تبقى',
+        'E سطر لكلّ ما يرجع إلى مخزنه بكمّيته ووحدته، ثمّ أيّامه، ثمّ تأشير لقاحه الذي يُلغى (مراجعة H 5)، ثمّ الدورات المنتهية التي تبقى',
       );
       const confirm = confirmButton();
       t.same(
@@ -553,6 +570,19 @@ export default async function (t) {
       await mount();
       await openDelete('قاعه 6 تجريبي');
       t.same([linesOf('hall-delete-effects'), deleteText().includes('سيُلغى فوج القاعة كأنّه لم يكن:')], [['لم تُسجَّل له أيّام بعد'], true], 'N فوج بلا أيّام ولا صرف: «لم تُسجَّل له أيّام بعد» لا «(0 يوم)»');
+    });
+    // مراجعة H 5 (درس 2026-11-15): كلّ ما يفعله الخادم مسمّى ولو بلا أيّام: الأوزان والأدوية بلا مخزن تختفي، وتأشير اللقاحات يُلغى.
+    await step('N سجلّات بلا أيّام', async () => {
+      const sample = clone(PREVIEW.running);
+      Object.assign(sample.flock, { days: 0, visits: 0, gas_days: 0, weights: 2, logs: 1, vaccinations: 3, issues: 0, back: [] });
+      fresh({ loadOverviewJson: () => overview() }, { delete_hall_preview: (args) => (args.p_hall === sample.hall.id ? sample : previewOf(args.p_hall)) });
+      await mount();
+      await openDelete('قاعة 8 تجريبي');
+      t.same(
+        linesOf('hall-delete-effects'),
+        ['لم تُسجَّل له أيّام بعد', 'تختفي أوزانه (2) من كلّ التقارير', 'تختفي أدويته المسجّلة بلا مخزن (1)', 'يُلغى تأشير لقاحاته (3)', 'الدورات المنتهية في القاعة (2) تبقى في التقارير'],
+        'N فوج بلا أيّام بأوزان وأدوية ولقاحات مؤشَّرة: كلّ واحد بسطره وعدده',
+      );
     });
     await step('K', async () => {
       fresh({ loadOverviewJson: () => overview() }, PREVIEW_RPC);
@@ -680,6 +710,61 @@ export default async function (t) {
       t.same([named(calls, 'rpc:delete_hall').length, second?.p_client_ref === first?.p_client_ref, deleteDialog()], [2, true, null], 'U المحاولة الثانية بمرجع النافذة نفسه ثمّ تُحذف');
     });
 
+    // ── U2 (مراجعة H 1): بعد نتيجة لا تُعرف، إعادة لم تكتمل (الشبكة، أو انتظار قفل المحاولة الأولى) لا تمحو «لا تُعرف»: الأولى ربّما حذفت القاعة.
+    for (const [label, fail] of [['U2 شبكة', () => new m.NetworkError()], ['U2 قفل', () => new m.RetryableError('lock_timeout')]]) {
+      await step(label, async () => {
+        let attempt = 0;
+        const calls = fresh(
+          { loadOverviewJson: () => overview() },
+          {
+            ...PREVIEW_RPC,
+            delete_hall: () => {
+              attempt += 1;
+              if (attempt === 1) throw new m.UnknownOutcomeError();
+              throw fail();
+            },
+          },
+        );
+        await mount();
+        await openDelete('قاعة 8 تجريبي');
+        await click(confirmButton());
+        await click(confirmButton());
+        const problem = byAction('hall-delete-problem', deleteDialog() ?? body())[0]?.textContent ?? '';
+        t.same(
+          [named(calls, 'rpc:delete_hall').length, problem.includes('ما زالت لا تُعرف'), problem.includes('لم يُحفظ شيء'), confirmButton()?.textContent ?? null, cancelButton()?.textContent ?? null],
+          [2, true, false, 'أعد المحاولة', 'أغلق'],
+          `${label}: الإعادة لم تكتمل فنتيجة الأولى ما زالت لا تُعرف («أعد المحاولة» و«أغلق»)، لا «لم يُحفظ شيء»`,
+        );
+        const [first, second] = named(calls, 'rpc:delete_hall');
+        t.eq(second?.p_client_ref === first?.p_client_ref, true, `${label}: الإعادة بمرجع النافذة نفسه`);
+        await click(cancelButton());
+        t.same([deleteDialog(), reads(calls)], [null, 2], `${label}: الإغلاق يقرأ الحقل من جديد (ربما حُذفت)`);
+      });
+    }
+    // ── U3 (مراجعة H 2): حذف في الطريق أو نتيجته لا تُعرف = النافذة «فيها ما لم يُحفظ»، فلا يعيد تحديث التطبيق تحميلها فوقه.
+    await step('U3', async () => {
+      let attempt = 0;
+      fresh(
+        { loadOverviewJson: () => overview() },
+        {
+          ...PREVIEW_RPC,
+          delete_hall: () => {
+            attempt += 1;
+            if (attempt === 1) throw new m.UnknownOutcomeError();
+            return new Promise(() => {});
+          },
+        },
+      );
+      await mount();
+      await openDelete('قاعة 8 تجريبي');
+      const before = m.isWindowDirty();
+      await click(confirmButton());
+      const unknown = m.isWindowDirty();
+      await click(confirmButton());
+      const flying = m.isWindowDirty();
+      t.same([before, unknown, flying], [false, true, true], 'U3 قبل الإرسال لا، والنتيجة لا تُعرف نعم، والإعادة في الطريق نعم');
+    });
+
     // ── S: تغيّر ما في القاعة بعد فتح النافذة ─────────────────────────────────────────────────────────────────────────
     const HINT = 'تغيّر ما في القاعة بعد فتح النافذة. راجع ما سيُحذف ثمّ احذف.';
     await step('S stale_plan', async () => {
@@ -803,6 +888,26 @@ export default async function (t) {
       await click(confirmButton());
       t.same([named(calls, 'rpc:delete_hall').length, deleteDialog(), editDialog(), reads(calls), toasts()[0]?.[0] ?? null], [1, null, null, 2, 'success'], 'D الحذف منها يغلق النافذتين ويقرأ الحقل من جديد');
     });
+    // مراجعة H 4: «عدّل القاعة» ← «احذف القاعة» ثمّ «أغلق» والقاعة محذوفة أو ربّما حُذفت: النافذتان تُغلقان (لا «عدّل القاعة» على قاعة محذوفة).
+    await step('D لا تُعرف من التعديل', async () => {
+      const calls = fresh({ loadOverviewJson: () => overview() }, { ...PREVIEW_RPC, delete_hall: () => Promise.reject(new m.UnknownOutcomeError()) });
+      await mount();
+      await click(inRow('قاعة 4', 'hall-edit')[0]);
+      await click(byAction('hall-edit-delete', editDialog() ?? body())[0]);
+      await click(confirmButton());
+      t.eq(confirmButton()?.textContent ?? null, 'أعد المحاولة', 'D ضابط: النتيجة لا تُعرف');
+      await click(cancelButton());
+      t.same([deleteDialog() === null, editDialog() === null, reads(calls)], [true, true, 2], 'D لا تُعرف ثمّ «أغلق»: تُغلق «عدّل القاعة» معها والحقل يُقرأ من جديد');
+    });
+    await step('D محذوفة من قبل من التعديل', async () => {
+      fresh({ loadOverviewJson: () => overview() }, { delete_hall_preview: () => Promise.reject(new m.RejectedError('hall_not_found')) });
+      await mount();
+      await click(inRow('قاعة 4', 'hall-edit')[0]);
+      await click(byAction('hall-edit-delete', editDialog() ?? body())[0]);
+      t.eq(byAction('hall-delete-gone', deleteDialog() ?? body()).length, 1, 'D ضابط: «حُذفت من قبل»');
+      await click(cancelButton());
+      t.same([deleteDialog() === null, editDialog() === null], [true, true], 'D محذوفة من قبل ثمّ «أغلق»: تُغلق «عدّل القاعة» معها');
+    });
     await step('D إضافة', async () => {
       fresh({ loadOverviewJson: () => overview() });
       await mount();
@@ -908,7 +1013,7 @@ export default async function (t) {
         const back = sample.flock?.back?.length ?? 0;
         const expected = blocked
           ? [sample.blocks.length, null, false]
-          : [null, (sample.flock ? back + 1 : 1) + (sample.ended > 0 ? 1 : 0), true];
+          : [null, (sample.flock ? back + 1 + ['weights', 'logs', 'vaccinations'].filter((key) => sample.flock[key] > 0).length : 1) + (sample.ended > 0 ? 1 : 0), true];
         t.same(
           [linesOf('hall-delete-blocks')?.length ?? null, linesOf('hall-delete-effects')?.length ?? null, confirmButton() !== null],
           expected,

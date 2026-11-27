@@ -5,7 +5,9 @@ import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
 import { toast, type ToastInput } from '../../components/ui/Toast';
 import { describeError, RejectedError } from '../../lib/errors';
+import { fmtInt } from '../../lib/format';
 import { t } from '../../lib/i18n';
+import { useDirtyForm } from '../../lib/pwa/dirty';
 import { deleteHall, loadDeleteHallPreview, type DeletedHall, type DeleteHallPreview, type HallBack } from '../../lib/repo/hallDelete';
 import { useLoad } from '../../lib/useLoad';
 import { amountText, surelyUnsaved } from '../halls/GivePage';
@@ -31,6 +33,12 @@ const FAILURE_TEXT: Readonly<Record<string, () => string>> = {
   period_locked: () => t('hall.delete.error.period_locked', 'يوم تسكين الفوج أو اليوم في فترة حسابات مقفلة، فلا تُحذف القاعة قبل فتح الفترة.'),
 };
 
+/** وصف الخطأ جملتين: العنوان ثمّ التفصيل (كـLoadFailed)، لا كلاماً متّصلاً. */
+const sentences = (problem: unknown): string => {
+  const { title, detail } = describeError(problem);
+  return detail ? `${title}. ${detail}` : title;
+};
+
 /** جملة رفض الحذف: تلميح الخادم حين يحمله، وإلّا جملة رمزه، وإلّا وصف الخطأ. */
 export function deleteHallFailure(problem: unknown): string {
   if (problem instanceof RejectedError) {
@@ -38,8 +46,7 @@ export function deleteHallFailure(problem: unknown): string {
     const text = FAILURE_TEXT[problem.code];
     if (text) return text();
   }
-  const { title, detail } = describeError(problem);
-  return `${title} ${detail}`;
+  return sentences(problem);
 }
 
 /** «يرجع إلى «رصيد العلف» 14,000 كغم «علف م/1»». */
@@ -77,6 +84,10 @@ function Effects({ preview }: { preview: DeleteHallPreview }) {
         flock.days > 0
           ? { key: 'days', text: t('hall.delete.days', 'تختفي أيّامه ({days}) من كلّ التقارير', { days: daysText(flock.days) }) }
           : { key: 'days', text: t('hall.delete.no_days', 'لم تُسجَّل له أيّام بعد') },
+        // كلّ ما يفعله الخادم مسمّى (درس 2026-11-15)، ولو بلا أيّام: الأوزان والأدوية بلا مخزن تختفي بحال الفوج، والتأشير يُلغى (عقد 0037 D3).
+        ...(flock.weighings > 0 ? [{ key: 'weights', text: t('hall.delete.weights', 'تختفي أوزانه ({n}) من كلّ التقارير', { n: fmtInt(flock.weighings) }) }] : []),
+        ...(flock.logs > 0 ? [{ key: 'logs', text: t('hall.delete.logs', 'تختفي أدويته المسجّلة بلا مخزن ({n})', { n: fmtInt(flock.logs) }) }] : []),
+        ...(flock.vaccinations > 0 ? [{ key: 'vaccinations', text: t('hall.delete.vaccinations', 'يُلغى تأشير لقاحاته ({n})', { n: fmtInt(flock.vaccinations) }) }] : []),
       ]
     : [{ key: 'hall', text: t('hall.delete.empty', 'تختفي القاعة من الحقل والجولة اليومية') }];
   if (preview.ended > 0) lines.push({ key: 'ended', text: t('hall.delete.ended', 'الدورات المنتهية في القاعة ({n}) تبقى في التقارير', { n: preview.ended }) });
@@ -102,6 +113,8 @@ export interface DeleteHallDialogProps {
   onDeleted: () => void;
   /** ما تعرضه الصفحة قديم (تغيّرت القاعة أو حُذفت من جهاز آخر، أو أُغلقت النافذة ونتيجة الحذف لا تُعرف): اقرأ الحقل من جديد. */
   onStale?: () => void;
+  /** أُغلقت النافذة والقاعة محذوفة أو ربّما حُذفت (حُذفت من قبل، أو نتيجة الحذف لا تُعرف): ما تحتها عن القاعة («عدّل القاعة») يُغلق معها. */
+  onGone?: () => void;
 }
 
 /** الطلب كما أُرسل: الإعادة بعد نتيجة لا تُعرف ترسله حرفاً (النسخة والبصمة نفساهما). */
@@ -117,7 +130,7 @@ interface Problem {
   reread: boolean;
 }
 
-export function DeleteHallDialog({ hall, onClose, onDeleted, onStale }: DeleteHallDialogProps) {
+export function DeleteHallDialog({ hall, onClose, onDeleted, onStale, onGone }: DeleteHallDialogProps) {
   const name = hallLabel(hall.name);
   // مرجع واحد لكلّ نافذة تُفتح: الإعادة بعد جواب ضاع، أو بعد قراءة جديدة لما في القاعة، هي الحذف نفسه لا حذف ثانٍ.
   const [clientRef] = useState(() => crypto.randomUUID());
@@ -142,6 +155,9 @@ export function DeleteHallDialog({ hall, onClose, onDeleted, onStale }: DeleteHa
   const gone = state.error instanceof RejectedError && state.error.code === 'hall_not_found';
   const ready: Sent | null = preview && preview.blocks.length === 0 ? { version: preview.hall.version, plan: preview.plan } : null;
   const request = unknown ?? ready;
+  // حذف في الطريق أو نتيجته لا تُعرف: تحديث التطبيق لا يعيد تحميل النافذة فوقه، ومغادرة الصفحة تُنبَّه (درس 2026-11-10). والإعادة آمنة بالحال بلا
+  // حفظ خارج المكوّن: القاعة المحذوفة تُرجع «محذوفة من قبل» بأيّ مرجع (عقد 0037 D3).
+  useDirtyForm(busy || unknown !== null);
 
   const confirm = async () => {
     if (busy || request === null) return;
@@ -156,8 +172,12 @@ export function DeleteHallDialog({ hall, onClose, onDeleted, onStale }: DeleteHa
       if (!surelyUnsaved(failure)) {
         // ربما حُذفت: لا قراءة تغيّر ما يُرسل، و«أعد المحاولة» ترسل الطلب نفسه بمرجعه.
         setUnknown(request);
-        const { title, detail } = describeError(failure);
-        setProblem({ tone: 'warning', text: `${title} ${detail}`, reread: false });
+        setProblem({ tone: 'warning', text: sentences(failure), reread: false });
+        return;
+      }
+      if (unknown !== null && !(failure instanceof RejectedError)) {
+        // إعادة لم تكتمل (الشبكة، أو انتظار قفل المحاولة الأولى، أو الهويّة) لا تقول شيئاً عن الأولى: تبقى نتيجتها لا تُعرف بطلبها نفسه.
+        setProblem({ tone: 'warning', text: t('hall.delete.still_unknown', 'لم تكتمل هذه المحاولة، فنتيجة الحذف الأوّل ما زالت لا تُعرف: ربّما حُذفت القاعة. أعد المحاولة بعد قليل.'), reread: false });
         return;
       }
       setUnknown(null);
@@ -173,6 +193,7 @@ export function DeleteHallDialog({ hall, onClose, onDeleted, onStale }: DeleteHa
   const close = () => {
     if (unknown) onStale?.();
     onClose();
+    if (unknown !== null || gone) onGone?.();
   };
 
   let body: ReactNode = null;
@@ -201,7 +222,7 @@ export function DeleteHallDialog({ hall, onClose, onDeleted, onStale }: DeleteHa
       footer={
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
           <Button variant="secondary" onClick={close} disabled={busy} data-autofocus data-action="hall-delete-cancel">
-            {request ? t('confirm.cancel', 'لا، تراجع') : t('hall.delete.close', 'أغلق')}
+            {request && unknown === null ? t('confirm.cancel', 'لا، تراجع') : t('hall.delete.close', 'أغلق')}
           </Button>
           {request ? (
             <Button variant="danger" busy={busy} onClick={() => void confirm()} data-action="hall-delete-confirm">

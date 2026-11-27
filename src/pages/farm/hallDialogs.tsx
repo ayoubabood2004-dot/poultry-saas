@@ -105,7 +105,7 @@ export function HallDialog({ site, hall, onClose, onSaved, onDeleted, onStale }:
         </Field>
         {error ? <Notice tone="danger" title={error} /> : null}
       </form>
-      {hall && deleting ? <DeleteHallDialog hall={hall} onClose={() => setDeleting(false)} onDeleted={onDeleted ?? onSaved} onStale={onStale} /> : null}
+      {hall && deleting ? <DeleteHallDialog hall={hall} onClose={() => setDeleting(false)} onGone={onClose} onDeleted={onDeleted ?? onSaved} onStale={onStale} /> : null}
     </Dialog>
   );
 }
