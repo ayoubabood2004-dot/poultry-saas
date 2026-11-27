@@ -1,10 +1,12 @@
 // «احذف القاعة» كأنها لم تكن (0037، العقد docs/plans/0037/contract-0037.md «الجزء D»، DECISIONS 2026-11-26): المعاينة بأشكالها (فوج قائم بأيّامه
-// وزياراته وغازه وصرفه من «رصيد العلف» وتأشيره المصروف، ودورة منتهية، وقاعة بلا فوج، وقاعة فيها بيع طيور)، وكلّ منع بجملته ورمزه في الحذف، والنسخة
+// وزياراته وغازه وصرفه من «رصيد العلف» وتأشيره المصروف، ودورة منتهية، وقاعة بلا فوج، وقاعة فيها بيع طيور)، وكلّ منع بجملته ورمزه في الحذف (ومنها
+// تصحيح السعر والجرد بعد الإرسال: revalued وcounted بدقّة شرطي apply_move، ورمزاه lot_consumed وcount_superseded، ويرفعهما إلغاء التصحيح أو الجرد)، والنسخة
 // والبصمة، والإعادة بالمرجع وبالحالة، والمخزون يرجع بالكمية والقيمة ودفتر المادّة يُظهر الإرسال والعكس، وكلّ قارئ بلا الفوج الملغى وكلّ كاتب يرفضه،
 // والطابور يركن flock_void، والدورات المنتهية تبقى في «من أوّل ما بدينا» (والأفواج الملغاة بكلّ حال: بصرف وتأشير ومركون وعدّ، وبتذكرة وبيع ملغيين،
 // وبلا سجلّ، وبدورة أُغلقت بإرجاع ثمّ أُعيد فتحها، والثوابت كلّها صفر بعدها)، وجلستان حقيقيتان مع void_flock_issue وrecord_flock_issue وundo_vaccination
 // وclose_flock وrecord_flock_count_adjust (pg_blocking_pids على الجلسة بعينها، وضوابط بأجسام مثبَّتة بترتيب أقفال آخر تتقافل أو تخطئ السبب ثمّ تعود
-// حرفاً)، والثابت verify_delete_hall بضوابطه، وطفرة لكلّ تغيير في القرّاء والكتّاب، وملفّ التراجع (الأجسام حرفاً، ورفضه بصوت، وبلا كتلته يرجّع القديم).
+// حرفاً)، والثابت verify_delete_hall بضوابطه (ومنها منع البيع والتذاكر والنقل المطبَّق: الحذف بلا منعه داخل معاملة ترجع)، وطفرة لكلّ تغيير في القرّاء
+// والكتّاب، وملفّ التراجع (الأجسام حرفاً، ورفضه بصوت، وبلا كتلته يرجّع القديم).
 // منشأة هذا الملفّ: المعرّفات d3737000 والهواتف 964770373700+ (ومنشأة ثانية بالمعرّفات d3737000-…-0000000009xx والهواتف 9647703737090+).
 // وعيّنات القاعدة الحقيقية للشاشات: DELETE_HALL_SAMPLES_OUT=1 يكتب scripts/tests/fixtures/delete-hall-0037.json.
 import { readFileSync, writeFileSync } from 'node:fs';
@@ -40,6 +42,7 @@ const ADD = 'select public.add_flock_gas($1, $2, $3, $4, $5) as v';
 const GAS = 'select public.set_flock_gas($1, $2, $3, $4, $5, $6) as v';
 const SIG = {
   del: 'public.delete_hall(uuid, integer, text, uuid)',
+  blocks: 'private.delete_hall_blocks(public.halls, public.flocks)',
   inScopeSite: 'public.in_scope_site(uuid)',
   inScopeWh: 'public.in_scope_wh(uuid)',
   roleCan: 'private.role_can(text, text, boolean)',
@@ -67,7 +70,8 @@ const SIG = {
   voidIssue: 'public.void_flock_issue(uuid, text, uuid)',
   verifySheet: 'public.verify_hall_sheet()',
 };
-const VERIFY_ZERO = { void_flock_posted_issue: 0, void_flock_done_vaccination: 0, void_flock_live_hall: 0, void_flock_costs: 0, void_flock_shape: 0 };
+const VERIFY_ZERO = { void_flock_posted_issue: 0, void_flock_done_vaccination: 0, void_flock_live_hall: 0, void_flock_costs: 0, void_flock_shape: 0, void_flock_posted_sale: 0,
+  void_flock_live_ticket: 0, void_flock_applied_carry: 0 };
 const VOID_HINT = 'حُذفت قاعة هذا الفوج، فلا يُعرض ولا يُسجَّل له شيء.';
 
 /** جسم دالّة كما في ملفّ هجرتها (من «create or replace function» حتى «$$;»). */
@@ -630,6 +634,126 @@ async function scenario(t, db) {
       'والدورات: المنتهية باقية، والملغاة لا');
   });
 
+  // ── ٨ب) الجرد وتصحيح السعر بعد الإرسال: منعان في المعاينة (revalued ثمّ counted، بشرطي apply_move على حركات الإرسال الأصلية)، والحذف يرمي رمز
+  //    apply_move (lot_consumed وcount_superseded) بجملة المعاينة، وإلغاء التصحيح أو الجرد يرفع منعه. «قاعة الجرد»: «علف م/3» أُرسل أمس ثمّ جُرد
+  //    مخزنه اليوم بلا فرق؛ «قاعة السعر»: «علف م/4» اشتُري بلا سعر وأُرسل ثمّ أُكمل سعره؛ «قاعة الجرد والسعر»: الاثنان (صرف «علف م/3» أوّلاً،
+  //    فالجسم بلا المنعين يرمي count_superseded من أوّل حركة يعكسها).
+  await section('الجرد وتصحيح السعر', async () => {
+    const m3 = await item('علف م/3', 'feed', 'kg');
+    const m4 = await item('علف م/4', 'feed', 'kg');
+    const m5 = await item('علف م/5', 'feed', 'kg');
+    await postedOpening(db, U.owner, W.feed, day(-7), [{ item: m3, qty: 5000, value: '1750000.00' }]);
+    const supplier = await one(U.owner, "insert into public.parties (name, is_supplier) values ('مورّد العلف', true) returning id", []);
+    const BUY = "select public.record_purchase($1, $2, $3, $4, $5, $6, $7, null, null, 'credit', null, $8) as v";
+    await one(U.keeper, BUY, [uid(), id(700), id(701), m4, supplier, day(-2), 3000, W.feed]);
+    await one(U.keeper, BUY, [uid(), id(702), id(703), m5, supplier, day(-2), 3000, W.feed]);
+    // «علف م/5» أُكمل سعره قبل إرساله (علامة التصحيح قبل حركة الإرسال): لا يمنع.
+    await one(U.keeper, 'select public.price_purchase($1, $2, 350, null) as v', [uid(), id(703)]);
+    const stockOf = async () => Object.fromEntries((await db.admin(`select i.name, trim_scale(b.qty)::text || '/' || trim_scale(b.value)::text as v from public.stock_balances b
+      join public.items i on i.id = b.item_id where b.item_id = any ($1) and b.warehouse_id = $2 order by i.name`, [[m3, m4, m5], W.feed])).rows.map((r) => [r.name, r.v]));
+    const start = await stockOf();
+    // جرد «رصيد العلف» لـ«علف م/3» بالرصيد نفسه في يومه (بلا فرق)، معتمد.
+    const countOn = async (on) => {
+      const qty = await scalar(`select trim_scale(coalesce(sum(m.qty), 0))::text from public.stock_moves m where m.item_id = $1 and m.warehouse_id = $2 and m.moved_on <= $3`, [m3, W.feed, on]);
+      const docId = await db.asUser(U.manager, async (q) => {
+        const created = (await q('insert into public.stock_counts (warehouse_id, counted_on) values ($1, $2) returning id', [W.feed, on])).rows[0].id;
+        await q('insert into public.stock_count_lines (doc_id, item_id, counted_qty) values ($1, $2, $3)', [created, m3, qty]);
+        return created;
+      }, { commit: true });
+      const version = () => scalar('select version from public.stock_counts where id = $1', [docId]);
+      await one(U.manager, 'select public.submit_count($1, $2, $3)', [docId, await version(), uid()]);
+      await one(U.manager, "select public.post_count($1, $2, public.preview_count($1) ->> 'plan', $3)", [docId, await version(), uid()]);
+      return docId;
+    };
+    // جرد بيوم الإرسال قبل الإرسال (لقطته قبل حركته): لا يمنع.
+    const countBefore = await countOn(day(-1));
+    const HK = await hall('قاعة الجرد');
+    const HR = await hall('قاعة السعر');
+    const HB = await hall('قاعة الجرد والسعر');
+    const FK = await open(HK, day(-5), 1000);
+    const FR = await open(HR, day(-5), 1000);
+    const FB = await open(HB, day(-5), 1000);
+    await issue(U.keeper, { flock: FK, item: m3, qty: 100, on: day(-1) });
+    await issue(U.keeper, { flock: FB, item: m3, qty: 100, on: day(-1) });
+    await issue(U.keeper, { flock: FR, item: m4, qty: 200, on: day(-1) });
+    await issue(U.keeper, { flock: FB, item: m4, qty: 200, on: day(-1) });
+    await issue(U.keeper, { flock: FK, item: m5, qty: 50, on: day(-1) });
+    // جرد بتاريخ أقدم من الإرسال سُجّل بعده: لا يمنع. ثمّ جرد اليوم بعد الإرسال: يمنع. ثمّ «أكمل السعر» لشراء «علف م/4» بعد إرساله: يمنع.
+    const countOlder = await countOn(day(-3));
+    const countId = await countOn(TODAY);
+    await one(U.keeper, 'select public.price_purchase($1, $2, 350, null) as v', [uid(), id(701)]);
+    const countNo = await scalar('select doc_no from public.stock_counts where id = $1', [countId]);
+    const receiptNo = await scalar('select doc_no from public.receipts where id = $1', [id(700)]);
+    const revaluation = await scalar('select id from public.receipt_revaluations where receipt_line_id = $1', [id(701)]);
+    same([await scalar("select string_agg(status, ',' order by counted_on) from public.stock_counts where id = any ($1)", [[countOlder, countBefore, countId]]),
+      await scalar("select count(*)::int from public.stock_moves where doc_kind = 'count' and doc_id = any ($1)", [[countOlder, countBefore, countId]]),
+      await scalar("select string_agg(status, ',') from public.receipt_revaluations where receipt_line_id = any ($1)", [[id(701), id(703)]])],
+    ['approved,approved,approved', 0, 'posted,posted'], 'البذرة: الجرود الثلاثة معتمدة بلا فرق (بلا حركة)، والسعران مُكملان');
+    const counted = { code: 'counted', text: `أُرسل إلى الفوج قبل جرد مخزنه: «علف م/3» (الجرد ${countNo} في «رصيد العلف» بتاريخ ${ddmm(TODAY)})؛ ألغِ الجرد أوّلاً ثمّ احذف القاعة.` };
+    const revalued = { code: 'revalued', text: `أُرسل إلى الفوج قبل تصحيح سعره: «علف م/4» (سعر ${receiptNo})؛ ألغِ التصحيح أوّلاً ثمّ احذف القاعة.` };
+
+    // المعاينة تعرض المنع بسببه وما يُفعل، والحذف يرمي رمز apply_move بالجملة نفسها (ولا يصل إلى apply_move).
+    const PK = await preview(HK);
+    const PR = await preview(HR);
+    const PB = await preview(HB);
+    samples.preview_counted = PK;
+    samples.preview_revalued = PR;
+    samples.preview_revalued_counted = PB;
+    same([PK.blocks, PR.blocks, PB.blocks], [[counted], [revalued], [revalued, counted]],
+      'المعاينة: جرد معتمد لمادّة الإرسال في مخزنه بعده (ولو بلا فرق) منع counted برقم الجرد ومخزنه ويومه، وسعر أُكمل بعد الإرسال منع revalued بمستنده، والاثنان معاً revalued ثمّ counted');
+    const refusedK = await del(U.manager, HK, PK);
+    const refusedR = await del(U.manager, HR, PR);
+    const refusedB = await del(U.manager, HB, PB);
+    samples.refusal_count_superseded = refusal(refusedK);
+    samples.refusal_lot_consumed = refusal(refusedR);
+    same([refusal(refusedK), refusal(refusedR), refusal(refusedB)],
+      [{ code: 'count_superseded', hint: counted.text }, { code: 'lot_consumed', hint: revalued.text }, { code: 'lot_consumed', hint: revalued.text }],
+      'الحذف: count_superseded وlot_consumed بجملة المعاينة نفسها، وفي القاعة بالاثنين أوّل منع revalued (lot_consumed) لا أوّل حركة يعكسها');
+
+    // الترتيب: قفل الفترة قبل المنعين (بمعاملة ترجع).
+    const locked = await db.asUser(U.owner, async (q) => {
+      await q('select public.set_period_lock($1)', [day(-5)]);
+      const p = (await q(PREVIEW, [HB])).rows[0].v;
+      await q('savepoint probe');
+      try {
+        await q(DELETE, [HB, p.hall.version, p.plan, uid()]);
+        return { codes: p.blocks.map((b) => b.code), refused: 'ok' };
+      } catch (error) {
+        await q('rollback to savepoint probe');
+        return { codes: p.blocks.map((b) => b.code), refused: error.message };
+      }
+    });
+    same(locked, { codes: ['period_locked', 'revalued', 'counted'], refused: 'period_locked' }, 'الترتيب: period_locked ثمّ revalued ثمّ counted، والحذف period_locked');
+
+    // إلغاء التصحيح يرفع منعه: «قاعة السعر» تُحذف، و«قاعة الجرد والسعر» يبقى فيها الجرد.
+    await one(U.manager, 'select public.void_receipt_revalue($1, $2, $3) as v', [revaluation, 'سعر خاطئ', uid()]);
+    const PR2 = await preview(HR);
+    const PB2 = await preview(HB);
+    const deletedR = await del(U.manager, HR, PR2);
+    const refusedB2 = await del(U.manager, HB, PB2);
+    same([PR.blocks, PR2.blocks, deletedR.ok ? deletedR.value.voided_issues : refusal(deletedR), PB2.blocks, refusal(refusedB2)],
+      [[revalued], [], 1, [counted], { code: 'count_superseded', hint: counted.text }],
+      'إلغاء التصحيح يرفع revalued: «قاعة السعر» بلا منع فتُحذف بصرفها، و«قاعة الجرد والسعر» يبقى فيها counted وحده');
+
+    // وإلغاء الجرد يرفع منعه: القاعتان تُحذفان، والمخزون كما قبل الإرسال.
+    await one(U.manager, 'select public.void_count($1, $2, $3)', [countId, 'جرد خاطئ', uid()]);
+    const PK3 = await preview(HK);
+    const PB3 = await preview(HB);
+    // دقّة الشرطين كشرطي apply_move: في «قاعة الجرد» بعد إلغاء جرد اليوم جردان معتمدان لا يمنعان (بيوم الإرسال ولقطته قبله، وبتاريخ أقدم سُجّل بعده)
+    // وسعر أُكمل قبل الإرسال؛ والجسم بلا شرط اللقطة أو اليوم أو علامة التصحيح يمنع بها (فيرفض الحذف ما يقبله apply_move).
+    const precise = (pairs) => mutant(db, U.owner, pairs.length > 0 ? [[SIG.blocks, pairs]] : [],
+      ({ attempt }) => inside(attempt, U.manager, PREVIEW, [HK]).then((p) => p.blocks?.map((b) => b.code) ?? p)).catch((error) => `مرساة: ${error.message}`);
+    same([await precise([]), await precise([['and n.snapshot_seq >= m.seq', 'and true']]), await precise([['and c.counted_on >= m.moved_on', 'and true']]),
+      await precise([['and (v.marks ->> m.warehouse_id::text)::bigint >= m.seq', 'and true']])], [[], ['counted'], ['counted'], ['revalued']],
+    'دقّة المنعين: جرد معتمد لقطته قبل الإرسال، وجرد بتاريخ قبل الإرسال، وسعر أُكمل قبل الإرسال لا تمنع، وبلا كلّ شرط منها يقع المنع');
+    const deletedK = await del(U.manager, HK, PK3);
+    const deletedB = await del(U.manager, HB, PB3);
+    same([PK.blocks, PK3.blocks, PB3.blocks, deletedK.ok ? deletedK.value.voided_issues : refusal(deletedK), deletedB.ok ? deletedB.value.voided_issues : refusal(deletedB)],
+      [[counted], [], [], 2, 2], 'إلغاء الجرد يرفع counted: «قاعة الجرد» و«قاعة الجرد والسعر» بلا منع فتُحذفان بصرفهما');
+    same([await stockOf(), await scalar("select count(*)::int from public.flocks where id = any ($1) and status = 'void'", [[FK, FR, FB]])], [start, 3],
+      'والأفواج الثلاثة ملغاة، ورصيد «علف م/3» و«علف م/4» و«علف م/5» في «رصيد العلف» كما قبل الإرسال بالكمية والقيمة');
+  });
+
   // ── ٩) جلستان حقيقيتان ─────────────────────────────────────────────────────────────────────────────────────────────
   await section('جلستان', async () => {
     const fresh = (key) => preview(H[key]);
@@ -767,6 +891,22 @@ async function scenario(t, db) {
     });
     same([controls.posted.void_flock_posted_issue, controls.vaccination.void_flock_done_vaccination, controls.live.void_flock_live_hall, controls.costs.void_flock_costs,
       controls.shape.void_flock_shape], [1, 1, 1, 1, 1], 'ضوابط الثابت: صرف مرحَّل، وتأشير «تمّ»، وقاعة فعّالة، وكلفة غير صفر، وإلغاء بلا سبب، كلّ واحد ينمسك');
+    // منع البيع والتذاكر والنقل المطبَّق يحرسه الثابت: delete_hall بلا منعه (v_block := null) داخل معاملة ترجع يُلغي الفوج فيمسكه الثابت، وبجسمه الحقيقي
+    // يرفض فيبقى الثابت صفراً (طفرة حقيقية، لا صفّ مكتوب باليد).
+    const unblock = [[SIG.del, [['  v_block := private.delete_hall_blocks(h, f) -> 0;', '  v_block := null;']]]];
+    const deleteThen = (key, fns) => mutant(db, U.owner, fns, async ({ oq, attempt }) => {
+      const p = await inside(attempt, U.manager, PREVIEW, [H[key]]);
+      const result = await inside(attempt, U.manager, DELETE, [H[key], p.hall.version, p.plan, uid()]);
+      const v = await verifyOf(oq);
+      return [result?.deleted === true ? 'deleted' : result?.code, v.void_flock_posted_sale, v.void_flock_live_ticket, v.void_flock_applied_carry];
+    });
+    const guarded = {};
+    for (const key of ['sale', 'ticket', 'carryApplied']) guarded[key] = { real: await deleteThen(key, []), unblocked: await deleteThen(key, unblock) };
+    same(guarded, {
+      sale: { real: ['hall_has_sales', 0, 0, 0], unblocked: ['deleted', 1, 1, 0] },
+      ticket: { real: ['hall_has_tickets', 0, 0, 0], unblocked: ['deleted', 0, 1, 0] },
+      carryApplied: { real: ['hall_has_carry', 0, 0, 0], unblocked: ['deleted', 0, 0, 1] },
+    }, 'ضوابط الثابت للمنع: الحذف بلا منعه يُلغي فوجاً بفاتورة مرحَّلة وتذكرة مكتملة (void_flock_posted_sale وvoid_flock_live_ticket)، وبمسوّدة تذكرة، وبعلف منقول مطبَّق (void_flock_applied_carry)؛ والجسم الحقيقي يرفض والثابت صفر');
   });
 
   // ── ١١) طفرة لكلّ تغيير في القرّاء والكتّاب: الجسم بلا التغيير يفشل فحصه ────────────────────────────────────────────────────────
@@ -902,7 +1042,7 @@ async function scenario(t, db) {
   same(await db.asService(verifyOf), VERIFY_ZERO, 'الثابت صفر في نهاية الملفّ');
   if (process.env.DELETE_HALL_SAMPLES_OUT) {
     writeFileSync(FIXTURE, JSON.stringify({
-      _note: `عيّنات القاعدة الحقيقية (supabase/tests/delete-hall.test.mjs بـDELETE_HALL_SAMPLES_OUT=1، اليوم المثبَّت ${TODAY})؛ محلّلات الشاشات (الجزء H) تقرؤها. منشأة كمنشأة الزبون: «${NAMES.t8}» بفوج قائم (14 يوماً من الجولات وغاز وسبع إرسالات علف من «رصيد العلف» وتأشير لقاح مصروف ودواء ووزن وفرق عدّ وتذكرة ملغاة)، و«${NAMES.ended}» بدورة منتهية، و«${NAMES.empty}» بلا فوج، و«${NAMES.sale}» بفاتورة طيور. والصلاحية (permission) لا تقع بعد 0034 لعضو في منشأته، فعيّناتها من معاملة ترجع ودالّة النطاق أو الفعل تقول لا.`,
+      _note: `عيّنات القاعدة الحقيقية (supabase/tests/delete-hall.test.mjs بـDELETE_HALL_SAMPLES_OUT=1، اليوم المثبَّت ${TODAY})؛ محلّلات الشاشات (الجزء H) تقرؤها. منشأة كمنشأة الزبون: «${NAMES.t8}» بفوج قائم (14 يوماً من الجولات وغاز وسبع إرسالات علف من «رصيد العلف» وتأشير لقاح مصروف ودواء ووزن وفرق عدّ وتذكرة ملغاة)، و«${NAMES.ended}» بدورة منتهية، و«${NAMES.empty}» بلا فوج، و«${NAMES.sale}» بفاتورة طيور، و«قاعة الجرد» و«قاعة السعر» و«قاعة الجرد والسعر» لمنعي counted وrevalued (جرد معتمد وسعر أُكمل بعد الإرسال). والصلاحية (permission) لا تقع بعد 0034 لعضو في منشأته، فعيّناتها من معاملة ترجع ودالّة النطاق أو الفعل تقول لا.`,
       ...samples,
     }, null, 1) + '\n');
   }
