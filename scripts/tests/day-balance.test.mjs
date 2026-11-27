@@ -724,6 +724,35 @@ export default async function (t) {
           `S11: ارتفاع النسخة (1000) يُعطى لـhtml-to-image ويُرسم به في الملفّ (${drawn} نقطة)، لا من نسبة الصورة (3×4)`,
         );
       });
+      await step('S11-ratio', async () => {
+        // مقياس الصورة في ملفّ PDF صحيحٌ وحده (2، أو 1 حين لا يسع 2 حدّ نقاط اللوحة): بمقياس كسريّ يلتصق كلّ صفّ بنقاط الجهاز فيتراكم الفرق عن قياس
+        // النسخة وينقسم صفّ بين صفحتين (مقيس في Chromium: 3 نقاط في 236 صفّاً و12 في 480؛ وبمقياس صحيح دون النقطة).
+        const ratios = [];
+        for (const tall of [1000, 8000]) {
+          const shared = [];
+          sharing(shared);
+          fresh(MANAGER, {}, { day_balance_sections: answer(OWN) });
+          globalThis.__db.toJpeg = async (node, options) => {
+            ratios.push(options.pixelRatio);
+            return JPEG;
+          };
+          const measured = (node) => node.hasAttribute('data-capture');
+          proto.getBoundingClientRect = function measure() {
+            return measured(this) ? { top: 0, bottom: tall, left: 0, right: 720, width: 720, height: tall } : { top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 };
+          };
+          Object.defineProperty(proto, 'clientHeight', { get() { return measured(this) ? tall : 0; }, configurable: true });
+          try {
+            await mount(urlAt(OWN));
+            await click(byAction('share-day')[0]);
+            await settle();
+          } finally {
+            proto.getBoundingClientRect = () => ({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 });
+            delete proto.clientHeight;
+          }
+          await unmount();
+        }
+        t.same(ratios, [2, 1], 'S11: مقياس الصورة 2 لتقرير قصير، و1 (لا كسريّ) لتقرير لا يسع 2 حدّ نقاط اللوحة');
+      });
       const NEW_NOTE = 'وصل حمل ذرة بعد الظهر';
       const withNote = (sample) => {
         const next = clone(sample);

@@ -80,9 +80,10 @@ export interface ImageOptions {
 
 /**
  * نسخة الصفحة page خارج الشاشة بـdata-capture وعرض width، فاتحةً إن طُلب (ImageOptions)، تُعطى لـdraw ثمّ تُزال ولو رمى. المقياس ratio: 2 إلّا لتقرير
- * طويل جدّاً (حدّ نقاط اللوحة).
+ * طويل جدّاً (حدّ نقاط اللوحة)؛ وwhole (ملفّ PDF) مقياسٌ صحيح وحده، 2 أو 1: بمقياس كسريّ يلتصق كلّ صفّ بنقاط الجهاز فيتراكم الفرق بين الصورة وقياس
+ * النسخة (مقيس في Chromium، مراجعة 2026-11-27: 3 نقاط في 236 صفّاً و12 في 480، فانقسم صفّ بين صفحتين)، وبمقياس صحيح يبقى دون النقطة.
  */
-async function withCopy<T>(page: HTMLElement, width: number, options: ImageOptions, draw: (copy: HTMLElement, ratio: number) => Promise<T>): Promise<T> {
+async function withCopy<T>(page: HTMLElement, width: number, options: ImageOptions, draw: (copy: HTMLElement, ratio: number) => Promise<T>, whole = false): Promise<T> {
   const host = document.createElement('div');
   host.setAttribute('aria-hidden', 'true');
   host.style.position = 'fixed';
@@ -103,7 +104,8 @@ async function withCopy<T>(page: HTMLElement, width: number, options: ImageOptio
   document.body.appendChild(host);
   try {
     const height = copy.clientHeight || copy.scrollHeight || 0;
-    const ratio = height > 0 ? Math.min(PIXEL_RATIO, Math.sqrt(MAX_PIXELS / (width * height))) : PIXEL_RATIO;
+    const fit = height > 0 ? Math.sqrt(MAX_PIXELS / (width * height)) : PIXEL_RATIO;
+    const ratio = whole ? (fit >= PIXEL_RATIO ? PIXEL_RATIO : 1) : Math.min(PIXEL_RATIO, fit);
     return await draw(copy, ratio);
   } finally {
     host.parentNode?.removeChild(host);
@@ -157,9 +159,9 @@ export async function reportPdf(page: HTMLElement, name: string, title: string, 
       const head = table.tHead?.getBoundingClientRect();
       return head && head.height > 0 ? [{ headTop: head.top - top, headBottom: head.bottom - top, bottom: table.getBoundingClientRect().bottom - top }] : [];
     });
-    // ارتفاع النسخة يُعطى لـhtml-to-image صريحاً، ويُستعمل نفسه ارتفاعاً للصورة في الملفّ: html-to-image يمطّ النسخة (عرضها × ارتفاعها) على لوحةٍ عرضها
-    // وارتفاعها مقرَّبان كلٌّ وحده ومحدودان بحدّ اللوحة (16,384 نقطة)، فمقياسا الطول والعرض يختلفان في تقرير طويل، وارتفاعٌ من نسبة الصورة يزيح كلّ حدّ
-    // صفّ عن صفّه في الصورة (مراجعة 2026-11-27: حتى 12 نقطة في 480 صفّاً، فانقسم صفّ بين صفحتين). وكلّ حدّ صفّ نسبةٌ من هذا الارتفاع في النسخة وفي الصورة.
+    // ارتفاع النسخة يُعطى لـhtml-to-image صريحاً ويُستعمل نفسه ارتفاعاً للصورة في الملفّ: html-to-image يمطّ النسخة (عرضها × ارتفاعها) على لوحةٍ عرضها
+    // وارتفاعها مقرَّبان كلٌّ وحده، فارتفاعٌ من نسبة الصورة يختلف عنه بكسر نقطة. وانزياح القطع عن حدود الصفوف في تقرير طويل سببه المقياس الكسريّ لا هذا
+    // (withCopy بـwhole).
     const measured = box.height;
     const url = await toJpeg(copy, {
       ...captureOptions(width, ratio, { ...options, background: options.background ?? 'rgb(255, 255, 255)' }),
@@ -173,7 +175,7 @@ export async function reportPdf(page: HTMLElement, name: string, title: string, 
     const height = measured > 0 ? measured : (width * size.height) / size.width;
     const pdf = imagePdf({ bytes, pixelWidth: size.width, pixelHeight: size.height }, { cssWidth: width, cssHeight: height, pages: paginate(breaks, height, pageCapacity(width), tables), title });
     return new File([pdf], name, { type: 'application/pdf' });
-  });
+  }, true);
 }
 
 /** تنزيل الملفّ برابط مؤقّت (حين لا تقبل نافذة المشاركة الملفّات، أو باختيار «نزّلها»). */
