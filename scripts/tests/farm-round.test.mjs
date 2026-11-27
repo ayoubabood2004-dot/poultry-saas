@@ -145,8 +145,8 @@ const type = (input, value) => {
  * بالنقر، فيُرسل النموذج نفسه هنا.
  */
 const submitVia = (button) => {
-  const form = button && button.getAttribute('disabled') === null ? all().find((n) => n.localName === 'form' && n.id === button.getAttribute('form')) : null;
-  if (form) fire(form, 'submit');
+  // الزرّ type="submit" form=… يحفظ بنقرته (النموذج بـnoSubmit لا يحفظ بإرساله)، فالنقرة كالمتصفّح، والمعطّل لا يُنقر.
+  if (button && button.getAttribute('disabled') === null) fire(button, 'click');
 };
 const clone = (value) => JSON.parse(JSON.stringify(value));
 /** يرمي ويرجّع اسم الخانة، أو «parsed». */

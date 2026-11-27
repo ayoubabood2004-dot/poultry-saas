@@ -25,11 +25,13 @@ const REAL = existsSync(REAL_PATH) ? JSON.parse(readFileSync(REAL_PATH, 'utf8'))
 const ERRORS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'errors.ts'));
 const REAL_FLOCKS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'flocks.ts'));
 const REAL_HALLS = JSON.stringify(path.join(ROOT, 'src', 'pages', 'halls', 'HallsRoutes.tsx'));
-// قراءة الحقل وكتابات القاعة والفوج بدائل؛ والباقي من flocks.ts حقيقيّ.
-const OVERRIDES = ['loadOverviewJson', 'loadFlockDetail', 'createHall', 'updateHall', 'openFlock'];
+// قراءة الحقل بديل، والباقي من flocks.ts حقيقيّ؛ وكتابات القاعة والفوج من repo/hallAdmin (0038) بدائل.
+const OVERRIDES = ['loadOverviewJson', 'loadFlockDetail'];
+const ADMIN = ['createHall', 'updateHall', 'openFlock', 'setHallSections'];
 const STUBS = {
   flocks: `export * from ${REAL_FLOCKS}; import { parseOverview as __parseOverview } from ${REAL_FLOCKS}; ${OVERRIDES.map((n) => `export const ${n} = (...a) => globalThis.__dh.call('${n}', a);`).join(' ')}
     export const loadOverview = async () => __parseOverview(await globalThis.__dh.call('loadOverviewJson', []));`,
+  hallAdmin: ADMIN.map((n) => `export const ${n} = (...a) => globalThis.__dh.call('${n}', a);`).join(' '),
   session: 'export const useSession = () => globalThis.__dh.session; export const sessionStore = { get: () => globalThis.__dh?.session ?? { status: "loading" } };',
   Toast: 'export const toast = (spec) => { globalThis.__dh.toasts.push(spec); }; export function Toaster() { return null; }',
   // حزمة القاعات (نافذتا القاعة والحذف منها): حقيقية، أو فشل تحميلها كما بلا نت (hallsFail).
@@ -52,7 +54,7 @@ const plugins = [
   {
     name: 'dh-stubs',
     setup(b) {
-      b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/flocks$|\/Toast$|\/lib\/hallsChunk$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'dh-stub' }));
+      b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/flocks$|\/lib\/repo\/hallAdmin$|\/Toast$|\/lib\/hallsChunk$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'dh-stub' }));
       b.onLoad({ filter: /.*/, namespace: 'dh-stub' }, (args) => ({ contents: STUBS[args.path], resolveDir: ROOT, loader: 'js' }));
       b.onResolve({ filter: /^\.\/core$/ }, (args) => (/src\/lib\/repo\/(?:flocks|flockEdits|hallSheet|hallDelete|weighTickets)\.ts$/u.test(args.importer.replace(/\\/g, '/')) ? { path: 'core', namespace: 'dh-core' } : undefined));
       b.onLoad({ filter: /.*/, namespace: 'dh-core' }, () => ({ contents: CORE, resolveDir: ROOT, loader: 'js' }));
@@ -121,8 +123,8 @@ const cancelButton = () => byAction('hall-delete-cancel', deleteDialog() ?? body
  */
 const formOf = (button) => (button ? all().find((n) => n.localName === 'form' && n.id !== '' && n.id === button.getAttribute('form')) ?? null : null);
 const submitVia = async (button) => {
-  const form = button && !disabled(button) ? formOf(button) : null;
-  if (form) fire(form, 'submit');
+  // الزرّ type="submit" form=… يحفظ بنقرته (والنموذج بـnoSubmit لا يحفظ بإرساله)، فالنقرة كالمتصفّح، والمعطّل لا يُنقر.
+  if (button && !disabled(button) && formOf(button)) fire(button, 'click');
   await settle(40);
 };
 
@@ -999,7 +1001,7 @@ export default async function (t) {
       type(fieldIn(dialog, '-capacity'), '25000');
       await settle();
       await submitVia(byAction('hall-save', dialog ?? body())[0]);
-      t.same([named(calls, 'createHall'), toasts()[0]?.[1] ?? null, Boolean(dialogTitled('قاعة جديدة')), reads(calls)], [[[PREVIEW.running.hall.site_id, 'قاعة 9', 25000]], 'أُضيفت القاعة «قاعة 9».', false, 2], 'F إرسال النموذج يحفظ القاعة مرّة واحدة (createHall بالحقل والاسم والسعة)، ثمّ تُغلق والحقل يُقرأ من جديد');
+      t.same([named(calls, 'createHall'), toasts()[0]?.[1] ?? null, Boolean(dialogTitled('قاعة جديدة')), reads(calls)], [[[PREVIEW.running.hall.site_id, 'قاعة 9', 25000, 1]], 'أُضيفت القاعة «قاعة 9».', false, 2], 'F «احفظ القاعة» يحفظ القاعة مرّة واحدة (createHall بالحقل والاسم والسعة وقسم واحد، 0038)، ثمّ تُغلق والحقل يُقرأ من جديد');
     });
     await step('F تعديل القاعة', async () => {
       const calls = fresh({ loadOverviewJson: () => overview(), updateHall: () => undefined });

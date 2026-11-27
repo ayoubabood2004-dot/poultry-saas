@@ -1,4 +1,4 @@
-import { useId, useRef, useState, type FormEvent } from 'react';
+import { useId, useRef, useState } from 'react';
 import { Button } from '../../components/ui/Button';
 import { Dialog } from '../../components/ui/Dialog';
 import { Field } from '../../components/ui/Field';
@@ -9,6 +9,7 @@ import { localDay } from '../../domain/dates';
 import { evenSplit } from '../../domain/sections';
 import { parseDayText } from '../../lib/dayText';
 import { describeError, RejectedError } from '../../lib/errors';
+import { noSubmit } from '../../lib/formKeys';
 import { fmtDay, fmtInt } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import type { HallView, SiteView } from '../../lib/repo/flocks';
@@ -17,8 +18,8 @@ import { DeleteHallDialog } from './DeleteHallDialog';
 import { hallLabel } from './shared';
 
 // نافذتا القاعة («أضف قاعة» و«عدّل القاعة») و«افتح فوجاً»: في جدول الحقل وفي صفحة القاعة الفارغة (كلمة المالك 2026-11-16)، من مكان واحد.
-// وكلّ نافذة نموذج (<form id> وزرّ الحفظ type="submit" form=… في ذيلها، كنافذة السعر): الإرسال من Enter أو الزرّ يمرّ بالتحقّق نفسه، والزرّ المعطّل
-// لا يرسل (كلمة الزبون 2026-11-26: «أكتب 25000 وأدوس إنتر يحفظ»، عقد 0039). و«عدّل القاعة» في ذيلها «احذف القاعة» (0039): زرّ type="button" لا
+// وكلّ نافذة نموذج (<form id> بـnoSubmit وزرّ الحفظ type="submit" form=… في ذيلها يحفظ بنقرته، كنوافذ lib/formKeys): Enter في آخر خانة ونقرة الفأرة نقرةٌ
+// واحدة على الزرّ فالحفظ مرّة، والزرّ المعطّل لا يُنقر (كلمة الزبون 2026-11-26: «أكتب 25000 وأدوس إنتر يحفظ»، عقد 0039). و«عدّل القاعة» في ذيلها «احذف القاعة» (0039): زرّ type="button" لا
 // يرسل النموذج، يفتح نافذة الحذف فوقها (والتراجع يرجع إليها).
 
 const MAX_COUNT = 10_000_000;
@@ -175,12 +176,8 @@ export function HallDialog({ site, hall, onClose, onSaved, onChanged, onDeleted,
       if (renamed) onChanged();
     }
   };
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    void save();
-  };
   const saveButton = (
-    <Button type="submit" form={formId} busy={busy} disabled={name.trim() === '' || Boolean(capacityError)} data-action="hall-save">
+    <Button type="submit" form={formId} onClick={() => void save()} busy={busy} disabled={name.trim() === '' || Boolean(capacityError)} data-action="hall-save">
       {t('farm.hall.save', 'احفظ القاعة')}
     </Button>
   );
@@ -205,7 +202,7 @@ export function HallDialog({ site, hall, onClose, onSaved, onChanged, onDeleted,
         )
       }
     >
-      <form id={formId} className="flex flex-col gap-4" onSubmit={submit} noValidate>
+      <form id={formId} className="flex flex-col gap-4" onSubmit={noSubmit} noValidate>
         <Field id={`${id}-name`} label={t('farm.hall.name', 'اسم القاعة')} hint={t('farm.hall.name.hint', 'مثل: قاعة 1.')}>
           <input id={`${id}-name`} className="input" autoComplete="off" value={name} onChange={(event) => setName(event.target.value)} />
         </Field>
@@ -276,11 +273,6 @@ export function OpenFlockDialog({ hall, onClose, onOpened }: { hall: HallView; o
       setBusy(false);
     }
   };
-  const submit = (event: FormEvent) => {
-    event.preventDefault();
-    void save();
-  };
-
   return (
     <Dialog
       open
@@ -290,12 +282,12 @@ export function OpenFlockDialog({ hall, onClose, onOpened }: { hall: HallView; o
       dirty={day !== initialDay || count !== '' || parts.some((part) => part !== '') || age !== '0' || breed !== ''}
       title={t('farm.open.title', 'فوج جديد في «{hall}»', { hall: hallLabel(hall.name) })}
       footer={
-        <Button type="submit" form={formId} busy={busy} disabled={!ready} data-action="flock-open-save">
+        <Button type="submit" form={formId} onClick={() => void save()} busy={busy} disabled={!ready} data-action="flock-open-save">
           {t('farm.open.save', 'افتح الفوج')}
         </Button>
       }
     >
-      <form id={formId} className="flex flex-col gap-4" onSubmit={submit} noValidate>
+      <form id={formId} className="flex flex-col gap-4" onSubmit={noSubmit} noValidate>
         <Field id={`${id}-day`} label={t('farm.open.day', 'تاريخ التسكين')} error={dayError} hint={t('farm.open.day.hint', 'يوم/شهر/سنة. فوج قائم يُكتب بتاريخ تسكينه الحقيقي.')}>
           <input id={`${id}-day`} className="input tabular-nums" dir="ltr" inputMode="numeric" autoComplete="off" placeholder={t('org.go_live.placeholder', 'يوم/شهر/سنة')} value={day} onChange={(event) => setDay(event.target.value)} />
         </Field>
