@@ -61,6 +61,10 @@ export const FLOCK_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
   flock_day_gas_cylinders_check: () => t('constraint.flock_day_gas_cylinders_check', 'عدد قناني الغاز عدد صحيح من صفر إلى 1,000، أو فارغ.'),
   flock_day_gas_version_check: () => t('constraint.flock_day_gas_version_check', 'نسخة خانة الغاز يكتبها الخادم.'),
   flock_day_gas_on_date_check: () => t('constraint.flock_day_gas_on_date_check', 'يوم الغاز من التقويم.'),
+  // 0037: الكاز لكلّ يوم باللتر (تكتبه set_flock_kerosene وحدها).
+  flock_day_kerosene_liters_check: () => t('constraint.flock_day_kerosene_liters_check', 'الكاز باللتر عدد صحيح من صفر إلى 20,000، أو فارغ.'),
+  flock_day_kerosene_version_check: () => t('constraint.flock_day_kerosene_version_check', 'نسخة خانة الكاز يكتبها الخادم.'),
+  flock_day_kerosene_on_date_check: () => t('constraint.flock_day_kerosene_on_date_check', 'يوم الكاز من التقويم.'),
   flock_issues_for_day_check: () => t('constraint.flock_issues_for_day_check', 'يوم العلف في القاعة من التقويم، ولا يأتي بعد يوم إرساله من المخزن.'),
   flock_day_rejects_version_check: () => t('constraint.flock_day_rejects_version_check', 'نسخة العملية المركونة يكتبها الخادم.'),
 };

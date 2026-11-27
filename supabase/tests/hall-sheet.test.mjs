@@ -419,10 +419,11 @@ async function scenario(t, db) {
     same([rowOf(a, TODAY).feed_kg, rowOf(a, TODAY).note, rowOf(a, TODAY).dead, rowOf(a, TODAY).eggs_total], ['100.000', 'جولة اليوم', 0, null], 'اليوم: علف اليوم (بلا الدواء)، والملاحظة، وبيض فارغ للّاحم');
     same([rowOf(a, day(5)).dead, rowOf(a, day(5)).gas, rowOf(a, day(5)).feed_kg, rowOf(a, day(5)).sold_birds, rowOf(a, day(5)).live_end], [null, null, null, 0, 892],
       'يوم قادم: صفّ فارغ والحيّ كما هو');
-    same(a.totals, { dead: 8, gas: 4, feed_kg: '150.000', feed_back_kg: '0.000', sold_birds: 100, sold_net_kg: '240.000', eggs_total: null },
+    // 0037: ومجموع الكاز (مفتاح جديد في المجاميع والخلاصة، صفر بلا كاز).
+    same(a.totals, { dead: 8, gas: 4, kerosene: 0, feed_kg: '150.000', feed_back_kg: '0.000', sold_birds: 100, sold_net_kg: '240.000', eggs_total: null },
       'المجاميع: الهلاكات 1+5+2، والغاز 3+1، والعلف 100+50، ولا راجع لوجبة قائمة');
     same(a.summary, { placed: 1000, dead: 8, mortality_pct: '0.80', live: 892, feed_kg: '150.000', feed_back_kg: '0.000', feed_net_kg: '150.000', feed_bags: '3.000', gas: 4,
-      sold_birds: 100, sold_net_kg: '240.000', avg_weight_kg: '2.400', fcr: '0.625' },
+      kerosene: 0, sold_birds: 100, sold_net_kg: '240.000', avg_weight_kg: '2.400', fcr: '0.625' },
     'الخلاصة: النفوق 8 ÷ 1,000، والأكياس 150 ÷ 50، ومعدّل الوزن 240 ÷ 100، ومعامل التحويل (150 − 0) ÷ 240');
     same([rowOf(a, day(-20)).carry_in_kg, rowOf(a, day(-20)).feed_back_kg, rowOf(a, day(-30)).carry_in_kg], [null, null, null], 'بلا منقول ولا راجع: الخانتان فارغتان');
     const sums = a.days.reduce((s, d) => ({ dead: s.dead + (d.dead ?? 0), gas: s.gas + (d.gas ?? 0), feed: s.feed + Number(d.feed_kg ?? 0) }), { dead: 0, gas: 0, feed: 0 });
