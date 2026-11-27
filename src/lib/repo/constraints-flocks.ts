@@ -67,6 +67,9 @@ export const FLOCK_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
   flock_day_kerosene_on_date_check: () => t('constraint.flock_day_kerosene_on_date_check', 'يوم الكاز من التقويم.'),
   flock_issues_for_day_check: () => t('constraint.flock_issues_for_day_check', 'يوم العلف في القاعة من التقويم، ولا يأتي بعد يوم إرساله من المخزن.'),
   flock_day_rejects_version_check: () => t('constraint.flock_day_rejects_version_check', 'نسخة العملية المركونة يكتبها الخادم.'),
+  // 0038: هلاكات كلّ قسم في القاعة المقسومة (تكتبها set_flock_dead وsave_flock_day وflock_day_rebuild).
+  flock_visits_dead_parts_check: () => t('constraint.flock_visits_dead_parts_check', 'هلاكات أقسام الزيارة أعداد صحيحة من صفر فأكثر، خانة لكلّ قسم، ومجموعها هلاكات الزيارة.'),
+  flock_daily_dead_parts_check: () => t('constraint.flock_daily_dead_parts_check', 'هلاكات أقسام اليوم أعداد صحيحة من صفر فأكثر، خانة لكلّ قسم، ومجموعها هلاكات اليوم.'),
 };
 
 registerConstraintHints(FLOCK_CONSTRAINT_HINTS);

@@ -29,6 +29,9 @@ export const HALLS_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
   halls_day_notes_note_check: () => t('constraint.halls_day_notes_note_check', 'الملاحظة لا تزيد على 500 حرف، بلا فراغ في طرفيها.'),
   halls_day_notes_version_check: () => t('constraint.halls_day_notes_version_check', 'نسخة الملاحظة يكتبها الخادم.'),
   halls_day_notes_on_date_check: () => t('constraint.halls_day_notes_on_date_check', 'يوم الملاحظة يوم من التقويم.'),
+  // 0038: القاعة بأقسام (تُكتب عند إنشائها، وتتغيّر بـset_hall_sections)، وعدد كلّ قسم في الوجبة.
+  halls_sections_check: () => t('constraint.halls_sections_check', 'أقسام القاعة من 1 (غير مقسومة) إلى 4.'),
+  flocks_section_counts_check: () => t('constraint.flocks_section_counts_check', 'أعداد الأقسام أعداد صحيحة من صفر فأكثر، خانة لكلّ قسم، ومجموعها عدد الطيور الداخلة.'),
 };
 
 registerConstraintHints(HALLS_CONSTRAINT_HINTS);

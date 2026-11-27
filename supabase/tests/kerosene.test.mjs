@@ -37,7 +37,7 @@ const CLOSE = "select public.close_flock($1, $2, $3, $4, $5, 0, '[]'::jsonb, 'ب
 const SIG = {
   kerosene: 'public.set_flock_kerosene(uuid, date, integer, bigint, uuid, boolean)',
   sheet: 'public.hall_sheet(uuid)',
-  edit: 'public.edit_flock(uuid, integer, date, integer, integer, text, uuid)',
+  edit: 'public.edit_flock(uuid, integer, date, integer, integer, text, uuid, integer[])',
   activity: 'private.flock_activity_after(public.flocks, date)',
   deleteFlock: 'public.delete_flock(uuid, integer, uuid)',
   inScopeSite: 'public.in_scope_site(uuid)',
@@ -319,7 +319,10 @@ async function scenario(t, db) {
       await oq(bodyOf('0035_hall_sheet.sql', 'public.hall_sheet'));
       return { a: await inside(attempt, U.owner, SHEET, [F.a]), c: await inside(attempt, U.owner, SHEET, [F.c]) };
     });
-    const strip = (s) => ({ ...s, days: s.days.map((d) => omit(d, 'kerosene', 'kerosene_version')), totals: omit(s.totals, 'kerosene'), summary: omit(s.summary, 'kerosene') });
+    // 0038 زاد مفاتيح الأقسام (dead_parts لكلّ يوم وفي المجاميع، وsections في رأس الجواب، فارغة لغير المقسومة): تُشال مع مفاتيح الكاز، فالمقارنة بجسم 0035
+    // للمفاتيح القائمة وحدها.
+    const strip = (s) => ({ ...omit(s, 'sections'), days: s.days.map((d) => omit(d, 'kerosene', 'kerosene_version', 'dead_parts')), totals: omit(s.totals, 'kerosene', 'dead_parts'),
+      summary: omit(s.summary, 'kerosene') });
     const c = await sheet(F.c);
     t.ok(Boolean(old.a?.totals) && !('kerosene' in old.a.totals) && !('kerosene' in old.a.summary) && !('kerosene' in old.a.days[0]), 'ضابط: الورقة بجسم 0035 بلا مفاتيح الكاز');
     same([strip(a), strip(c)], [old.a, old.c], 'المفاتيح القائمة كلّها بأسمائها وقيمها وترتيب أيّامها كما في جسم 0035 (الواجهة المنشورة تقرؤها بين التطبيق والدمج)، والجديد مفاتيح الكاز وحدها');
