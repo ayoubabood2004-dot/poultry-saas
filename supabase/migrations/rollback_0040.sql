@@ -1,4 +1,4 @@
--- rollback_0039 — تراجع «ترتيب الموادّ وألوان الرصيد» (0039_store_order_colors): يرجّع public.day_balance_sections كما في 0035 وpublic.items_overview
+-- rollback_0040 — تراجع «ترتيب الموادّ وألوان الرصيد» (0040_store_order_colors): يرجّع public.day_balance_sections كما في 0035 وpublic.items_overview
 --   كما في 0020 حرفاً بحرف (المنح باقٍ: create or replace لا يغيّره)، ويُسقط الدوالّ الجديدة والجداول الثلاثة.
 -- **طريق رفض**: ترتيب محفوظ لقسم (بموادّ)، أو صفّ لون أو حدّ لمادّة (ولو مُسح لونها: الصفّ يبقى بنسخته)، أو إعدادات ألوان، يوقف التراجع بصوت بلا
 --   أن يغيّر شيئاً (إسقاط الجداول يضيعها). وما بعد الكتلة يكمل على كلّ بيانات (يُسقطها)، فضابط المشغّل يرى التراجع يكمل بلاها.
@@ -19,7 +19,7 @@ begin
   select count(*) into v_marks from public.item_marks;
   select count(*) into v_settings from public.store_color_settings;
   if v_orders + v_marks + v_settings > 0 then
-    raise exception 'rollback_blocked' using hint = format('يوجد %s ترتيب قسم و%s لون أو حدّ لمادّة و%s إعدادات ألوان، والتراجع يمسحها. لا تراجع لـ0039 بعد استعمالها.',
+    raise exception 'rollback_blocked' using hint = format('يوجد %s ترتيب قسم و%s لون أو حدّ لمادّة و%s إعدادات ألوان، والتراجع يمسحها. لا تراجع لـ0040 بعد استعمالها.',
       v_orders, v_marks, v_settings);
   end if;
 end

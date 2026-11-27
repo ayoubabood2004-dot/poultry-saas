@@ -127,7 +127,7 @@ export function shareText(data: DayBalanceSections): { title: string; text: stri
     .filter((section) => section.rows.length > 0)
     .map((section) => {
       const lines = section.rows.map((row, index) => {
-        // اللون الظاهر علامةً ملوّنة أوّل السطر (واتساب لا يلوّن السطور)، وكلمة الحالة إن كان «لوّن تلقائيّاً» مشغَّلاً (0039).
+        // اللون الظاهر علامةً ملوّنة أوّل السطر (واتساب لا يلوّن السطور)، وكلمة الحالة إن كان «لوّن تلقائيّاً» مشغَّلاً (0040).
         const color = shownColor(row.mark, row.state, data.colors);
         const state = data.colors.auto && row.state ? t('dayb.share.state', ' ({state})', { state: stateWord(row.state) }) : '';
         const line = `${color ? `${MARK_LOOK[color].emoji} ` : ''}${t('dayb.share.row', '{n}. {name}: {qty}', { n: fmtInt(index + 1), name: row.name, qty: qtyText(row) })}${state}`;
@@ -183,7 +183,7 @@ export function dayColumns(rows: readonly DayRow[], on: Day, here: string, onNot
           <Link to={itemLink(row, here)} className="font-medium text-brand-700 dark:text-brand-200" data-action="day-item">
             {row.name}
           </Link>
-          {/* كلمة الحالة بجانب اللون التلقائيّ: اللون وحده لا يُفهم ولا يظهر بالطباعة بالأبيض والأسود (0039). وبسطر تحت الاسم: بجانبه كانت تعرّض
+          {/* كلمة الحالة بجانب اللون التلقائيّ: اللون وحده لا يُفهم ولا يظهر بالطباعة بالأبيض والأسود (0040). وبسطر تحت الاسم: بجانبه كانت تعرّض
               عمود «المادّة» فيدفع زرّ اللون خارج الشاشة بعرض الهاتف. */}
           {look?.colors.auto && row.state ? (
             <span className="block text-xs font-semibold" data-action="day-state" data-state={row.state}>
@@ -530,7 +530,7 @@ export function DayBalanceView({ orgName }: { orgName: string }) {
     if (uncertain) state.retry();
   };
   const onNote = canNote && data ? (row: DayRow) => setOpen({ kind: 'note', key: here, item: { id: row.itemId, name: row.name }, day: data.on, shown: row.note }) : null;
-  // لون المادّة لمن يكتب الملاحظات (stock_note.write)، وتظليل الصفّ بلونه الظاهر (0039).
+  // لون المادّة لمن يكتب الملاحظات (stock_note.write)، وتظليل الصفّ بلونه الظاهر (0040).
   const look: DayLook | null = data ? { colors: data.colors, onMark: canNote ? (row: DayRow) => setOpen({ kind: 'mark', key: here, row }) : null } : null;
   const tinted = data
     ? {

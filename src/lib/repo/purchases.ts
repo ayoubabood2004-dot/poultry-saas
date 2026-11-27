@@ -50,9 +50,9 @@ export interface OverviewItem {
   unpricedCount: number;
   /** null: المال مخفيّ عن هذا الدور. */
   money: OverviewMoney | null;
-  /** لونها باليد وحدّ قلّتها (0039)، أو null. */
+  /** لونها باليد وحدّ قلّتها (0040)، أو null. */
   mark: ItemMark | null;
-  /** نافدة أو قليلة بما عندك الآن (0039)، أو null. */
+  /** نافدة أو قليلة بما عندك الآن (0040)، أو null. */
   state: StockState | null;
 }
 
@@ -62,11 +62,11 @@ export interface ItemsOverview {
   canRecord: boolean;
   /** can('item.create') من الخادم: «أضف مادّة». */
   canAddItem: boolean;
-  /** «لوّن تلقائيّاً» ولونا القلّة والنفاد (0039). */
+  /** «لوّن تلقائيّاً» ولونا القلّة والنفاد (0040). */
   colors: StoreColors;
-  /** can('stores.manage'): «رتّب» (0039). */
+  /** can('stores.manage'): «رتّب» (0040). */
   canArrange: boolean;
-  /** بترتيب القسم الذي اختاره (0039)، ثمّ التصنيف ثمّ الاسم. */
+  /** بترتيب القسم الذي اختاره (0040)، ثمّ التصنيف ثمّ الاسم. */
   items: readonly OverviewItem[];
 }
 

@@ -329,16 +329,16 @@ async function scenario(t, db) {
   const keeperBoard = await overview(U.storekeeper);
   t.same([keys(keeperBoard), keys(keeperBoard.items[0]), keys(keeperBoard.items[0]?.money)],
     [['can_add_item', 'can_arrange', 'can_record', 'colors', 'items', 'today'], ['base_unit', 'id', 'kind', 'last_purchase_on', 'mark', 'money', 'name', 'on_hand_qty', 'purchased_qty', 'state', 'unpriced_count'], ['avg_unit_price', 'sell_price']],
-    'items_overview: المفاتيح (و0020 unpriced_count، و0039 الترتيب والألوان واللون والحالة)');
+    'items_overview: المفاتيح (و0020 unpriced_count، و0040 الترتيب والألوان واللون والحالة)');
   const cornCard = keeperBoard.items.find((row) => row.id === I.corn);
   t.same([norm(cornCard?.on_hand_qty), norm(cornCard?.purchased_qty), cornCard?.last_purchase_on, cornCard?.money?.avg_unit_price, norm(cornCard?.money?.sell_price)], ['1500', '1500', TODAY, '453.33', '500'],
     'بطاقة الذرة: الموجود ومجموع المشترى (بلا الملغى) وآخر يوم والمتوسّط وسعر البيع');
-  // 0039: الأقسام بترتيب عرضها (موادّ العلف ثمّ العلف ثمّ أخرى)، وكلّ قسم بترتيبه (بلا ترتيب محفوظ: التصنيف ثمّ الاسم المطبَّع).
+  // 0040: الأقسام بترتيب عرضها (موادّ العلف ثمّ العلف ثمّ أخرى)، وكلّ قسم بترتيبه (بلا ترتيب محفوظ: التصنيف ثمّ الاسم المطبَّع).
   const SECTION = (kind) => (kind === 'raw' || kind === 'additive' ? 0 : kind === 'feed' ? 1 : 2);
   const expectedOrder = (await db.admin(`select i.id, i.kind from public.items i left join public.item_categories c on c.id = i.category_id and c.archived_at is null
       where i.org_id = $1 and i.archived_at is null order by c.id is null, c.name collate "C", c.id, array_position(c.item_order, i.id) nulls last, i.name_norm collate "C", i.id`, [org])).rows
     .map((r, n) => [SECTION(r.kind), n, r.id]).sort((x, y) => x[0] - y[0] || x[1] - y[1]).map(([, , id]) => id);
-  t.same(keeperBoard.items.map((row) => row.id), expectedOrder, 'البطاقات: كلّ مادّة فعّالة بقسمها ثمّ التصنيف ثمّ الاسم المطبَّع (0039)، والمؤرشفة خارجها');
+  t.same(keeperBoard.items.map((row) => row.id), expectedOrder, 'البطاقات: كلّ مادّة فعّالة بقسمها ثمّ التصنيف ثمّ الاسم المطبَّع (0040)، والمؤرشفة خارجها');
   const sectionOrder = [];
   for (const section of ['feed_materials', 'feed', 'other']) sectionOrder.push(...(await one(U.storekeeper, 'select public.store_section_items($1) as v', [section])).items.map((x) => x.id));
   t.same(keeperBoard.items.map((row) => row.id), sectionOrder, 'والبطاقات بترتيب «رتّب» نفسه قسماً قسماً (store_section_items)');
