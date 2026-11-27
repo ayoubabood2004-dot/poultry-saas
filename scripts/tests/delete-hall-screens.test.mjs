@@ -848,6 +848,38 @@ export default async function (t) {
       );
     });
 
+    // مراجعة 0037 D1: جرد أو تصحيح سعر بعد الصرف يرفض الحذف (count_superseded وlot_consumed): تُقرأ القاعة من جديد فيظهر منعه بلا زرّ حذف.
+    for (const [code, block, text] of [
+      ['count_superseded', 'counted', 'جُردت «علف م/1» في «رصيد العلف» بالجرد CT-2026-0003 بعد صرفها لهذا الفوج؛ ألغِ الجرد أوّلاً ثمّ احذف القاعة.'],
+      ['lot_consumed', 'revalued', 'صُحّح سعر «علف م/1» بالتصحيح PU-2026-0002 بعد صرفها لهذا الفوج؛ ألغِ التصحيح أوّلاً ثمّ احذف القاعة.'],
+    ]) {
+      await step(`S ${code}`, async () => {
+        let previews = 0;
+        const blockedNow = { ...clone(PREVIEW.running), blocks: [{ code: block, text }] };
+        fresh(
+          { loadOverviewJson: () => overview() },
+          {
+            delete_hall_preview: () => {
+              previews += 1;
+              return previews === 1 ? PREVIEW.running : blockedNow;
+            },
+            delete_hall: () => {
+              throw new m.RejectedError(code, text);
+            },
+          },
+        );
+        await mount();
+        await openDelete('قاعة 8 تجريبي');
+        await click(confirmButton());
+        t.same([previews, linesOf('hall-delete-blocks'), confirmButton() === null], [2, [text], true], `S ${code}: تُقرأ القاعة من جديد فيظهر منع ${block} بلا زرّ حذف`);
+      });
+    }
+    t.same(
+      [safe(() => p.deleteHallFailure(new p.RejectedError('count_superseded'))), safe(() => p.deleteHallFailure(new p.RejectedError('lot_consumed')))],
+      ['جُرد مخزن مادّة صُرفت لفوج القاعة بعد صرفها؛ ألغِ الجرد أوّلاً ثمّ احذف القاعة.', 'صُحّح سعر مادّة صُرفت لفوج القاعة بعد صرفها؛ ألغِ التصحيح أوّلاً ثمّ احذف القاعة.'],
+      'T جملتا الجرد والتصحيح حين يرفض الخادم بلا تلميح',
+    );
+
     // ── G وO: قاعة حُذفت قبلاً، وبلا حزمة القاعات ─────────────────────────────────────────────────────────────────────
     await step('G', async () => {
       const calls = fresh(

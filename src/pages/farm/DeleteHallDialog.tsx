@@ -20,7 +20,7 @@ import { hallLabel } from './shared';
 // وبصمة ما عُرض ومرجع واحد للنافذة تحمله كلّ إعادة؛ وتغيّرٌ بعد فتح النافذة (stale_plan وstale_hall أو منعٌ جديد) يُقرأ من جديد ويُقال.
 
 /** رفوض تعني أنّ ما عُرض قبل الحذف تغيّر: النافذة تقرأ ما في القاعة من جديد وتقول ذلك، والصفحة تقرأ الحقل من جديد. */
-const REREAD: ReadonlySet<string> = new Set(['stale_plan', 'stale_hall', 'hall_has_sales', 'hall_has_tickets', 'hall_has_carry', 'period_locked', 'forbidden', 'flock_void', 'hall_not_found']);
+const REREAD: ReadonlySet<string> = new Set(['stale_plan', 'stale_hall', 'hall_has_sales', 'hall_has_tickets', 'hall_has_carry', 'period_locked', 'forbidden', 'count_superseded', 'lot_consumed', 'flock_void', 'hall_not_found']);
 
 /** جمل رموز الحذف حين يرفض الخادم بلا تلميح (والتلميح أوّلاً حين يحمله). */
 const FAILURE_TEXT: Readonly<Record<string, () => string>> = {
@@ -31,6 +31,8 @@ const FAILURE_TEXT: Readonly<Record<string, () => string>> = {
   stale_plan: () => t('hall.delete.error.stale_plan', 'تغيّر ما في القاعة بعد فتح النافذة. راجع ما سيُحذف ثمّ احذف.'),
   stale_hall: () => t('hall.delete.error.stale_hall', 'تغيّرت القاعة بعد فتح النافذة. راجع ما سيُحذف ثمّ احذف.'),
   period_locked: () => t('hall.delete.error.period_locked', 'يوم تسكين الفوج أو اليوم في فترة حسابات مقفلة، فلا تُحذف القاعة قبل فتح الفترة.'),
+  count_superseded: () => t('hall.delete.error.counted', 'جُرد مخزن مادّة صُرفت لفوج القاعة بعد صرفها؛ ألغِ الجرد أوّلاً ثمّ احذف القاعة.'),
+  lot_consumed: () => t('hall.delete.error.revalued', 'صُحّح سعر مادّة صُرفت لفوج القاعة بعد صرفها؛ ألغِ التصحيح أوّلاً ثمّ احذف القاعة.'),
 };
 
 /** وصف الخطأ جملتين: العنوان ثمّ التفصيل (كـLoadFailed)، لا كلاماً متّصلاً. */

@@ -67,7 +67,8 @@ const qty = (row: Row, field: string): Milli => {
 const BASE_UNITS: readonly BaseUnit[] = ['kg', 'L', 'pc'];
 const RUNNING: readonly ('preparing' | 'active')[] = ['preparing', 'active'];
 /** لماذا لا تُحذف القاعة الآن (عقد D2، فحوص delete_hall نفسها بترتيبها): بيع طيور، تذكرة وزن، علف منقول مطبَّق، فترة مقفلة، الصلاحية أو النطاق. */
-export const DELETE_HALL_BLOCKS = ['sales', 'tickets', 'carry', 'period_locked', 'permission'] as const;
+// counted وrevalued (مراجعة 0037 D1): جرد أو تصحيح سعر بعد ما صُرف للفوج يمنع عكسه، فيمنع الحذف من القراءة نفسها لا عند الحذف وحده.
+export const DELETE_HALL_BLOCKS = ['sales', 'tickets', 'carry', 'period_locked', 'permission', 'counted', 'revalued'] as const;
 export type DeleteHallBlock = (typeof DELETE_HALL_BLOCKS)[number];
 
 /** ما يرجع إلى المخزن بحركة عكسية: مجموع ما صُرف للفوج من مادّة واحدة من مخزن واحد، بوحدة أساس المادّة. */
