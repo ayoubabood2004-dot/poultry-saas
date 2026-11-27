@@ -8,7 +8,7 @@ import type { BaseUnit } from '../../domain/units';
 import { IdentityError, RejectedError, ZeroRowsError } from '../errors';
 import type { OutboxOp, SendResult, Transport } from '../outbox';
 import './constraints-flocks';
-import { authed, call, classifyPostgrest, explained, send, updatedRows, type PostgrestFailure } from './core';
+import { authed, call, classifyPostgrest, explained, send, type PostgrestFailure } from './core';
 
 // حقول اللحم والبيض (المرحلة 2، النسخة الأولى بكلمة المالك 2026-10-31؛ الهجرة 0012_flocks_daily): القاعات كتابة مباشرة مثل المخازن،
 // والأفواج والجولة والأوزان دوالّ (open_flock وsave_flock_day وrecord_flock_weight)، والقراءة من دالّتين بلا مال (flocks_overview
