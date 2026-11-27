@@ -8,7 +8,7 @@
 // C official.css: الرموز بالسمتين وكلّ نصّ على خلفية ملوّنة ≥ 4.5:1، والطباعة بالألوان، والجدول كلّه على الورق برأس يتكرّر، والصفحة العريضة، وكلّ اسم ofc-
 //   مستعمل له قاعدة ولا يولّد له Tailwind شيئاً، ولا @tailwind ولا @apply (CSS الإقلاع لا يكبر).
 // W الصفحة العريضة: useWidePage يزيد عدّاد lib/wide ما دامت مركّبة، والقشرة الحقيقية تضع data-wide على <main> ثمّ تشيله.
-// G من يستعمل variant="official" يستورد من components/ui/OfficialReport (حامل official.css)، وofficial.css لا يستورده غيره، ومستوردوه في حزمة القاعات وحدها.
+// G من يستعمل variant="official" يحمل official.css: OfficialReport في حزمة القاعات، أو dayReport.css (@import) في حزمة المخزون، والقطع المشتركة بلا أنماط.
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
 import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
@@ -328,18 +328,35 @@ export default async function (t) {
     const code = (text) => text.replace(/\/\*[\s\S]*?\*\//gu, '').replace(/^\s*\/\/.*$/gmu, '');
     const users = files.filter(([file, text]) => /\.tsx$/u.test(file) && /variant="official"/u.test(code(text))).map(([file]) => file);
     const carriers = files.filter(([, text]) => /from '(?:\.\.\/)+components\/ui\/OfficialReport'|from '\.\/OfficialReport'/u.test(text)).map(([file]) => file);
-    t.same(users.filter((file) => !carriers.includes(file)), [], `G1 كلّ من يستعمل variant="official" يستورد OfficialReport فتصله official.css (${users.join('، ')})`);
+    // حامل حزمة المخزون («الرصيد اليوميّ»، رسالة الزبون 2026-11-26): القطع بلا أنماط (officialParts) وملفّ CSS يدمج official.css (@import) فيخرج في
+    // StockRoutes-*.css؛ لو استوردت حزمتا القاعات والمخزون official.css نفسه لخرج في حزمة مشتركة باسمٍ يحفظه التثبيت المسبق (قيس: weighTickets-*.css).
+    const cssCarriers = files.filter(([file, text]) => /\.css$/u.test(file) && /@import '(?:\.\.\/)+components\/ui\/official\.css';/u.test(text)).map(([file]) => file);
+    const stockCarriers = files
+      .filter(([, text]) => /from '(?:\.\.\/)+components\/ui\/officialParts'/u.test(text) && cssCarriers.some((css) => text.includes(`import './${css.split('/').at(-1)}';`)))
+      .map(([file]) => file);
+    t.same(users.filter((file) => !carriers.includes(file) && !stockCarriers.includes(file)), [], `G1 كلّ من يستعمل variant="official" يحمل official.css: OfficialReport في القاعات، أو dayReport.css في المخزون (${users.join('، ')})`);
     t.same(
-      files.filter(([, text]) => /official\.css'/u.test(text)).map(([file]) => file),
-      ['src/components/ui/OfficialReport.tsx'],
-      'G2 official.css يستورده OfficialReport وحده (لا DataTable: حزمته محفوظة مسبقاً)',
+      [files.filter(([, text]) => /official\.css'/u.test(text) && !/@import/u.test(text)).map(([file]) => file), cssCarriers],
+      [['src/components/ui/OfficialReport.tsx'], ['src/pages/inventory/dayReport.css']],
+      'G2 official.css يستورده OfficialReport وحده (لا DataTable: حزمته محفوظة مسبقاً)، ويدمجه dayReport.css وحده',
     );
     t.same(
       carriers.filter((file) => !/^src\/pages\/halls\/|^src\/pages\/farm\/FlockPage\.tsx$/u.test(file)),
       [],
       'G3 مستوردو OfficialReport في حزمة القاعات وحدها (HallsRoutes-*.css خارج الإقلاع والتثبيت المسبق بالاسم)',
     );
-    t.same(users.sort(), ['src/pages/farm/FlockPage.tsx', 'src/pages/halls/DailyPage.tsx', 'src/pages/halls/ReportPage.tsx', 'src/pages/halls/dailyHistory.tsx'], 'G4 الجداول الرسمية: ورقة القاعة وتقرير الوجبة والتقرير اليوميّ و«منذ أن بدأنا»');
+    const partsUsers = files.filter(([, text]) => /from '(?:\.\.\/)+components\/ui\/officialParts'|from '\.\/officialParts'/u.test(text)).map(([file]) => file);
+    const partsSource = files.find(([file]) => file === 'src/components/ui/officialParts.tsx')?.[1] ?? '';
+    t.same(
+      [partsUsers.sort(), stockCarriers, /\.css'/u.test(code(partsSource))],
+      [['src/components/ui/OfficialReport.tsx', 'src/pages/inventory/DayBalanceView.tsx'], ['src/pages/inventory/DayBalanceView.tsx'], false],
+      'G5 القطع المشتركة بين الحزمتين (officialParts) بلا أنماط، ويستوردها حامل القاعات و«الرصيد اليوميّ» وحدهما',
+    );
+    t.same(
+      users.sort(),
+      ['src/pages/farm/FlockPage.tsx', 'src/pages/halls/DailyPage.tsx', 'src/pages/halls/ReportPage.tsx', 'src/pages/halls/dailyHistory.tsx', 'src/pages/inventory/DayBalanceView.tsx'],
+      'G4 الجداول الرسمية: ورقة القاعة وتقرير الوجبة والتقرير اليوميّ و«منذ أن بدأنا» و«الرصيد اليوميّ»',
+    );
   }
 
   // ── W: الصفحة العريضة بالقشرة الحقيقية ─────────────────────────────────────────────────────────────────────────────

@@ -144,19 +144,25 @@ function dataUrlBytes(url: string): Uint8Array {
 
 /**
  * ملفّ PDF بحجم A4 من الصفحة page (رسالة الزبون 2026-11-26: الرصيد اليومي يُرسل PDF لا رسالة): النسخة نفسها التي تُصوَّر، صورةً JPEG (ورقة بيضاء إن لم
- * تُعطَ خلفية)، ثمّ تُقسم صفحاتٍ عند حدود الصفوف والأقسام (paginate) وتُلفّ بـimagePdf. يرمي إن تعذّر الرسم.
+ * تُعطَ خلفية)، ثمّ تُقسم صفحاتٍ عند حدود الصفوف والأقسام وبصفّ أسماء الأعمدة مكرَّراً فوق كلّ صفحة تبدأ داخل جدول (paginate)، وتُلفّ بـimagePdf. يرمي إن
+ * تعذّر الرسم.
  */
 export async function reportPdf(page: HTMLElement, name: string, title: string, width: number = IMAGE_WIDTH, options: ImageOptions = {}): Promise<File> {
   return withCopy(page, width, options, async (copy, ratio) => {
     const top = copy.getBoundingClientRect().top;
     const breaks = Array.from(copy.querySelectorAll(PDF_BREAKS)).map((node) => node.getBoundingClientRect().bottom - top);
+    // صفّ أسماء أعمدة كلّ جدول وأسفله: يُكرَّر فوق كلّ صفحة تبدأ داخل جسمه.
+    const tables = Array.from(copy.querySelectorAll('table')).flatMap((table) => {
+      const head = table.tHead?.getBoundingClientRect();
+      return head && head.height > 0 ? [{ headTop: head.top - top, headBottom: head.bottom - top, bottom: table.getBoundingClientRect().bottom - top }] : [];
+    });
     const url = await toJpeg(copy, { ...captureOptions(width, ratio, { ...options, background: options.background ?? 'rgb(255, 255, 255)' }), quality: 0.92 });
     const bytes = dataUrlBytes(url);
     const size = jpegSize(bytes);
     if (!size) throw new Error('report_pdf_image');
     // الارتفاع بنقاط CSS من الصورة نفسها (ما رُسم فعلاً)، لا من قياس النسخة قبل الرسم.
     const height = (width * size.height) / size.width;
-    const pdf = imagePdf({ bytes, pixelWidth: size.width, pixelHeight: size.height }, { cssWidth: width, cssHeight: height, pages: paginate(breaks, height, pageCapacity(width)), title });
+    const pdf = imagePdf({ bytes, pixelWidth: size.width, pixelHeight: size.height }, { cssWidth: width, cssHeight: height, pages: paginate(breaks, height, pageCapacity(width), tables), title });
     return new File([pdf], name, { type: 'application/pdf' });
   });
 }

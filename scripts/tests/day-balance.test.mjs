@@ -8,8 +8,10 @@
 // S1 المفتاح «البطاقات | الرصيد اليومي» والرابط (?view=day يقرأ day_balance_sections ولا يقرأ day_balance، والبطاقات لا تقرأ الرصيد)؛
 // S2 جدول لكلّ قسم بعنوانه وعدده وأعمدته (ت | المادّة | الرصيد (كغم) | الملاحظات، والوحدة في الرأس أو عمودها)، و«أخرى» يغيب فارغاً، ولا اختيار
 // تصنيف ولا مخزن ولا «أدرج مواد»؛ S3 السهمان و«اليوم» والتاريخ بالكتابة بـp_on الصحيح؛ S6 رابط المادّة والصفّ كلّه بـ?back= إلى العرض نفسه؛
-// S7 الملاحظة في أيّ قسم: النصّ واليوم والنسخة التي رآها، والمسح، وnote_changed، والطول، وout_of_scope؛ S10 الطباعة: الجداول كلّها في مستند
-// واحد؛ S11 المشاركة بالأقسام؛ S12 المشاهد بلا ملاحظة، والفراغ بلا طباعة ولا مشاركة؛ S14 رفض day_in_future بتلميحه وزرّ «اليوم»؛ S15 القشرة
+// S7 الملاحظة في أيّ قسم: النصّ واليوم والنسخة التي رآها، والمسح، وnote_changed، والطول، وout_of_scope؛ S10 الطباعة: الورقة الرسمية (رسالة الزبون
+// 2026-11-26: «ترتيب رسمي… وبالاعلى الاسماء الدالة») برأسها وشبكة بياناتها وجداولها الرسمية بشريط اسم كلّ قسم وصفّ أسماء أعمدته وتذييلها، وA4 بالطول؛
+// S11 «أرسل PDF» يرسل ملفّ PDF لا نصّاً (الرسالة نفسها: «لازم يروح على شكل بي دي اف»)، وما رفضه المتصفّح جاهزٌ بضغطة، وبلا مشاركة يُنزَّل، والفشل
+// يُقال؛ S12 المشاهد بلا ملاحظة، والفراغ بلا طباعة ولا إرسال؛ S14 رفض day_in_future بتلميحه وزرّ «اليوم»؛ S15 القشرة
 // print:hidden؛ S16 «حركات المادّة» في ملفّ المادّة؛ وR مراجعة 0022 العدائية فيما بقي من الصفحة؛
 // B بطاقات المخزن بأقسامها: «مواد العلف» و«العلف» دائماً بعدد كلّ منهما، و«أخرى» إن لم يكن فارغاً، والبحث عبر الأقسام، و«أضف مادّة» داخل القسم
 // بنوعه (مادّة للمعمل أو علف جاهز) حتى createItem.
@@ -34,6 +36,8 @@ const STUBS = {
   mill: routed('mill', ['loadMill', 'loadBuilder', 'loadRecipe', 'loadBatch', 'loadExpenseCategories', 'loadMillStores']),
   session: 'export const useSession = () => globalThis.__db.session; export const sessionStore = { get: () => globalThis.__db?.session ?? { status: "loading" } };',
   Toast: 'export const toast = (spec) => { globalThis.__db.toasts.push(spec); }; export function Toaster() { return null; }',
+  // صورة الورقة: toJpeg يسجّل النسخة وخياراتها ويجيب بما يضعه الفحص (JPEG حقيقيّ صغير)؛ وtoBlob (صور القاعات والمبيعات) لا يُنادى هنا.
+  image: 'export const toBlob = () => Promise.reject(new Error("toBlob_unused")); export const toJpeg = (node, options) => globalThis.__db.toJpeg(node, options);',
 };
 // repo الحقيقي يبني النداء ويقرأ الجواب؛ core بديل له وحده يسجّل النداء ويجيب.
 const CORE_FOR = /src\/lib\/repo\/(?:dayBalance|purchases)\.ts$/u;
@@ -47,6 +51,7 @@ const stubs = {
   name: 'db-stubs',
   setup(b) {
     b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/(inventory|purchasing|counts|mill)$|\/Toast$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'db-stub' }));
+    b.onResolve({ filter: /^html-to-image$/ }, () => ({ path: 'image', namespace: 'db-stub' }));
     b.onLoad({ filter: /.*/, namespace: 'db-stub' }, (args) => ({ contents: STUBS[args.path], resolveDir: ROOT, loader: 'js' }));
     b.onResolve({ filter: /^\.\/core$/ }, (args) => (CORE_FOR.test(args.importer.replace(/\\/g, '/')) ? { path: 'core', namespace: 'db-core' } : undefined));
     b.onLoad({ filter: /.*/, namespace: 'db-core' }, () => ({ contents: CORE, resolveDir: ROOT, loader: 'js' }));
@@ -64,7 +69,7 @@ async function bundle() {
     "export { recoveryStore } from './src/lib/pwa/recovery.ts';",
     "export { parseDayBalanceSections, parseDayNote } from './src/lib/repo/dayBalance.ts';",
     "export { RowShapeError } from './src/lib/repo/inventory.ts';",
-    "export { dayParams, dayUrl, shareText, NOTE_SPACES } from './src/pages/inventory/DayBalanceView.tsx';",
+    "export { dayParams, dayUrl, pdfName, NOTE_SPACES } from './src/pages/inventory/DayBalanceView.tsx';",
     "export { sectionOfKind } from './src/pages/inventory/storeSections.ts';",
     "export { backTarget } from './src/components/ui/BackButton.tsx';",
     "export { recipeBack } from './src/pages/inventory/ItemsPage.tsx';",
@@ -127,7 +132,14 @@ const rowsIn = (node) => {
   const tbody = node ? descendants(node).find((n) => n.localName === 'tbody') : undefined;
   return tbody ? tbody.children.filter((n) => n.localName === 'tr').map((tr) => tr.children.map((td) => td.textContent)) : [];
 };
-const sectionTitles = () => byAction('day-section-title').map((n) => n.textContent);
+/** شريط اسم كلّ قسم (عنوان الجدول الرسميّ بمستواه). */
+const bandOf = (node) => (node ? descendants(node).find((n) => n.getAttribute('role') === 'heading') : undefined);
+const sectionTitles = () => byAction('day-section').map((n) => bandOf(n)?.textContent);
+/** قيمة مربّع في شبكة بيانات الرأس بمفتاحه (data-info). */
+const infoText = (key) => {
+  const box = all().find((n) => n.getAttribute('data-info') === key);
+  return box ? descendants(box).find((n) => n.localName === 'dd')?.textContent : undefined;
+};
 /** قيمة القائمة المختارة كما يضعها React (selected على الخيار). */
 const chosenKind = () => byAction('simple-item-kind')[0]?.options.find((o) => o.selected === true)?.getAttribute('value') ?? null;
 
@@ -326,9 +338,18 @@ export default async function (t) {
       const { rpcCalls } = fresh(MANAGER, {}, { day_balance_sections: answer(OWN) });
       await mount(urlAt(OWN));
       t.same(named(rpcCalls, 'day_balance_sections'), [{ p_on: OWN.on }], 'S2: قراءة واحدة بيوم الرابط');
-      t.same(sectionTitles(), [TITLES.feed_materials, TITLES.feed, TITLES.other], 'S2: «رصيد مواد العلف» ثمّ «رصيد العلف» ثمّ «أخرى»');
-      t.same(byAction('day-section-count').map((n) => n.textContent), ['4 موادّ', '3 موادّ', 'مادّتان'], 'S2: عدد موادّ كلّ قسم بالفصحى');
-      t.same([byAction('day-title')[0]?.textContent, byAction('day-date')[0]?.textContent], ['الرصيد اليومي', `بتاريخ ${fmt(OWN.on)}`], 'S2: عنوان التقرير وتاريخه');
+      t.same(sectionTitles(), [TITLES.feed_materials, TITLES.feed, TITLES.other], 'S2: جدول لكلّ قسم بشريط اسمه: «رصيد مواد العلف» ثمّ «رصيد العلف» ثمّ «أخرى»');
+      t.same(
+        byAction('day-section').map((n) => bandOf(n)?.getAttribute('aria-level')),
+        ['3', '3', '3'],
+        'S2: شريط القسم عنوانٌ بالمستوى 3 تحت عنوان التقرير (h2)',
+      );
+      t.same(['count-feed_materials', 'count-feed', 'count-other'].map(infoText), ['4 موادّ', '3 موادّ', 'مادّتان'], 'S2: عدد موادّ كلّ قسم بالفصحى في شبكة بيانات الرأس');
+      t.same(
+        [byAction('day-title')[0]?.localName, byAction('day-title')[0]?.textContent, infoText('day'), byAction('day-org')[0]?.textContent],
+        ['h2', 'الرصيد اليومي', fmt(OWN.on), 'مشروع الدواجن'],
+        'S2: رأس التقرير: اسم المنشأة ثمّ العنوان (h2 تحت عنوان «المخزن») ثمّ التاريخ في شبكة البيانات',
+      );
       for (const key of ['feed_materials', 'feed']) {
         const rows = rowsOf(OWN, key);
         const decimals = m.columnDecimals(rows.map((row) => milli(row.qty)), 3);
@@ -348,8 +369,8 @@ export default async function (t) {
     await step('S2-hidden', async () => {
       fresh(MANAGER, {}, { day_balance_sections: answer(H.no_other) });
       await mount(urlAt(H.no_other));
-      t.same([sectionTitles(), section('other')], [[TITLES.feed_materials, TITLES.feed], undefined], 'S2: «أخرى» فارغة لا تُعرض');
-      t.same([rowsIn(section('feed')), byAction('day-section-count')[1]?.textContent], [[['لا علف بعد.']]  , 'لا موادّ'], 'S2: «رصيد العلف» الفارغ يبقى بجملته وعدده');
+      t.same([sectionTitles(), section('other'), infoText('count-other')], [[TITLES.feed_materials, TITLES.feed], undefined, undefined], 'S2: «أخرى» فارغة لا تُعرض ولا يُعدّ');
+      t.same([rowsIn(section('feed')), infoText('count-feed')], [[['لا علف بعد.']], 'لا موادّ'], 'S2: «رصيد العلف» الفارغ يبقى بجملته وعدده');
     });
 
     // ── S3: الأيام ──────────────────────────────────────────────────────────────────────────────────────────────────
@@ -505,11 +526,28 @@ export default async function (t) {
         t.eq(printed, 1, 'S10: window.print مرّة واحدة للتقرير كلّه');
         const report = byAction('day-report')[0];
         const tables = all().filter((n) => n.localName === 'table');
-        t.same([tables.length, tables.every((table) => under(table, report) && !underClass(table, 'print:hidden'))], [3, true], 'S10: الجداول الثلاثة في التقرير نفسه وكلّها تُطبع');
-        t.ok(tables.every((table) => classOf(table.parentNode?.parentNode).includes('print:[&>div]:max-h-none')), 'S10: وكلّ جدول بكلّ صفوفه بلا حدّ ارتفاع');
-        t.ok(byAction('day-section-title').every((n) => !underClass(n, 'print:hidden')) && !underClass(byAction('day-title')[0], 'print:hidden'), 'S10: عنوان التقرير وعناوين الأقسام تُطبع');
+        t.same([tables.length, tables.every((table) => under(table, report) && !underClass(table, 'print:hidden'))], [3, true], 'S10: الجداول الثلاثة في الورقة نفسها وكلّها تُطبع');
+        // الجدول الرسميّ (official.css): الإطار بلا حدّ ارتفاع على الورق، وصفّ أسماء الأعمدة مجموعة رأس تتكرّر في كلّ صفحة لا خلية ثابتة بالتمرير.
+        t.ok(
+          tables.every((table) => classOf(table).includes('ofc-grid') && classOf(table.parentNode).includes('ofc-frame') && descendants(table).find((n) => n.localName === 'thead')),
+          'S10: كلّ جدول رسميّ (ofc-grid) في إطار ofc-frame وبصفّ أسماء أعمدة (thead)',
+        );
+        t.same([classOf(report).split(' ').includes('ofc-paper'), report?.localName], [true, 'article'], 'S10: الورقة الرسمية');
+        t.ok(byAction('day-section').every((n) => !underClass(bandOf(n), 'print:hidden')) && !underClass(byAction('day-title')[0], 'print:hidden'), 'S10: عنوان التقرير وأشرطة الأقسام تُطبع');
         const org = byAction('day-org')[0];
-        t.same([org?.textContent, classOf(org).split(' ').filter((c) => c === 'hidden' || c === 'print:block')], ['مشروع الدواجن', ['hidden', 'print:block']], 'S10: اسم المنشأة سطر للطباعة وحدها');
+        t.same([org?.textContent, under(org, report), underClass(org, 'print:hidden'), classOf(org)], ['مشروع الدواجن', true, false, 'ofc-org'], 'S10: اسم المنشأة أعلى الورقة');
+        const foot = byAction('report-foot')[0];
+        t.same(
+          [under(foot, report), byAction('report-by')[0]?.textContent, byAction('report-sign')[0]?.textContent],
+          [true, 'أعدّه: علي', 'المسؤول: ………………………التوقيع: ………………………'],
+          'S10: التذييل: «أعدّه» باسم من فتح الصفحة، والمسؤول والتوقيع',
+        );
+        const style = all().find((n) => n.localName === 'style' && under(n, byAction('day-view')[0]))?.textContent ?? '';
+        t.same(
+          [style.includes('@page { size: A4 portrait; margin: 10mm; }'), style.includes('[data-capture] .print\\:hidden { display: none !important; }')],
+          [true, true],
+          'S10: الورقة A4 بالطول، وما يُخفى عند الطباعة يُخفى في ملفّ PDF',
+        );
         t.ok(underClass(byAction('day-controls')[0], 'print:hidden') && underClass(radio('الرصيد اليومي'), 'print:hidden') && underClass(all().find((n) => n.localName === 'h1'), 'print:hidden') && underClass(byAction('open-store-setup')[0], 'print:hidden'), 'S10: الأزرار والمفتاح والعنوان والروابط لا تُطبع');
         t.ok(byAction('edit-note').every((n) => underClass(n, 'print:hidden')), 'S10: ولا أزرار الملاحظات');
       } finally {
@@ -536,49 +574,135 @@ export default async function (t) {
       }
     });
 
-    // ── S11: المشاركة ──────────────────────────────────────────────────────────────────────────────────────────────
-    const expectedShare = (sample) => {
-      const title = `الرصيد اليومي بتاريخ ${fmt(sample.on)}`;
-      const blocks = sample.sections
-        .filter((s) => s.rows.length > 0)
-        .map((s) => [
-          `${TITLES[s.key]}:`,
-          ...s.rows.map((row, index) => {
-            const qty = milli(row.qty) === 0n ? '-' : m.baseQty(milli(row.qty), row.base_unit);
-            const line = `${index + 1}. ${row.name}: ${qty}`;
-            return row.note ? `${line} — ${row.note.text.replace(/\s+/gu, ' ')}` : line;
-          }),
-        ].join('\n'));
-      return { title, text: [title, ...blocks].join('\n\n') };
+    // ── S11: «أرسل PDF» ─────────────────────────────────────────────────────────────────────────────────────────────
+    // JPEG حقيقيّ صغير (3×4 نقاط، من Pillow): الملفّ يُبنى منه بـsrc/lib/pdf.ts الحقيقيّ.
+    const JPEG =
+      'data:image/jpeg;base64,/9j/4AAQSkZJRgABAQAAAQABAAD/2wBDAAYEBQYFBAYGBQYHBwYIChAKCgkJChQODwwQFxQYGBcUFhYaHSUfGhsjHBYWICwgIyYnKSopGR8tMC0oMCUoKSj/2wBDAQcHBwoIChMKChMoGhYaKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCgoKCj/wAARCAAEAAMDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/8QAHwEAAwEBAQEBAQEBAQAAAAAAAAECAwQFBgcICQoL/8QAtREAAgECBAQDBAcFBAQAAQJ3AAECAxEEBSExBhJBUQdhcRMiMoEIFEKRobHBCSMzUvAVYnLRChYkNOEl8RcYGRomJygpKjU2Nzg5OkNERUZHSElKU1RVVldYWVpjZGVmZ2hpanN0dXZ3eHl6goOEhYaHiImKkpOUlZaXmJmaoqOkpaanqKmqsrO0tba3uLm6wsPExcbHyMnK0tPU1dbX2Nna4uPk5ebn6Onq8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD6pooooA//2Q==';
+    // ما لا يحمله dom.mjs ويحتاجه تصوير الورقة: نسخ العقد، وقياسها (بلا تخطيط: صفر)، والنقر على رابط التنزيل (يُسجَّل).
+    const proto = Object.getPrototypeOf(globalThis.document.body);
+    const textProto = Object.getPrototypeOf(globalThis.document.createTextNode(''));
+    const commentProto = Object.getPrototypeOf(globalThis.document.createComment(''));
+    const cloneOf = function cloneNode(deep) {
+      if (this.nodeType === 3) return this.ownerDocument.createTextNode(this.nodeValue);
+      if (this.nodeType === 8) return this.ownerDocument.createComment(this.nodeValue);
+      const copy = this.ownerDocument.createElement(this.localName);
+      for (const [key, value] of this._attrs) copy._attrs.set(key, value);
+      if (deep) for (const child of this.childNodes) copy.appendChild(child.cloneNode(true));
+      return copy;
     };
-    await step('S11-share', async () => {
-      const shared = [];
-      Object.defineProperty(globalThis, 'navigator', { value: { onLine: true, share: async (data) => shared.push(data) }, configurable: true, writable: true });
-      fresh(MANAGER, {}, { day_balance_sections: answer(OWN) });
-      await mount(urlAt(OWN));
-      await click(byAction('share-day')[0]);
-      t.same(shared, [expectedShare(OWN)], 'S11: navigator.share بالعنوان، ثمّ لكلّ قسم سطر باسمه وسطر لكلّ مادّة، والصفر «-»، والملاحظة بعد «—»');
-      t.ok(shared[0]?.text.includes('رصيد مواد العلف:\n1. ') && shared[0]?.text.includes('رصيد العلف:\n1. '), 'S11: والترقيم من 1 في كلّ قسم');
-      t.eq(globalThis.__db.toasts.length, 0, 'S11: بلا رسالة بعد المشاركة');
-    });
-    await step('S11-copy', async () => {
-      const copied = [];
-      Object.defineProperty(globalThis, 'navigator', { value: { onLine: true, clipboard: { writeText: async (value) => copied.push(value) } }, configurable: true, writable: true });
-      fresh(MANAGER, {}, { day_balance_sections: answer(H.no_other) });
-      await mount(urlAt(H.no_other));
-      await click(byAction('share-day')[0]);
-      t.same([copied, globalThis.__db.toasts.at(-1)?.title], [[expectedShare(H.no_other).text], 'نُسخ التقرير: الصقه في واتساب أو في أيّ رسالة.'], 'S11: بلا نافذة مشاركة: يُنسخ النصّ (الأقسام الفارغة بلا سطر) ويقول ذلك');
-      t.ok(!copied[0]?.includes('رصيد العلف'), 'S11: والقسم الفارغ لا يُشارك');
-    });
-    await step('S11-cancel', async () => {
-      const copied = [];
-      const abort = Object.assign(new Error('cancelled'), { name: 'AbortError' });
-      Object.defineProperty(globalThis, 'navigator', { value: { onLine: true, share: async () => { throw abort; }, clipboard: { writeText: async (value) => copied.push(value) } }, configurable: true, writable: true });
-      fresh(MANAGER, {}, { day_balance_sections: answer(OWN) });
-      await mount(urlAt(OWN));
-      await click(byAction('share-day')[0]);
-      t.same([copied.length, globalThis.__db.toasts.length], [0, 0], 'S11: إلغاء نافذة المشاركة: لا نسخ ولا رسالة');
-    });
+    const downloads = [];
+    proto.cloneNode = cloneOf;
+    textProto.cloneNode = cloneOf;
+    commentProto.cloneNode = cloneOf;
+    proto.getBoundingClientRect = () => ({ top: 0, bottom: 0, left: 0, right: 0, width: 0, height: 0 });
+    proto.click = function recordClick() {
+      downloads.push({ tag: this.localName, download: this.download, href: this.href });
+    };
+    const savedUrl = { create: URL.createObjectURL, revoke: URL.revokeObjectURL };
+    URL.createObjectURL = () => 'blob:pdf';
+    URL.revokeObjectURL = () => {};
+    const setNavigator = (value) => Object.defineProperty(globalThis, 'navigator', { value, configurable: true, writable: true });
+    /** المشاركة تقبل الملفّات: canShare بالملفّات، وshare يسجّل ما أُرسل أو يرمي بما يُعطى. */
+    const sharing = (shared, failWith = () => null) =>
+      setNavigator({ onLine: true, canShare: (data) => Array.isArray(data?.files) && data.files.length === 1, share: async (data) => { const error = failWith(); if (error) throw error; shared.push(data); } });
+    const pdfText = async (file) => Buffer.from(await file.arrayBuffer()).toString('latin1');
+    const title = (sample) => `الرصيد اليومي بتاريخ ${fmt(sample.on)}`;
+    try {
+      await step('S11-pdf', async () => {
+        const shared = [];
+        const captured = [];
+        sharing(shared);
+        fresh(MANAGER, {}, { day_balance_sections: answer(OWN) });
+        globalThis.__db.toJpeg = async (node, options) => {
+          captured.push({ node, options });
+          return JPEG;
+        };
+        await mount(urlAt(OWN));
+        t.eq(byAction('share-day')[0]?.textContent, 'أرسل PDF', 'S11: الزرّ «أرسل PDF»');
+        await click(byAction('share-day')[0]);
+        await settle();
+        const [sent] = shared;
+        const file = sent?.files?.[0];
+        const content = file ? await pdfText(file) : '';
+        t.same(
+          [shared.length, sent?.title, sent?.text, file?.name, file?.type, content.startsWith('%PDF-1.4'), content.includes('/Count 1 >>'), content.includes('/Filter /DCTDecode')],
+          [1, title(OWN), undefined, m.pdfName(OWN.on), 'application/pdf', true, true, true],
+          'S11: نافذة المشاركة بملفّ PDF واحد (daily-balance-<اليوم>.pdf) بعنوان التقرير وتاريخه، لا نصّ',
+        );
+        t.eq(m.pdfName(OWN.on), `daily-balance-${OWN.on}.pdf`, 'S11: اسم الملفّ لاتينيّ باليوم');
+        const [shot] = captured;
+        t.same(
+          [captured.length, shot?.node.getAttribute('data-capture'), shot?.node.getAttribute('data-action'), shot?.options.width, shot?.options.backgroundColor, shot?.options.quality],
+          [1, '', 'day-view', 720, 'rgb(255, 255, 255)', 0.92],
+          'S11: تُصوَّر نسخةٌ من جذر العرض (data-capture) بعرض 720 على ورقة بيضاء، صورةً JPEG',
+        );
+        t.ok(shot && descendants(shot.node).some((n) => n.getAttribute('data-action') === 'day-report') && descendants(shot.node).filter((n) => n.localName === 'table').length === 3, 'S11: والنسخة فيها الورقة بجداولها الثلاثة');
+        t.same([globalThis.__db.toasts.length, byAction('day-pdf-send-ready').length], [0, 0], 'S11: بعد الإرسال بلا رسالة ولا «أرسله»');
+      });
+      await step('S11-blocked', async () => {
+        const shared = [];
+        let refuse = true;
+        sharing(shared, () => (refuse ? Object.assign(new Error('late'), { name: 'NotAllowedError' }) : null));
+        fresh(MANAGER, {}, { day_balance_sections: answer(OWN) });
+        globalThis.__db.toJpeg = async () => JPEG;
+        await mount(urlAt(OWN));
+        await click(byAction('share-day')[0]);
+        await settle();
+        t.same([shared.length, byAction('day-pdf-send-ready')[0]?.textContent, byAction('day-pdf-download-ready')[0]?.textContent], [0, 'أرسله', 'نزّله'], 'S11: المتصفّح رفض فتح المشاركة بعد التجهيز: الملفّ جاهز بـ«أرسله» و«نزّله»');
+        refuse = false;
+        await click(byAction('day-pdf-send-ready')[0]);
+        await settle();
+        t.same([shared.length, shared[0]?.files?.[0]?.name, byAction('day-pdf-send-ready').length], [1, m.pdfName(OWN.on), 0], 'S11: «أرسله» يرسل الملفّ نفسه بضغطة جديدة');
+      });
+      await step('S11-download', async () => {
+        downloads.length = 0;
+        setNavigator({ onLine: true });
+        fresh(MANAGER, {}, { day_balance_sections: answer(OWN) });
+        globalThis.__db.toJpeg = async () => JPEG;
+        await mount(urlAt(OWN));
+        await click(byAction('share-day')[0]);
+        await settle();
+        t.same(
+          [downloads.map((d) => [d.tag, d.download, d.href]), globalThis.__db.toasts.at(-1)?.title],
+          [[['a', m.pdfName(OWN.on), 'blob:pdf']], `حُفظ الملفّ «${m.pdfName(OWN.on)}» في التنزيلات على هذا الجهاز: أرسله من هناك إلى من تريد.`],
+          'S11: بلا مشاركة بالملفّات: يُنزَّل الملفّ ويُقال أين هو',
+        );
+      });
+      await step('S11-failed', async () => {
+        const shared = [];
+        sharing(shared);
+        fresh(MANAGER, {}, { day_balance_sections: answer(OWN) });
+        globalThis.__db.toJpeg = async () => {
+          throw new Error('canvas');
+        };
+        await mount(urlAt(OWN));
+        await click(byAction('share-day')[0]);
+        await settle();
+        t.same(
+          [shared.length, globalThis.__db.toasts.at(-1)?.tone, globalThis.__db.toasts.at(-1)?.title, disabled(byAction('share-day')[0])],
+          [0, 'danger', 'تعذّر تجهيز ملفّ PDF على هذا الجهاز. اطبع التقرير واختر «حفظ بصيغة PDF» بدلاً من ذلك.', false],
+          'S11: تعذّر الرسم: يُقال ذلك ويُدلّ على الطباعة، والزرّ يعود',
+        );
+      });
+      await step('S11-cancel', async () => {
+        const shared = [];
+        sharing(shared, () => Object.assign(new Error('cancelled'), { name: 'AbortError' }));
+        fresh(MANAGER, {}, { day_balance_sections: answer(OWN) });
+        globalThis.__db.toJpeg = async () => JPEG;
+        await mount(urlAt(OWN));
+        await click(byAction('share-day')[0]);
+        await settle();
+        t.same([shared.length, globalThis.__db.toasts.length, byAction('day-pdf-send-ready').length], [0, 0, 0], 'S11: إلغاء نافذة المشاركة: لا رسالة ولا «أرسله»');
+      });
+    } finally {
+      delete proto.cloneNode;
+      delete textProto.cloneNode;
+      delete commentProto.cloneNode;
+      delete proto.getBoundingClientRect;
+      delete proto.click;
+      URL.createObjectURL = savedUrl.create;
+      URL.revokeObjectURL = savedUrl.revoke;
+    }
     if (savedNavigator) Object.defineProperty(globalThis, 'navigator', savedNavigator);
     else delete globalThis.navigator;
 
@@ -586,13 +710,13 @@ export default async function (t) {
     await step('S12-viewer', async () => {
       fresh(VIEWER, {}, { day_balance_sections: answer(H.viewer) });
       await mount(urlAt(H.viewer));
-      t.same([sectionTitles(), byAction('edit-note').length, byAction('print-day').length, byAction('share-day').length, text().includes('ملاحظة الأمين')], [[TITLES.feed_materials, TITLES.feed], 0, 1, 1, true], 'S12: من لا يكتب الملاحظة: الجداول والملاحظات والطباعة والمشاركة، بلا زرّ ملاحظة');
+      t.same([sectionTitles(), byAction('edit-note').length, byAction('print-day').length, byAction('share-day').length, text().includes('ملاحظة الأمين')], [[TITLES.feed_materials, TITLES.feed], 0, 1, 1, true], 'S12: من لا يكتب الملاحظة: الجداول والملاحظات والطباعة والإرسال، بلا زرّ ملاحظة');
     });
     await step('S12-empty', async () => {
       fresh(MANAGER, {}, { day_balance_sections: answer(H.empty) });
       await mount(urlAt(H.empty));
       t.same([sectionTitles(), rowsIn(section('feed_materials')), rowsIn(section('feed'))], [[TITLES.feed_materials, TITLES.feed], [['لا موادّ علف بعد.']], [['لا علف بعد.']]], 'S12: بلا موادّ: الجدولان بجملتيهما و«أخرى» غائبة');
-      t.same([disabled(byAction('print-day')[0]), disabled(byAction('share-day')[0])], [true, true], 'S12: ولا شيء يُطبع أو يُشارك');
+      t.same([disabled(byAction('print-day')[0]), disabled(byAction('share-day')[0])], [true, true], 'S12: ولا شيء يُطبع أو يُرسل');
     });
 
     // ── S14: الرفض ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -801,14 +925,20 @@ export default async function (t) {
         tm.flushSync(() => toastRoot.unmount());
       }
     });
-    // P1: بعرض الهاتف عمود «الملاحظات» وزرّه خارج الشاشة: «المادّة» بسطر واحد (لا عرض أدنى 48)، وزرّ الملاحظة أوّل خليّتها.
+    // P1: بعرض الهاتف عمود «الملاحظات» وزرّه خارج الشاشة. والجدول رسميّ الآن (رسالة الزبون 2026-11-26): بالحجم sm (ofc-sm: بلا عرض أدنى للنصّ والبيان
+    // تحت 640، كورقة القاعة)، فيأخذ اسم المادّة ما بقي ويبقى الجدول في عرض الشاشة (مقيس بـChromium بعرض 390: بلا تمرير أفقيّ)، وزرّ الملاحظة أوّل خليّتها.
     await step('R-P1', async () => {
       fresh(KEEPER, {}, { day_balance_sections: answer(OWN) });
       await mount(urlAt(OWN));
+      const table = descendants(section('feed')).find((n) => n.localName === 'table');
       const itemHead = descendants(section('feed')).find((n) => n.localName === 'th' && n.textContent === 'المادّة');
       const noteCell = withId('edit-note', noted.item_id)?.parentNode;
       const first = noteCell?.children.find((n) => n.nodeType === 1);
-      t.same([classOf(itemHead).includes('min-w-48'), classOf(itemHead).includes('whitespace-nowrap'), first?.getAttribute('data-action')], [false, true, 'edit-note'], 'R-P1: «المادّة» بسطر واحد، وزرّ الملاحظة قبل نصّها (أقرب إلى الرصيد)');
+      t.same(
+        [classOf(table).split(' ').includes('ofc-sm'), classOf(itemHead).includes('min-w-48'), first?.getAttribute('data-action')],
+        [true, false, 'edit-note'],
+        'R-P1: الجدول الرسميّ بالحجم sm بلا عرض أدنى، وزرّ الملاحظة قبل نصّها (أقرب إلى الرصيد)',
+      );
     });
     // R7: «عدّل المادّة» من ملفّ فُتح من الرصيد اليومي كان يعود إلى الملفّ بلا طريق رجوعه.
     await step('R-R7', async () => {

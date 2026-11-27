@@ -14,12 +14,26 @@ export interface PdfImage {
   pixelHeight: number;
 }
 
-/** تخطيط الملفّ: عرض الصفحة المصوَّرة وارتفاعها بنقاط CSS، وشرائح الصفحات [من، إلى] بنقاط CSS، والعنوان. */
+/** شريحة صفحة بنقاط CSS من أعلى الصورة، وصفّ أسماء الأعمدة الذي يُكرَّر فوقها [أعلاه، أسفله] إن بدأت داخل جدول، أو null. */
+export interface PdfPage {
+  from: number;
+  to: number;
+  head: readonly [number, number] | null;
+}
+
+/** تخطيط الملفّ: عرض الصفحة المصوَّرة وارتفاعها بنقاط CSS، وشرائح الصفحات، والعنوان. */
 export interface PdfLayout {
   cssWidth: number;
   cssHeight: number;
-  pages: ReadonlyArray<readonly [number, number]>;
+  pages: readonly PdfPage[];
   title?: string;
+}
+
+/** جدولٌ في الصورة بنقاط CSS من أعلاها: صفّ أسماء أعمدته (thead) من أعلاه إلى أسفله، وأسفل الجدول كلّه. */
+export interface PdfTable {
+  headTop: number;
+  headBottom: number;
+  bottom: number;
 }
 
 /** مقياس الصورة على الورقة: نقطة PDF لكلّ نقطة CSS، فعرض الصورة كلّه في عرض الورقة بين الحاشيتين. */
@@ -30,24 +44,32 @@ export const pageCapacity = (cssWidth: number): number => (A4.height - 2 * A4.ma
 
 /**
  * شرائح الصفحات: من أعلى الصورة إلى أسفلها، كلّ صفحة تنتهي عند أبعد حدٍّ مسموح (breaks: أسفل كلّ صفّ وكلّ قسم بنقاط CSS من أعلى الصورة) لا يتجاوز
- * سعتها؛ وإن لم يقع حدٌّ فيها (عنصرٌ أطول من صفحة) تُقطع عند سعتها. والأخيرة حتى آخر الصورة.
+ * سعتها؛ وإن لم يقع حدٌّ فيها (عنصرٌ أطول من صفحة) تُقطع عند سعتها. وصفحةٌ تبدأ داخل جسم جدول يُكرَّر فوقها صفّ أسماء أعمدته (كرأس الجدول المطبوع، رسالة
+ * الزبون 2026-11-26: «بالاعلى الاسماء الدالة»)، فتسعتها أقلّ بارتفاعه. والأخيرة حتى آخر الصورة.
  */
-export function paginate(breaks: readonly number[], total: number, capacity: number): Array<[number, number]> {
-  if (!(total > 0) || !(capacity > 0)) return [[0, Math.max(total, 0)]];
+export function paginate(breaks: readonly number[], total: number, capacity: number, tables: readonly PdfTable[] = []): PdfPage[] {
+  if (!(total > 0) || !(capacity > 0)) return [{ from: 0, to: Math.max(total, 0), head: null }];
   const sorted = [...new Set(breaks.filter((at) => at > 0 && at < total))].sort((a, b) => a - b);
-  const pages: Array<[number, number]> = [];
+  const pages: PdfPage[] = [];
   let start = 0;
-  // نصف نقطة سماحٌ للتقريب: صفحة ارتفاعها سعة الورقة بالضبط لا تُقسم.
-  while (total - start > capacity + 0.5) {
-    const limit = start + capacity;
+  let head: readonly [number, number] | null = null;
+  for (;;) {
+    // الصفّ المكرَّر لا يأخذ أكثر من نصف الصفحة (رأسٌ غير معقول لا يمنع التقدّم).
+    const room = capacity - (head ? Math.min(head[1] - head[0], capacity / 2) : 0);
+    // نصف نقطة سماحٌ للتقريب: صفحة ارتفاعها سعة الورقة بالضبط لا تُقسم.
+    if (total - start <= room + 0.5) {
+      pages.push({ from: start, to: total, head });
+      return pages;
+    }
+    const limit = start + room;
     let cut = -1;
     for (const at of sorted) if (at > start + 1 && at <= limit) cut = at;
     if (cut < 0) cut = limit;
-    pages.push([start, cut]);
+    pages.push({ from: start, to: cut, head });
+    const inside = tables.find((table) => cut > table.headBottom + 0.5 && cut < table.bottom - 0.5);
+    head = inside ? [inside.headTop, inside.headBottom] : null;
     start = cut;
   }
-  pages.push([start, total]);
-  return pages;
 }
 
 /** أبعاد صورة JPEG من مقطع SOF فيها (الأساسيّ والتدريجيّ وما سواهما من SOFn)، أو null لما ليس JPEG. */
@@ -105,14 +127,15 @@ const ascii = (text: string): Uint8Array => {
 
 /**
  * الملفّ نفسه: الفهرس والصفحات والمعلومات والصورة (DCTDecode، فبيانات JPEG كما هي)، ثمّ لكلّ صفحة كائنها ومحتواها، ثمّ جدول الإحالات بمواضع
- * الكائنات بالبايت. كلّ صفحة: قصٌّ بمستطيل شريحتها بين الحاشيتين، ثمّ الصورة كلّها بعرض الورقة مزاحةً حتى يقع أعلى الشريحة على الحاشية العليا.
+ * الكائنات بالبايت. كلّ صفحة: صفّ أسماء الأعمدة المكرَّر إن وُجد ثمّ شريحتها تحته، وكلٌّ منهما قصٌّ بمستطيله بين الحاشيتين ثمّ الصورة كلّها بعرض الورقة
+ * مزاحةً حتى يقع أعلى ما يُقصّ منها على أعلى مستطيله.
  */
 export function imagePdf(image: PdfImage, layout: PdfLayout): Uint8Array {
   const scale = pdfScale(layout.cssWidth);
   const drawnWidth = layout.cssWidth * scale;
   const drawnHeight = layout.cssHeight * scale;
   const top = A4.height - A4.margin;
-  const pages = layout.pages.length ? layout.pages : [[0, layout.cssHeight] as const];
+  const pages: readonly PdfPage[] = layout.pages.length ? layout.pages : [{ from: 0, to: layout.cssHeight, head: null }];
   const chunks: Uint8Array[] = [];
   const offsets: number[] = [];
   let size = 0;
@@ -131,6 +154,17 @@ export function imagePdf(image: PdfImage, layout: PdfLayout): Uint8Array {
     push(data);
     text('\nendstream\nendobj\n');
   };
+  /** يرسم من الصورة الشريحة [from، to] بنقاط CSS ويضع أعلاها على الارتفاع at من أسفل الورقة (بالنقاط). */
+  const slice = (from: number, to: number, at: number): string[] => {
+    const height = (to - from) * scale;
+    return [
+      'q',
+      `${num(A4.margin)} ${num(at - height)} ${num(drawnWidth)} ${num(height)} re W n`,
+      `${num(drawnWidth)} 0 0 ${num(drawnHeight)} ${num(A4.margin)} ${num(at + from * scale - drawnHeight)} cm`,
+      '/Im0 Do',
+      'Q',
+    ];
+  };
 
   // الرأس، وسطر تعليق ببايتات فوق 127 يقول للبرامج إنّ الملفّ ثنائيّ.
   text('%PDF-1.4\n');
@@ -140,16 +174,10 @@ export function imagePdf(image: PdfImage, layout: PdfLayout): Uint8Array {
   object(2, `<< /Type /Pages /Kids [${pageIds.map((id) => `${id} 0 R`).join(' ')}] /Count ${pages.length} >>`);
   object(3, `<< /Producer (poultry-saas)${layout.title ? ` /Title ${utf16Hex(layout.title)}` : ''} >>`);
   stream(4, `/Type /XObject /Subtype /Image /Width ${image.pixelWidth} /Height ${image.pixelHeight} /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode`, image.bytes);
-  pages.forEach(([from, to], index) => {
+  pages.forEach((page, index) => {
     const pageId = 5 + index * 2;
-    const sliceHeight = (to - from) * scale;
-    const content = [
-      'q',
-      `${num(A4.margin)} ${num(top - sliceHeight)} ${num(drawnWidth)} ${num(sliceHeight)} re W n`,
-      `${num(drawnWidth)} 0 0 ${num(drawnHeight)} ${num(A4.margin)} ${num(top + from * scale - drawnHeight)} cm`,
-      '/Im0 Do',
-      'Q',
-    ].join('\n');
+    const headHeight = page.head ? (page.head[1] - page.head[0]) * scale : 0;
+    const content = [...(page.head ? slice(page.head[0], page.head[1], top) : []), ...slice(page.from, page.to, top - headHeight)].join('\n');
     object(pageId, `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${num(A4.width)} ${num(A4.height)}] /Resources << /XObject << /Im0 4 0 R >> >> /Contents ${pageId + 1} 0 R >>`);
     stream(pageId + 1, '', ascii(content));
   });

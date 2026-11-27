@@ -8,7 +8,7 @@ import { Dialog } from '../../components/ui/Dialog';
 import { Field } from '../../components/ui/Field';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
-import { PrintedAt, ReportFooter, ReportHeader, usePrintedAt, type InfoItem } from '../../components/ui/OfficialReport';
+import { PrintedAt, ReportFooter, ReportHeader, usePrintedAt, type InfoItem } from '../../components/ui/officialParts';
 import { toast } from '../../components/ui/Toast';
 import { addDays, type Day } from '../../domain/dates';
 import { parseDayText } from '../../lib/dayText';
@@ -22,6 +22,7 @@ import { useLoad } from '../../lib/useLoad';
 import { downloadFile, IMAGE_WIDTH, reportPdf, sendFile } from '../halls/reportImage';
 import { itemFilePath } from './simple-shared';
 import { itemsCountText } from './storeSections';
+import './dayReport.css';
 
 // «الرصيد اليومي» (كلمة المالك 2026-11-09، 0022، بصورة ورقته «رصيد مواد العلف — 4/11/2026»): جداول ليوم واحد مثل ورقته
 // (ت | المادّة | الرصيد (كغم) | الملاحظات)، والرصيد = الرصيد الجاري بدفتر المادّة في نهاية ذلك اليوم، والصفر «-» كما في الورقة.
@@ -445,7 +446,8 @@ export function DayBalanceView({ orgName, by }: { orgName: string; by: string })
   if (open?.kind === 'note' && open.key !== here) setOpen(null);
   const go = (next: Day | null) => setSearch(dayQuery({ day: next }));
   const printed = usePrintedAt();
-  const paperRef = useRef<HTMLElement>(null);
+  // جذر العرض (كجذر تقرير الوجبة): نسخته تُصوَّر، فقواعد [data-capture] لما تحته (الورقة بلا إطار، وما يُخفى عند الطباعة) تنطبق على الورقة.
+  const rootRef = useRef<HTMLElement>(null);
   // ملفّ PDF: يُجهَّز ثمّ يُرسل؛ وإن رفض المتصفّح فتح المشاركة بعد التجهيز (الضغطة «قديمة») يبقى جاهزاً لضغطة «أرسله» (كصورة تقرير القاعات).
   const [making, setMaking] = useState(false);
   const [ready, setReady] = useState<{ key: string; file: File; title: string } | null>(null);
@@ -465,8 +467,8 @@ export function DayBalanceView({ orgName, by }: { orgName: string; by: string })
     if (outcome === 'downloaded') toast({ tone: 'success', title: t('dayb.pdf.downloaded', 'حُفظ الملفّ «{name}» في التنزيلات على هذا الجهاز: أرسله من هناك إلى من تريد.', { name: file.name }) });
   };
   const sendPdf = async () => {
-    const paper = paperRef.current;
-    if (!data || !paper || making) return;
+    const root = rootRef.current;
+    if (!data || !root || making) return;
     setMaking(true);
     setReady(null);
     // «طُبع في» لحظة الملفّ، مكتوبةً في الورقة قبل أن تُنسخ.
@@ -474,7 +476,7 @@ export function DayBalanceView({ orgName, by }: { orgName: string; by: string })
     let file: File;
     try {
       // فاتحٌ دائماً على ورقة بيضاء كالمطبوع: يُرسل لغير صاحب الجهاز، ولو كانت الصفحة بالسمة الداكنة.
-      file = await reportPdf(paper, pdfName(data.on), title, IMAGE_WIDTH, { light: true, background: 'rgb(255, 255, 255)' });
+      file = await reportPdf(root, pdfName(data.on), title, IMAGE_WIDTH, { light: true, background: 'rgb(255, 255, 255)' });
     } catch {
       setMaking(false);
       toast({ tone: 'danger', title: t('dayb.pdf.failed', 'تعذّر تجهيز ملفّ PDF على هذا الجهاز. اطبع التقرير واختر «حفظ بصيغة PDF» بدلاً من ذلك.') });
@@ -491,7 +493,7 @@ export function DayBalanceView({ orgName, by }: { orgName: string; by: string })
   const onNote = canNote && data ? (row: DayRow) => setOpen({ kind: 'note', key: here, item: { id: row.itemId, name: row.name }, day: data.on, shown: row.note }) : null;
 
   return (
-    <section className="flex flex-col gap-4" aria-label={t('board.view.day', 'الرصيد اليومي')} data-action="day-view">
+    <section ref={rootRef} className="flex flex-col gap-4" aria-label={t('board.view.day', 'الرصيد اليومي')} data-action="day-view">
       <style>{PRINT_STYLE}</style>
       {meta && on !== null && today !== null ? (
         <div className="flex flex-col gap-3 print:hidden" data-action="day-controls">
@@ -552,12 +554,14 @@ export function DayBalanceView({ orgName, by }: { orgName: string; by: string })
       {state.error ? <Refusal failure={state.error} day={day} onToday={() => go(null)} onRetry={state.retry} /> : null}
       {data ? (
         // الورقة الرسمية (ما يُطبع ويُرسل PDF): الرأس بشبكة البيانات، ثمّ جدول لكلّ قسم بشريط اسمه، ثمّ التذييل بالتوقيعات.
-        <article ref={paperRef} className="ofc-paper" data-action="day-report">
+        <article className="ofc-paper" data-action="day-report">
           <ReportHeader org={orgName} orgAction="day-org" title={reportTitle()} titleAction="day-title" level={2} info={dayInfo(data.on, sections, printed.at)} />
           {sections.map((section) => (
             <section key={section.key} aria-label={sectionTitle(section.key)} data-action="day-section" data-key={section.key}>
+              {/* sm: بالهاتف الملاحظات بلا عرض أدنى فيأخذ اسم المادّة ما بقي (كورقة القاعة)، ومن 640 كالباقي. */}
               <DataTable
                 variant="official"
+                size="sm"
                 title={sectionTitle(section.key)}
                 titleLevel={3}
                 caption={`${sectionTitle(section.key)} ${reportDate(data.on)}`}
