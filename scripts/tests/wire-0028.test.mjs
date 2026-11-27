@@ -508,6 +508,14 @@ export default async function (t) {
       t.same([byAction('card-reopen').length, (textOf('card-reopen-why') ?? '').includes('جردٌ معتمد للمخزن')], [0, true],
         'W7 بطاقة الفوج المغلق وreopen_why = count_superseded: بلا «أعد فتح الدورة» وبجملته هو (الجرد المعتمد)، لا الجملة العامّة');
     });
+    await step('W7 البطاقة: أقسام القاعة تغيّرت بعد الإغلاق', async () => {
+      // 0038: reopen_block يقول sections_changed (أقسام القاعة غير أقسام الوجبة المغلقة)؛ كان المحلّل يرمي بالرمز الجديد فتسقط بطاقة الوجبة كلّها.
+      const split = { ...clone(B.flock_sales_reopen_blocked), reopen_why: 'sections_changed' };
+      fresh(MANAGER, { flock_sales: () => clone(split) });
+      await mount('/broiler/flock/x', m.h(m.FlockCard, { flock: flockOf(split) }));
+      t.same([byAction('card-reopen').length, (textOf('card-reopen-why') ?? '').includes('أقسام القاعة')], [0, true],
+        'W7 بطاقة الفوج المغلق وreopen_why = sections_changed: بلا «أعد فتح الدورة» وبجملته هو (أقسام القاعة)، لا الجملة العامّة ولا بطاقة ساقطة');
+    });
     await step('W7 التقرير', async () => {
       const blocked = B.flock_cycle_report_left_in_hall;
       fresh(MANAGER, { flock_cycle_report: () => clone(blocked), flock_sales: () => clone(B.flock_sales_reopen_blocked) });

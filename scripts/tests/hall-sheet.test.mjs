@@ -26,6 +26,8 @@ const SPLIT = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtu
 const REAL = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sheet-0035.json'), 'utf8'));
 // عيّنات الكاز الحقيقية (supabase/tests/kerosene.test.mjs بـKEROSENE_SAMPLES_OUT=1، اليوم المثبَّت 2026-11-26).
 const KERO = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'kerosene-0037.json'), 'utf8'));
+// عيّنات الأقسام الحقيقية (supabase/tests/hall-sections.test.mjs بـHALL_SECTIONS_SAMPLES_OUT=1، اليوم المثبَّت 2026-11-27): وجبة بقسمين 13,526 + 13,525.
+const HSEC = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sections-0038.json'), 'utf8'));
 const REAL_FLOCKS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'flocks.ts'));
 const REAL_SHEET = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'hallSheet.ts'));
 const STUBS = {
@@ -61,7 +63,8 @@ async function screens() {
     "export { openOutbox, pendingOps, reviewEntries, saveRound } from './src/lib/outbox/index.ts';",
     "export { uploadRounds } from './src/lib/roundUploads.ts';",
     "export { parseHallSheet, parseFeedSent, toBaseQty, HallSheetShapeError } from './src/lib/repo/hallSheet.ts';",
-    "export { gasAnswer, keroseneAnswer } from './src/lib/repo/flocks.ts';",
+    "export { gasAnswer, keroseneAnswer, deadAnswer, parseDayRow, parseOverview } from './src/lib/repo/flocks.ts';",
+    "export { parseHallSections } from './src/lib/repo/hallAdmin.ts';",
     "export { UnknownOutcomeError } from './src/lib/errors.ts';",
     "export { fmtDay, fmtInt } from './src/lib/format.ts';",
     "export { wideStore } from './src/lib/wide.ts';",
@@ -200,6 +203,48 @@ export default async function (t) {
         [KERO.set_flock_kerosene_saved, KERO.set_flock_kerosene_stale, KERO.set_flock_kerosene_parked].map((answer) => m.keroseneAnswer(clone(answer)).kind),
         ['saved', 'stale_kerosene', 'parked'],
         'I0037 set_flock_kerosene الحقيقي: saved وstale_kerosene وparked',
+      );
+    }
+    // ── I0038: عيّنات الأقسام الحقيقية (hall-sections.test بـHALL_SECTIONS_SAMPLES_OUT=1، يومها المثبَّت 2026-11-27) بالمحلّلات الحقيقية ──────────
+    {
+      const raw = HSEC.hall_sheet;
+      const sheet = m.parseHallSheet(clone(raw));
+      const partDays = (days, on, parts, version) => days.filter((day) => day[parts] !== null).map((day) => [day[on], day.dead, day[parts], day[version]]);
+      t.same(partDays(sheet.days, 'on', 'deadParts', 'dayVersion'), partDays(raw.days, 'on', 'dead_parts', 'day_version'), 'I0038 هلاكات كلّ قسم ومجموعها ونسخة الصفّ لكلّ يوم كما أرسلها الخادم');
+      t.same(
+        partDays(sheet.days, 'on', 'deadParts', 'dayVersion').map(([on, dead, parts]) => [on, dead, parts]),
+        [['2026-11-22', 5, [3, 2]], ['2026-11-24', 4, [1, 3]], ['2026-11-25', 0, [0, 0]], ['2026-11-26', 2, [2, 0]]],
+        'I0038 العيّنة: ثلاثة أيّام بهلاكات ويوم «لا هلاكات» بأصفار',
+      );
+      t.same(
+        [sheet.sections?.map((x) => [x.no, x.placed, x.dead, x.mortalityPct, x.remaining]), sheet.totals.deadParts, sheet.totals.dead],
+        [[[1, 13526, 6, 4n, 13520], [2, 13525, 5, 4n, 13520]], [6, 5], 11],
+        'I0038 الأقسام بأعدادها (27,051 بالتساوي) وهلاكاتها ونسبها وباقيها، ومجموع كلّ قسم، كما أرسلها الخادم',
+      );
+      const overview = m.parseOverview(clone(HSEC.flocks_overview));
+      const view = (halls, counts, dead) => halls.map((hall) => [hall.name, hall.sections, hall.flock?.[counts] ?? null, hall.flock?.[dead] ?? null]);
+      t.same(
+        view(overview.sites.flatMap((site) => site.halls), 'sectionCounts', 'sectionDead'),
+        view(HSEC.flocks_overview.sites.flatMap((site) => site.halls), 'section_counts', 'section_dead'),
+        'I0038 flocks_overview: أقسام كلّ قاعة، وعدد كلّ قسم في وجبتها وهلاكاته، كما أرسلها الخادم',
+      );
+      t.same(
+        overview.sites.flatMap((site) => site.halls).filter((hall) => hall.sections > 1 && hall.flock === null).length > 0,
+        true,
+        'I0038 العيّنة فيها قاعة مقسومة بلا وجبة (التسكين يقسم العدد عليها)',
+      );
+      const saved = m.deadAnswer(clone(HSEC.set_flock_dead_saved));
+      const recorded = m.deadAnswer(clone(HSEC.set_flock_dead_recorded));
+      t.same(
+        [saved.kind, saved.version, m.parseDayRow(saved.day).deadParts, recorded.kind, m.parseDayRow(recorded.server).deadParts],
+        ['saved', 1, [2, 0], 'dead_recorded', [3, 2]],
+        'I0038 set_flock_dead الحقيقي: saved بأقسام اليوم، وdead_recorded بأقسام المسجَّل قبل',
+      );
+      t.same(m.parseHallSections(clone(HSEC.set_hall_sections_saved)), { status: 'saved', version: 2, sections: 2 }, 'I0038 set_hall_sections الحقيقي: saved بنسخة القاعة وأقسامها');
+      t.same(
+        [HSEC.set_hall_sections_refused.code, /^في القاعة «.+» وجبة سُجّلت هلاكاتها/u.test(HSEC.set_hall_sections_refused.hint)],
+        ['sections_after_deaths', true],
+        'I0038 رفض set_hall_sections الحقيقي برمزه وتلميحه الذي تعرضه النافذة (sections-review-round HD1 بالتلميح نفسه)',
       );
     }
     // ── P: المحلّل ──────────────────────────────────────────────────────────────────────────────────────────────────
@@ -1136,6 +1181,30 @@ export default async function (t) {
         [headers(days).slice(0, 5), cells(footRow(days)).slice(0, 4), bodyRows(days).map(cells).at(-1)?.slice(2, 4)],
         [['العمر', 'التاريخ', 'هلاكات ق1', 'هلاكات ق2', 'الغاز'], ['المجموع', '18', '14', '17'], ['2', '2']],
         'Q تقرير الوجبة: عمود هلاكات لكلّ قسم بمجموعه في آخره بدل «الهلاكات»',
+      );
+    });
+
+    // ── I0038 بالشاشات: ورقة القاعة وتقرير الوجبة بعيّنة القاعدة الحقيقية (لا المكتوبة باليد) ─────────────────────────────────────────
+    await step('I0038 الورقة والتقرير بالعيّنة الحقيقية', async () => {
+      const raw = HSEC.hall_sheet;
+      fresh('hall_worker', { loadOverviewJson: () => clone(HSEC.flocks_overview), hall_sheet: () => clone(raw) });
+      await mount(`/broiler/hall/${raw.flock.hall_id}`);
+      const sheet = tableBy('هلاكات قاعة (1)');
+      const dayCells = (on) => cells(bodyRows(sheet).find((tr) => cells(tr)[1]?.startsWith(m.fmtDay(on).slice(0, 5))) ?? null).slice(2, 4);
+      t.same(
+        [headers(sheet).slice(2, 4), dayCells('2026-11-22'), dayCells('2026-11-24'), dayCells('2026-11-25'), dayCells('2026-11-26')],
+        [['هلاكات ق1', 'هلاكات ق2'], ['3', '2'], ['1', '3'], ['0', '0'], ['2', '0']],
+        'I0038 ورقة القاعة بالعيّنة الحقيقية: عمود لكلّ قسم، وهلاكات كلّ قسم في يومها',
+      );
+      await unmount();
+      fresh('viewer', { hall_sheet: () => clone(raw) });
+      await mount(`/halls/report/${raw.flock.id}`, m.h(m.Routes, null, m.h(m.Route, { path: '/halls/report/:flockId', element: m.h(m.ReportPage) })));
+      const sections = tableBy('الأقسام');
+      const days = tableBy('أيام الوجبة');
+      t.same(
+        [bodyRows(sections).map(cells), cells(footRow(days)).slice(0, 3)],
+        [[['ق1', '13,526', '6', '0.04%', '13,520'], ['ق2', '13,525', '5', '0.04%', '13,520']], ['المجموع', '6', '5']],
+        'I0038 تقرير الوجبة بالعيّنة الحقيقية: جدول «الأقسام» ومجموع كلّ قسم في آخر جدول الأيّام',
       );
     });
 

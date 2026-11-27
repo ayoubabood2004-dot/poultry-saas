@@ -46,6 +46,10 @@ export const HALLS_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
   // 0038: القاعة بأقسام (تُكتب عند إنشائها، وتتغيّر بـset_hall_sections)، وعدد كلّ قسم في الوجبة.
   halls_sections_check: () => t('constraint.halls_sections_check', 'أقسام القاعة من 1 (غير مقسومة) إلى 4.'),
   flocks_section_counts_check: () => t('constraint.flocks_section_counts_check', 'أعداد الأقسام أعداد صحيحة من صفر فأكثر، خانة لكلّ قسم، ومجموعها عدد الطيور الداخلة.'),
+  // 0038: هلاكات كلّ قسم في الزيارة واليوم. كلّ كاتب يفحص الأقسام قبل الكتابة (bad_value وsections_required: set_flock_dead وsave_flock_day
+  // وflock_day_rebuild)، فالقيد لا ينخرق من شاشة؛ وجملتاه هنا خارج التثبيت المسبق (هامشه 2026-11-27 كان 108 بايت).
+  flock_visits_dead_parts_check: () => t('constraint.flock_visits_dead_parts_check', 'هلاكات أقسام الزيارة أعداد صحيحة من صفر فأكثر، خانة لكلّ قسم، ومجموعها هلاكات الزيارة.'),
+  flock_daily_dead_parts_check: () => t('constraint.flock_daily_dead_parts_check', 'هلاكات أقسام اليوم أعداد صحيحة من صفر فأكثر، خانة لكلّ قسم، ومجموعها هلاكات اليوم.'),
 };
 
 registerConstraintHints(HALLS_CONSTRAINT_HINTS);

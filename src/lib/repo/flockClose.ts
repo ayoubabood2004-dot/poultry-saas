@@ -79,7 +79,7 @@ export type CarryStatus = (typeof CARRY_STATUSES)[number];
  * حتى اليوم، والقاعة أو حقلها مؤرشف، وفوج بعدها في القاعة، ونقل مطبَّق، ودفعة إرجاع سُحب منها أو صُحّح سعرها، وحركة إرجاع أقرّها جرد معتمد (إعادة
  * مراجعة 0028 DN4).
  */
-export const REOPEN_WHY = ['not_closed', 'out_of_scope', 'period_locked', 'hall_archived', 'hall_reused', 'carry_used', 'lot_consumed', 'count_superseded'] as const;
+export const REOPEN_WHY = ['not_closed', 'out_of_scope', 'period_locked', 'hall_archived', 'hall_reused', 'sections_changed', 'carry_used', 'lot_consumed', 'count_superseded'] as const;
 export type ReopenWhy = (typeof REOPEN_WHY)[number];
 
 // ─── بطاقة الفوج (flock_sales) ───────────────────────────────────────────────────────────────────────────────────
