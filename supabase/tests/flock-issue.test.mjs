@@ -23,6 +23,7 @@ const FEED = 'select public.flock_feed($1) as v';
 const FN = {
   record: 'public.record_flock_issue(uuid, uuid, uuid, uuid, uuid, numeric, date, uuid)',
   void: 'public.void_flock_issue(uuid, text, uuid)',
+  reverse: 'private.flock_issue_reverse(public.flock_issues, text)',
   options: 'public.flock_issue_options(uuid)',
   feed: 'public.flock_feed(uuid)',
   mass: 'private.issue_mass_kg(numeric, text, numeric, numeric)',
@@ -484,7 +485,8 @@ async function scenario(t, db) {
     },
     {
       name: 'عكس الكلفة بإشارة معاكسة',
-      fns: [[FN.void, [['values (c.org_id, c.flock_id, c.site_id, c.kind, -c.amount,', 'values (c.org_id, c.flock_id, c.site_id, c.kind, c.amount,']]]],
+      // 0037: الأثر في النواة المشتركة مع حذف القاعة (private.flock_issue_reverse)، فالطفرة فيها.
+      fns: [[FN.reverse, [['values (c.org_id, c.flock_id, c.site_id, c.kind, -c.amount,', 'values (c.org_id, c.flock_id, c.site_id, c.kind, c.amount,']]]],
       run: async ({ attempt }) => {
         const o = args({ item: I.finisher, qty: 3 });
         await attempt(U.owner, async (q) => q(RF, o));
@@ -497,7 +499,7 @@ async function scenario(t, db) {
     },
     {
       name: 'الإلغاء بيوم الإلغاء لا بيوم الصرف',
-      fns: [[FN.void, [['-m.qty, -m.value, v_today, m.id);', '-m.qty, -m.value, x.issued_on, m.id);']]]],
+      fns: [[FN.reverse, [['-m.qty, -m.value, v_today, m.id);', '-m.qty, -m.value, x.issued_on, m.id);']]]],
       run: async ({ attempt }) => {
         const o = args({ item: I.finisher, qty: 4, on: day(-2) });
         await attempt(U.owner, async (q) => q(RF, o));

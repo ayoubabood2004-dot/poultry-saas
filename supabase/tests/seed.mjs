@@ -41,6 +41,8 @@
 // بجسم 0035 وغاز اليوم بـset_flock_gas، وبعد الإعادة الملء يعلّم زيارتي اليومين ثمّ اليومين منهما، والجولة لا تضيف إليهما والإضافة تكمل المجموع (وضابطا
 // الإعادة: بلا ملء الزيارات، وبلا اشتقاق الأيّام، يفشل الثابت). والطريق الثاني بثلاثة فروع، كلّ واحد ببذرته: يوم سُجّلت هلاكاته صفراً، وهلاكات مركونة،
 // وغاز مضاف مركون؛ والفرع الرابع (زيارة مركونة بسبب dead_recorded) يحرسه قيد 0012 نفسه أيضاً فلا يكمل التراجع بلا الكتلة، وفحصه في round-once.test.
+// 0037: البذرة نفسها وفوقها صرفان لفوج البذرة يُلغى أوّلهما بـvoid_flock_issue على النواة المشتركة (ROLLBACK_EXTRAS)، فالتراجع يكمل؛ وبين التراجع والإعادة
+// يُلغى الثاني بجسم 0019، وبعد الإعادة صرف ثالث ثمّ حذف القاعة يرجعه كلّه. والطريق الثاني: قاعة حُذفت بفوجها (فوج ملغى) توقف التراجع بصوت.
 
 const U = {
   owner: '60000000-0000-4000-8000-000000000001',
@@ -815,7 +817,85 @@ const roundSeed = (variant) => async (db) => {
   }, { commit: true });
 };
 
+const H37 = (n) => `60000000-0000-4000-8000-0000000037${String(n).padStart(2, '0')}`;
+
+/** 0037: صرف 5 كغم «علف البذرة» لفوج «قاعة البذرة» من مخزن الحقل (المدير، record_flock_issue): الصرف H37(n) وسطره n + 1 ومرجعه n + 2. */
+const issue37 = async (q, n) => {
+  const flock = await value(q, SEED_FLOCK);
+  const feed = await value(q, "select id from public.items where name = 'علف البذرة'");
+  return value(q, "select public.record_flock_issue($1, $2, $3, $4, $5, 5, public.app_today(), null) ->> 'id'", [H37(n + 2), H37(n), H37(n + 1), flock, feed]);
+};
+
+/** 0037: حذف «قاعة البذرة» بفوجها (المدير، delete_hall بنسخة المعاينة وبصمتها)، فيصير الفوج ملغى والقاعة مؤرشفة؛ يرجّع الجواب. */
+const deleteSeedHall = async (q, ref) => {
+  const hall = await value(q, "select id from public.halls where name = 'قاعة البذرة'");
+  const preview = await value(q, 'select public.delete_hall_preview($1)', [hall]);
+  return value(q, 'select public.delete_hall($1, $2, $3, $4)', [hall, preview.hall.version, preview.plan, ref]);
+};
+
+/**
+ * 0037 (طريق الرفض): قاعة حُذفت بفوجها القائم وصرفه (المدير): فوج ملغى لا يعرفه النموذج القديم (قيد حالته يرفضه، وأيّ حال قديمة له تُظهر أيّامه)،
+ * فطريق الرفض يوقف التراجع؛ وطفرة الفرع تعبره، وبلا الكتلة يكمل التراجع فيصير الفوج مغلقاً.
+ */
+const deleteHallSeed = async (db) => {
+  await flockReady(db);
+  await db.asUser(U.manager, async (q) => {
+    await issue37(q, 1);
+    const done = await deleteSeedHall(q, H37(10));
+    if (done?.deleted !== true || done?.voided_issues !== 1) throw new Error(`حذف قاعة البذرة لم يكتمل: ${JSON.stringify(done)}`);
+  }, { commit: true });
+};
+
+/**
+ * 0037: حالة التراجع الكاملة على بيانات تمرّ عليها النواة المشتركة (المدير): صرفان لفوج البذرة يُلغى أوّلهما بـvoid_flock_issue (على النواة)، بلا حذف قاعة،
+ * فالتراجع يكمل؛ وبين التراجع والإعادة يُلغى الثاني بجسم 0019 (الأثر في جسمه)؛ وبعد الإعادة صرف ثالث ثمّ حذف القاعة: الفوج ملغى بصرفه وحده (الملغيان
+ * قبله لا يُعادان)، والعلف كلّه في المخزن بالكمية والقيمة كما كان قبل الصرف الأوّل.
+ */
+const deleteHallReady = async (db) => {
+  await flockReady(db);
+  await db.asUser(U.manager, async (q) => {
+    const first = await issue37(q, 20);
+    await issue37(q, 30);
+    await q("select public.void_flock_issue($1, 'صرف خاطئ', $2)", [first, H37(40)]);
+  }, { commit: true });
+};
+
+const deleteHallOn0036 = async (db) => {
+  await db.asUser(U.manager, (q) => q("select public.void_flock_issue($1, 'صرف خاطئ', $2)", [H37(30), H37(41)]), { commit: true });
+};
+
+const deleteHallRedone = async (db) => {
+  const problems = [];
+  try {
+    const got = await db.asUser(U.manager, async (q) => {
+      const store = "select trim_scale(b.qty)::text || '/' || trim_scale(b.value)::text from public.stock_balances b join public.items i on i.org_id = b.org_id and i.id = b.item_id where i.name = 'علف البذرة'";
+      await issue37(q, 50);
+      const sent = await value(q, store);
+      const done = await deleteSeedHall(q, H37(60));
+      return { sent, after: await value(q, store), deleted: done?.deleted, voided: done?.voided_issues, back: (done?.back ?? []).map((r) => `${r.item}:${r.qty}`),
+        status: await value(q, `select f.status from public.flocks f where f.id = (${SEED_FLOCK})`) };
+    }, { commit: true });
+    const want = { sent: '45/27000', after: '50/30000', deleted: true, voided: 1, back: ['علف البذرة:5.000'], status: 'void' };
+    if (JSON.stringify(got) !== JSON.stringify(want)) problems.push(`حذف القاعة بعد الإعادة: ${JSON.stringify(got)}`);
+  } catch (error) {
+    problems.push(`حذف القاعة بعد الإعادة رُفض: ${error.message}`);
+  }
+  const bad = await db.asService(async (q) => (await q('select check_name, violations::text as v from public.verify_delete_hall() union all select check_name, violations::text from public.verify_flock_issues()')).rows
+    .filter((r) => r.v !== '0').map((r) => `${r.check_name} = ${r.v}`));
+  if (bad.length) problems.push(`الثوابت بعد الحذف: ${bad.join('، ')}`);
+  return problems;
+};
+
 export const BLOCKING_SEEDS = {
+  37: [
+    {
+      name: 'فوج ملغى بحذف قاعته',
+      code: 'rollback_blocked',
+      seed: deleteHallSeed,
+      data: "select (select count(*) from public.flocks where status = 'void')::text || '/' || (select count(*) from public.halls where archived_at is not null)::text || '/' || (select count(*) from public.stock_moves where reverses_move_id is not null)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_void > 0 then', 'if false then'),
+    },
+  ],
   36: [
     {
       name: 'يوم سُجّلت هلاكاته صفراً',
@@ -1332,6 +1412,7 @@ export const BLOCKING_REQUIRED = [
   [33, 8, 'فاتورة بأكثر من سطر، وبخصم، ومن صندوقين، وبدفع جزئيّ، وبوحدة بيع، وبملاحظة، ولزبون نقديّ، وساق مدقَّقة لفاتورة جديدة مدفوعة كلّها، كلّ واحدة توقف التراجع'],
   [35, 3, 'خانة غاز، وعلف أُرسل ليوم فات، وغاز مركون، كلّ واحد يوقف التراجع'],
   [36, 3, 'يوم سُجّلت هلاكاته صفراً، وهلاكات مركونة، وغاز مضاف مركون، كلّ واحد يوقف التراجع'],
+  [37, 1, 'فوج ملغى بحذف قاعته يوقف التراجع'],
 ];
 
 /**
@@ -1951,6 +2032,11 @@ const roundRedone = async (db) => {
 };
 
 export const ROLLBACK_EXTRAS = {
+  37: {
+    seed: deleteHallReady,
+    afterRollback: deleteHallOn0036,
+    afterRedo: deleteHallRedone,
+  },
   36: {
     seed: roundFullReady,
     afterRollback: roundOn0035,
