@@ -7,7 +7,7 @@
 // C الحذف بنسخة ما عُرض وبصمته ومرجع من الجهاز مرّة واحدة، ومشغول أثناءه، ورسالة تسمّي ما رجع، ثمّ القراءة من جديد. U نتيجة لا تُعرف: «أعد المحاولة»
 // بالطلب نفسه. S stale_plan وstale_hall ومنعٌ جديد: قراءة جديدة تُقال، ثمّ الحذف بالبصمة الجديدة والمرجع نفسه. A المحذوفة قبلاً. G hall_not_found. O بلا حزمة القاعات.
 // D «احذف القاعة» في «عدّل القاعة» يفتح نافذة الحذف ولا يرسل النموذج. F نافذتا القاعة والفوج نموذجان يُرسلان (زرّ type="submit" form=…).
-// T جمل الرفض (التلميح أوّلاً) وسبب الركن flock_void. I عيّنات القاعدة الحقيقية (delete-hall-0037.json من الجزء D حين تصل) بالمحلّلين والنافذة.
+// T جمل الرفض (التلميح أوّلاً) وسبب الركن flock_void. I عيّنات القاعدة الحقيقية (delete-hall-0039.json من الجزء D) بالمحلّلين والنافذة، وفحصٌ أنّها موجودة (لا تُتخطّى بصمت).
 // كلّ فحص هنا يفشل على 31aa9e0 (لا hallDelete ولا نافذة الحذف ولا «احذف» ولا النموذجان)، إلّا ما وُسم «ضابط».
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
@@ -20,7 +20,7 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const FIXTURES = path.join(ROOT, 'scripts', 'tests', 'fixtures');
 const HAND = JSON.parse(readFileSync(path.join(FIXTURES, 'delete-hall-0037.hand.json'), 'utf8'));
 // عيّنات القاعدة الحقيقية (الجزء D: supabase/tests/delete-hall.test.mjs) حين تصل؛ والفحص يقرأ أشكالها أينما كانت في الملف.
-const REAL_PATH = path.join(FIXTURES, 'delete-hall-0037.json');
+const REAL_PATH = path.join(FIXTURES, 'delete-hall-0039.json');
 const REAL = existsSync(REAL_PATH) ? JSON.parse(readFileSync(REAL_PATH, 'utf8')) : null;
 const ERRORS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'errors.ts'));
 const REAL_FLOCKS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'flocks.ts'));
@@ -166,6 +166,7 @@ export default async function (t) {
       return p.FlockShapeError && error instanceof p.FlockShapeError ? error.message : `threw:${error?.message ?? error}`;
     }
   };
+  t.ok(REAL !== null, `I ضابط: عيّنات القاعدة الحقيقية موجودة (${path.basename(REAL_PATH)})`);
   const PREVIEW = HAND.preview;
   const DELETED = HAND.delete;
   // الجزء D: تذكرة ملغاة لفوج حُذفت قاعته تُقرأ بحال فوجها void (العيّنة الحقيقية)، فلا تسقط صفحة التذكرة.

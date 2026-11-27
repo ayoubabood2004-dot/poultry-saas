@@ -1,4 +1,6 @@
-# Contract 0037 — «احذف القاعة» as if it never existed, and the keyboard everywhere
+# Contract 0039 (built as 0037) — «احذف القاعة» as if it never existed, and the keyboard everywhere
+
+> Renumbered 2026-11-27: production took `0037_kerosene` from another session and the owner put `0038_hall_sections` first, so this work is `0039_delete_hall`, rebuilt on both (see `docs/DECISIONS.md`, «الترقيم من جديد»). The text below keeps its original numbers.
 
 Owner's request and answers: `docs/DECISIONS.md` section «2026-11-26». Base: branch `claude/festive-sagan-fq2iw3` at `b03aec2` (= `main` = production 0036).
 Rules that bind every part: CLAUDE.md (Fusha UI text through `t()`; numbers through `format.ts`; `DataTable` is the only table; no `window.confirm`;
