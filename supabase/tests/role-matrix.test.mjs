@@ -980,6 +980,14 @@ export default async function (t, db) {
       value: true,
       expect: all('ok:saved:120:1'),
     },
+    // 0038 (القاعة بأقسام، كلمة المالك 2026-11-26) تحت 0034: كلّ عضو فعّال يقسم القاعة كالمالك؛ والخانة بمعاملة تُرجَع، فكلّ دور يقسم «قاعة 2» (بلا وجبة)
+    // قسمين بنسختها (saved بقسمين). والكتّاب الأربعة التي زاد توقيعها معاملاً اختياريّاً (open_flock وedit_flock وsave_flock_day وset_flock_dead) تُنادى
+    // أعلاه بمعاملاتها القديمة بالترتيب كما هي.
+    set_hall_sections: {
+      sql: () => ["select (r ->> 'status') || ':' || (r -> 'hall' ->> 'sections') as v from public.set_hall_sections($1, 2, (select version from public.halls where id = $1), gen_random_uuid()) as r", [p2.empty]],
+      value: true,
+      expect: all('ok:saved:2'),
+    },
   };
 
   const allowlisted = ALLOWLIST.authenticated.map((signature) => signature.slice('public.'.length, signature.indexOf('('))).sort();

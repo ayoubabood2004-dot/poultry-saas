@@ -364,9 +364,9 @@ async function scenario(t, db) {
   // كلّ حالة تجري على الجسم الحقيقيّ وعلى الجسم بطفرة واحدة (داخل معاملة صاحب الجداول ترجع، كـround-once «الطفرات»): تنجح حين يعطي الحقيقيّ الصحيح
   // ولا تعطيه الطفرة.
   const SIG = {
-    dead: 'public.set_flock_dead(uuid, date, integer, uuid, boolean)',
+    dead: 'public.set_flock_dead(uuid, date, integer, uuid, boolean, integer[])',
     add: 'public.add_flock_gas(uuid, date, integer, uuid, boolean)',
-    day: 'public.save_flock_day(uuid, date, integer, integer, numeric, numeric, numeric, numeric, integer, integer, integer, text, integer, uuid, boolean)',
+    day: 'public.save_flock_day(uuid, date, integer, integer, numeric, numeric, numeric, numeric, integer, integer, integer, text, integer, uuid, boolean, integer[])',
     visit: 'public.save_flock_visit(uuid, uuid, date, timestamp with time zone, integer, integer, numeric, integer, integer, integer, text, integer, boolean, uuid, boolean)',
     rebuild: 'private.flock_day_rebuild(public.flocks, date)',
     summary: 'private.flock_summary(public.flocks)',

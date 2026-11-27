@@ -44,6 +44,9 @@
 // 0037: البذرة نفسها وفوقها غاز أمس وعلف اليوم بلا كاز (ROLLBACK_EXTRAS)، فالتراجع يكمل ويرجّع الأجسام الأربعة كما في 0035؛ وبين التراجع والإعادة غاز اليوم
 // بجسم 0035، وبعد الإعادة كاز يومين أحدهما يُمسح والورقة تعدّه بجانب الغاز. والطريق الثاني بثلاثة فروع، كلّ واحد ببذرته: خانة كاز، وخانة كاز مُسحت
 // (الصفّ يبقى بنسخته)، وكاز مركون.
+// 0038: البذرة نفسها وفوقها هلاكات أمس وملاحظة اليوم لفوج البذرة (غير مقسوم) وقاعة قُسمت قسمين ثمّ أُعيدت إلى قسم واحد (ROLLBACK_EXTRAS)، فالتراجع يكمل
+// ويرجّع الأجسام الإحدى عشرة؛ وبين التراجع والإعادة هلاكات اليوم وتسكين بالأجسام القديمة، وبعد الإعادة قاعة مقسومة تُسكَّن بالتساوي وتُكتب هلاكاتها بأقسامها.
+// والطريق الثاني بثلاثة فروع، كلّ واحد ببذرته: قاعة مقسومة، ووجبة مغلقة بأعداد أقسام في قاعة أُعيدت إلى قسم واحد، وزيارة ملغاة بهلاكات أقسام.
 
 const U = {
   owner: '60000000-0000-4000-8000-000000000001',
@@ -841,7 +844,59 @@ const keroseneSeed = (variant) => async (db) => {
   }, { commit: true });
 };
 
+const H38 = (n) => `60000000-0000-4000-8000-0000000038${String(n).padStart(2, '0')}`;
+
+/**
+ * 0038 (طريق الرفض): ما لا يحمله النموذج القديم، كلّ حقيقة ببذرتها (المدير، في «حقل الأمل» بجانب فوج البذرة): قاعة مقسومة قسمين بلا وجبة؛ ووجبة مغلقة
+ * بأعداد قسمين في قاعة أُعيدت بعدها إلى قسم واحد (تتغيّر أقسام القاعة بحرّية بلا وجبة قائمة)؛ وزيارة ملغاة بهلاكات أقسام أصفار («لا هلاكات اليوم» ثمّ ملاحظة
+ * اليوم من الورقة تلغيها) في وجبة أُعيدت قاعتها إلى قسم واحد (أقسام زياراتها الحيّة وأيّامها فارغة بعدها، والملغاة تبقى كما كتبها الجهاز). التراجع يُسقطها
+ * فطريق الرفض يوقفه، وطفرة كلّ فرع تعبر بذرته (كلّ بذرة لا يمسكها إلّا فرعها).
+ */
+const sectionsSeed = (variant) => async (db) => {
+  await flockReady(db);
+  await db.asUser(U.manager, async (q) => {
+    const site = await value(q, "select id from public.sites where name = 'حقل الأمل'");
+    const hall = await value(q, "insert into public.halls (site_id, name, sections) values ($1, 'قاعة الأقسام', 2) returning id", [site]);
+    if (variant === 'hall') return;
+    const flock = await value(q, "select public.open_flock($1, public.app_today() - 2, 100, 0, null, $2) ->> 'flock_id'", [hall, H38(1)]);
+    if (variant === 'closed') {
+      const plan = await value(q, "select public.flock_close_form($1) ->> 'plan'", [flock]);
+      await q("select public.close_flock($1, $2, $3, public.app_today(), 100, 0, '[]'::jsonb, 'بيعت', '[]'::jsonb, null, $4)", [H38(2), H38(3), flock, plan]);
+    }
+    if (variant === 'parts') {
+      await q('select public.set_flock_dead($1, public.app_today() - 1, 0, $2, false, $3)', [flock, H38(4), [0, 0]]);
+      await q("select public.save_flock_day($1, public.app_today() - 1, null, null, null, null, null, null, null, null, null, 'ملاحظة اليوم', "
+        + '(select version from public.flock_daily where flock_id = $1 and on_date = public.app_today() - 1), $2, false, null)', [flock, H38(5)]);
+    }
+    const back = await value(q, "select public.set_hall_sections($1, 1, 1, $2) ->> 'status'", [hall, H38(6)]);
+    if (back !== 'saved') throw new Error(`قاعة البذرة لم تعد إلى قسم واحد: ${back}`);
+  }, { commit: true });
+};
+
 export const BLOCKING_SEEDS = {
+  38: [
+    {
+      name: 'قاعة مقسومة',
+      code: 'rollback_blocked',
+      seed: sectionsSeed('hall'),
+      data: "select (select count(*) from public.halls where sections > 1)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_halls > 0 then', 'if false then'),
+    },
+    {
+      name: 'وجبة مغلقة بأعداد أقسام في قاعة أُعيدت إلى قسم واحد',
+      code: 'rollback_blocked',
+      seed: sectionsSeed('closed'),
+      data: "select (select count(*) from public.flocks where section_counts is not null)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_flocks > 0 then', 'if false then'),
+    },
+    {
+      name: 'زيارة ملغاة بهلاكات أقسام',
+      code: 'rollback_blocked',
+      seed: sectionsSeed('parts'),
+      data: "select (select count(*) from public.flock_visits where dead_parts is not null)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_parts > 0 then', 'if false then'),
+    },
+  ],
   37: [
     {
       name: 'خانة كاز',
@@ -1382,6 +1437,7 @@ export const BLOCKING_REQUIRED = [
   [35, 3, 'خانة غاز، وعلف أُرسل ليوم فات، وغاز مركون، كلّ واحد يوقف التراجع'],
   [36, 3, 'يوم سُجّلت هلاكاته صفراً، وهلاكات مركونة، وغاز مضاف مركون، كلّ واحد يوقف التراجع'],
   [37, 3, 'خانة كاز، وخانة كاز مُسحت فبقي صفّها بنسخته، وكاز مركون، كلّ واحد يوقف التراجع'],
+  [38, 3, 'قاعة مقسومة، ووجبة مغلقة بأعداد أقسام، وزيارة ملغاة بهلاكات أقسام، كلّ واحدة توقف التراجع'],
 ];
 
 /**
@@ -2045,7 +2101,68 @@ const keroseneRedone = async (db) => {
   return problems;
 };
 
+/**
+ * 0038: حالة التراجع الكاملة بلا ما يوقفه: هلاكات أمس 3 بـset_flock_dead وملاحظة اليوم بـsave_flock_day لفوج البذرة (غير مقسوم: بلا أقسام)، وقاعة قُسمت
+ * قسمين ثمّ أُعيدت إلى قسم واحد (لا يبقى منها إلّا نسختها)، فالتراجع يكمل ويرجّع الأجسام الإحدى عشرة؛ وبين التراجع والإعادة هلاكات اليوم 2 بجسم 0036
+ * (set_flock_dead بخمسة معاملات) وتسكين بجسم 0029؛ وبعد الإعادة قاعة مقسومة قسمين تُسكَّن بالتساوي (101 = 51 + 50) وتُكتب هلاكاتها بأقسامها، والورقة
+ * بأقسامها، وورقة فوج البذرة بلا أقسام وهلاكاتها كلّها، والثابت صفر.
+ */
+const sectionsFullReady = async (db) => {
+  await flockReady(db);
+  await db.asUser(U.manager, async (q) => {
+    const flock = await value(q, SEED_FLOCK);
+    const site = await value(q, "select id from public.sites where name = 'حقل الأمل'");
+    await q('select public.set_flock_dead($1, public.app_today() - 1, 3, $2, false)', [flock, H38(10)]);
+    await q("select public.save_flock_day($1, public.app_today(), null, null, null, null, null, null, null, null, null, 'جولة الصباح', null, $2, false)", [flock, H38(11)]);
+    const hall = await value(q, "insert into public.halls (site_id, name, sections) values ($1, 'قاعة الأقسام', 2) returning id", [site]);
+    await q('select public.set_hall_sections($1, 1, 1, $2)', [hall, H38(12)]);
+  }, { commit: true });
+};
+
+const sectionsOn0037 = async (db) => {
+  await db.asUser(U.manager, async (q) => {
+    const flock = await value(q, SEED_FLOCK);
+    const site = await value(q, "select id from public.sites where name = 'حقل الأمل'");
+    await q('select public.set_flock_dead($1, public.app_today(), 2, $2, false)', [flock, H38(13)]);
+    const hall = await value(q, "insert into public.halls (site_id, name) values ($1, 'قاعة قديمة') returning id", [site]);
+    await q('select public.open_flock($1, public.app_today() - 1, 50, 0, null, $2)', [hall, H38(14)]);
+  }, { commit: true });
+};
+
+const sectionsRedone = async (db) => {
+  const problems = [];
+  try {
+    const got = await db.asUser(U.manager, async (q) => {
+      const site = await value(q, "select id from public.sites where name = 'حقل الأمل'");
+      const hall = await value(q, "insert into public.halls (site_id, name, sections) values ($1, 'قاعة مقسومة', 2) returning id", [site]);
+      const flock = await value(q, "select public.open_flock($1, public.app_today() - 2, 101, 0, null, $2) ->> 'flock_id'", [hall, H38(15)]);
+      await q('select public.set_flock_dead($1, public.app_today() - 1, 3, $2, false, $3)', [flock, H38(16), [2, 1]]);
+      const sheet = await value(q, 'select public.hall_sheet($1)', [flock]);
+      const seed = await value(q, 'select public.hall_sheet($1)', [await value(q, SEED_FLOCK)]);
+      return {
+        counts: await value(q, 'select section_counts from public.flocks where id = $1', [flock]),
+        parts: sheet.totals.dead_parts,
+        sections: sheet.sections.map((x) => [x.placed, x.dead, x.remaining]),
+        seed: [seed.totals.dead, seed.sections, seed.totals.dead_parts],
+      };
+    }, { commit: true });
+    const want = { counts: [51, 50], parts: [2, 1], sections: [[51, 2, 49], [50, 1, 49]], seed: [5, null, null] };
+    if (JSON.stringify(got) !== JSON.stringify(want)) problems.push(`الأقسام بعد الإعادة: ${JSON.stringify(got)}`);
+  } catch (error) {
+    problems.push(`الأقسام بعد الإعادة رُفضت: ${error.message}`);
+  }
+  const bad = await db.asService(async (q) => (await q('select check_name, violations::text as v from public.verify_hall_sections()')).rows
+    .filter((r) => r.v !== '0').map((r) => `${r.check_name} = ${r.v}`));
+  if (bad.length) problems.push(`الثوابت بعد الأقسام: ${bad.join('، ')}`);
+  return problems;
+};
+
 export const ROLLBACK_EXTRAS = {
+  38: {
+    seed: sectionsFullReady,
+    afterRollback: sectionsOn0037,
+    afterRedo: sectionsRedone,
+  },
   37: {
     seed: keroseneFullReady,
     afterRollback: keroseneOn0036,

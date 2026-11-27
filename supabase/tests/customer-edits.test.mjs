@@ -68,7 +68,7 @@ const SAVE_H = 'select public.save_hall_vaccine_program($1, $2, $3::jsonb, $4) a
 const DROP_H = 'select public.drop_hall_vaccine_program($1, $2) as v';
 const EDIT_R = 'select public.edit_recipe($1, $2, $3, $4::jsonb, $5) as v';
 const FN = {
-  edit: 'public.edit_flock(uuid, integer, date, integer, integer, text, uuid)',
+  edit: 'public.edit_flock(uuid, integer, date, integer, integer, text, uuid, integer[])',
   del: 'public.delete_flock(uuid, integer, uuid)',
   recipe: 'public.edit_recipe(uuid, uuid, text, jsonb, uuid)',
   slots: 'private.flock_slots(uuid)',

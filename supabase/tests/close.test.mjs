@@ -32,7 +32,7 @@ const phone = (n) => `96477028100${String(n).padStart(2, '0')}`;
 const SIG = {
   close: 'public.close_flock(uuid, uuid, uuid, date, integer, integer, jsonb, text, jsonb, text, text)',
   reopen: 'public.reopen_flock(uuid, text, uuid)',
-  open: 'public.open_flock(uuid, date, integer, integer, text, uuid)',
+  open: 'public.open_flock(uuid, date, integer, integer, text, uuid, integer[])',
   voidSale: 'public.void_bird_sale(uuid, text, uuid)',
   returnPost: 'private.flock_return_post(uuid, public.flocks, uuid, uuid, numeric, numeric, date, text, uuid, uuid, text, numeric, numeric, text, uuid)',
   pool: 'private.flock_item_pool(uuid)',

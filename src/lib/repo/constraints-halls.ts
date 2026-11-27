@@ -43,6 +43,9 @@ export const HALLS_CONSTRAINT_HINTS: Readonly<Record<string, () => string>> = {
   flocks_close_note_check: () => t('constraint.flocks_close_note_check', 'ملاحظة الإغلاق لا تزيد على 500 حرف.'),
   flock_weights_sample_check: () => t('constraint.flock_weights_sample_check', 'عدد طيور العيّنة من 1 إلى 100,000.'),
   flock_weights_avg_check: () => t('constraint.flock_weights_avg_check', 'معدّل وزن الطير بالغرام من 20 إلى 20,000، بمرتبة عشرية واحدة على الأكثر.'),
+  // 0038: القاعة بأقسام (تُكتب عند إنشائها، وتتغيّر بـset_hall_sections)، وعدد كلّ قسم في الوجبة.
+  halls_sections_check: () => t('constraint.halls_sections_check', 'أقسام القاعة من 1 (غير مقسومة) إلى 4.'),
+  flocks_section_counts_check: () => t('constraint.flocks_section_counts_check', 'أعداد الأقسام أعداد صحيحة من صفر فأكثر، خانة لكلّ قسم، ومجموعها عدد الطيور الداخلة.'),
 };
 
 registerConstraintHints(HALLS_CONSTRAINT_HINTS);

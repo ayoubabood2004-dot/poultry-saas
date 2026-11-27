@@ -39,7 +39,7 @@ const ROUND = 'select public.round_visits($1, $2, $3) as v';
 const SIG = {
   rebuild: 'private.flock_day_rebuild(public.flocks, date)',
   visit: 'public.save_flock_visit(uuid, uuid, date, timestamp with time zone, integer, integer, numeric, integer, integer, integer, text, integer, boolean, uuid, boolean)',
-  day: 'public.save_flock_day(uuid, date, integer, integer, numeric, numeric, numeric, numeric, integer, integer, integer, text, integer, uuid, boolean)',
+  day: 'public.save_flock_day(uuid, date, integer, integer, numeric, numeric, numeric, numeric, integer, integer, integer, text, integer, uuid, boolean, integer[])',
   del: 'public.delete_flock(uuid, integer, uuid)',
   reader: 'public.round_visits(date, text, uuid)',
   eggs: 'private.flock_eggs_live_check(public.flocks, date)',
@@ -148,7 +148,11 @@ async function scenario(t, db) {
       await oq('delete from public.flock_visits where true');
       await oq('delete from public.flock_day_rejects where visit_id is not null');
       await oq('delete from public.flock_daily where org_id = $1', [G.org]);
+      // 0038 زاد save_flock_day معاملاً اختياريّاً (توقيع جديد)، وتراجع 0032 فوق كتالوجها يعيد التوقيع القديم بجانبه فيلتبس النداء؛ فالجديد يُسقط داخل
+      // المعاملة نفسها (ترجع كلّها بعد الفحص) قبل التراجع، والقديم يأخذ منحه كما كان قبل 0032 (تنشئه دالّةً جديدة لا تستبدل قائمة).
+      await oq('drop function public.save_flock_day(uuid, date, integer, integer, numeric, numeric, numeric, numeric, integer, integer, integer, text, integer, uuid, boolean, integer[])');
       await oq(rollback);
+      await oq('grant execute on function public.save_flock_day(uuid, date, integer, integer, numeric, numeric, numeric, numeric, integer, integer, integer, text, integer, uuid, boolean) to authenticated');
       r.oldCatalog = (await oq("select to_regclass('public.flock_visits') is null as gone, to_regprocedure('public.round_visits(date, text, uuid)') is null as reader_gone")).rows[0];
       // الجولات بجسم 0029: ماء وحرارة، وملاحظة بفراغ في طرفيها، وتعديل (النسخة 2)، وصفر صريح، وبيض، وملاحظة بخمسمئة حرف.
       const old = (user, d) => as(user, DAY, dayParams(d));
@@ -213,9 +217,9 @@ async function scenario(t, db) {
     // 0036 (قرار المالك بعد مراجعة القاعدة): هلاكات اليوم من زيارة واحدة؛ فالزيارة الثانية بعلفها وملاحظتها تُجمع، وزيارة ثانية بهلاكات لا تُضاف.
     const second = await visit(U.manager, { id: V.v2, flock: F.a1, at: ago(200), feed: '30.5', note: 'العصر' });
     samples.save_flock_visit_saved = second.value;
-    // 0036: صفّ اليوم يحمل علامة «سُجّلت هلاكات اليوم» (dead_entered) من الزيارة الأولى.
+    // 0036: صفّ اليوم يحمل علامة «سُجّلت هلاكات اليوم» (dead_entered) من الزيارة الأولى؛ و0038 أقسام هلاكاته (فارغة لقاعة غير مقسومة).
     same(second.value?.day, { on_date: TODAY, version: 2, dead: 3, culled: 0, feed_kg: '80.5', water_l: null, temp_min: null, temp_max: null, eggs_total: null,
-      eggs_cracked: null, eggs_broken: null, note: `الصباح${DOT}العصر`, dead_entered: true }, 'جهاز ثانٍ يضيف زيارة لليوم نفسه بلا stale: المجموع 3 نافق و80.5 كغم والملاحظتان بترتيبهما');
+      eggs_cracked: null, eggs_broken: null, note: `الصباح${DOT}العصر`, dead_entered: true, dead_parts: null }, 'جهاز ثانٍ يضيف زيارة لليوم نفسه بلا stale: المجموع 3 نافق و80.5 كغم والملاحظتان بترتيبهما');
     same([code(await visit(U.manager, { id: uid(), flock: F.a1, dead: 2, culled: 1 })), (await visit(U.manager, { id: uid(), flock: F.a1, dead: 2, queued: true })).value],
       ['dead_recorded', { status: 'parked', reason: 'dead_recorded' }], '0036: زيارة ثانية بهلاكات ليوم سُجّلت هلاكاته لا تُضاف (مباشرةً dead_recorded، ومن الطابور تُركن)');
     const again = await visit(U.manager, { id: V.v2, flock: F.a1, at: ago(200), feed: '30.50', note: 'العصر' });
