@@ -162,13 +162,15 @@ export function ArrangeDialog({ section, title, onClose, onSaved }: { section: S
               return (
                 <li
                   key={id}
-                  className={`flex items-center gap-2 rounded-2xl border bg-surface-1 p-1.5 ${held ? 'border-brand-500 shadow-soft' : 'border-line'}`}
+                  className={`flex items-center gap-2 rounded-2xl border bg-surface-1 p-1 ${held ? 'border-line-strong shadow-soft' : 'border-line'}`}
                   data-action="arrange-row"
                   data-id={id}
                 >
                   <button
                     type="button"
-                    className="inline-flex size-11 shrink-0 cursor-grab touch-none items-center justify-center rounded-xl text-ink-muted hover:bg-surface-2 active:cursor-grabbing disabled:opacity-50"
+                    className="inline-flex size-11 shrink-0 items-center justify-center rounded-xl text-ink-muted hover:bg-surface-2 disabled:opacity-50"
+                    // بلا صنف جديد (CSS الإقلاع محفوظ بالتثبيت المسبق): touch-action بالسطر نفسه، فالإصبع يسحب ولا يمرّر الصفحة.
+                    style={{ touchAction: 'none', cursor: dragging === id ? 'grabbing' : 'grab' }}
                     aria-label={t('arrange.drag', 'اسحب «{name}»', { name })}
                     disabled={locked}
                     onPointerDown={(event) => startDrag(event, id)}
@@ -179,7 +181,7 @@ export function ArrangeDialog({ section, title, onClose, onSaved }: { section: S
                   >
                     <GripVertical aria-hidden="true" className="size-5" />
                   </button>
-                  <span className="w-8 shrink-0 text-center text-sm text-ink-muted tabular-nums" aria-hidden="true">
+                  <span className="shrink-0 px-2 text-center text-sm text-ink-muted tabular-nums" aria-hidden="true">
                     {fmtInt(index + 1)}
                   </span>
                   <span className="min-w-0 flex-1 font-medium" data-action="arrange-name">

@@ -176,8 +176,8 @@ export function MarkDialog({
           />
         ) : null}
         <fieldset className="flex flex-col gap-2">
-          <legend className="mb-2 text-sm font-medium">{t('mark.color', 'اللون')}</legend>
-          <div role="radiogroup" aria-label={t('mark.color', 'اللون')} className="grid grid-cols-3 gap-2 sm:grid-cols-5">
+          <legend className="py-2 text-sm font-medium">{t('mark.color', 'اللون')}</legend>
+          <div role="radiogroup" aria-label={t('mark.color', 'اللون')} className="grid grid-cols-3 gap-2">
             {choices.map((color) => {
               const selected = color === current;
               const sending = busy?.kind === 'color' && busy.color === color;
@@ -192,14 +192,14 @@ export function MarkDialog({
                     if (!selected) void send({ kind: 'color', color });
                   }}
                   className={`flex h-14 items-center gap-2 rounded-2xl border px-3 text-sm font-medium transition-colors disabled:opacity-50 ${
-                    selected ? 'border-brand-500 bg-surface-2' : 'border-line hover:bg-surface-2'
+                    selected ? 'border-line-strong bg-surface-2 shadow-card' : 'border-line hover:bg-surface-2'
                   }`}
                   data-action="mark-color"
                   data-color={color ?? 'none'}
                 >
                   <span
                     aria-hidden="true"
-                    className="inline-flex size-7 shrink-0 items-center justify-center rounded-full border border-line"
+                    className="inline-flex size-8 shrink-0 items-center justify-center rounded-full border border-line"
                     style={color ? { backgroundColor: MARK_LOOK[color].solid } : undefined}
                   >
                     {selected ? <Check className="size-4" /> : null}

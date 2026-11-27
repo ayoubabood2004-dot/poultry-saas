@@ -16,7 +16,7 @@ import { colorName, MARK_LOOK, stateWord } from './markColors';
 function Palette({ label, value, onPick, disabled, name }: { label: string; value: MarkColor; onPick: (color: MarkColor) => void; disabled: boolean; name: string }) {
   return (
     <fieldset className="flex flex-col gap-2">
-      <legend className="mb-2 text-sm font-medium">{label}</legend>
+      <legend className="py-2 text-sm font-medium">{label}</legend>
       <div role="radiogroup" aria-label={label} className="flex flex-wrap gap-2">
         {MARK_COLORS.map((color) => {
           const selected = color === value;
@@ -30,7 +30,7 @@ function Palette({ label, value, onPick, disabled, name }: { label: string; valu
               title={colorName(color)}
               disabled={disabled}
               onClick={() => onPick(color)}
-              className={`inline-flex size-11 items-center justify-center rounded-full border-2 transition-colors disabled:opacity-50 ${selected ? 'border-ink' : 'border-transparent'}`}
+              className={`inline-flex size-11 items-center justify-center rounded-full transition-colors disabled:opacity-50 ${selected ? 'bg-surface-2 shadow-card' : 'hover:bg-surface-2'}`}
               data-action={`colors-${name}`}
               data-color={color}
             >

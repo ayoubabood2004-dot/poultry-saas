@@ -440,7 +440,7 @@ function ItemMarkLine({ itemId, name, live }: { itemId: string; name: string; li
   const color = data.mark?.color ?? null;
   const shown = shownColor(data.mark, null, data.colors);
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-2" data-action="file-mark">
+    <div className="flex flex-wrap items-center gap-2" data-action="file-mark">
       <span className="flex items-center gap-2 text-sm" data-action="file-mark-color" data-color={color ?? 'none'}>
         {shown ? <span aria-hidden="true" className="size-4 rounded-full border border-line" style={{ backgroundColor: MARK_LOOK[shown].solid }} /> : null}
         {color ? t('file.mark.color', 'لونها: {color}', { color: colorName(color) }) : t('file.mark.no_color', 'بلا لون')}

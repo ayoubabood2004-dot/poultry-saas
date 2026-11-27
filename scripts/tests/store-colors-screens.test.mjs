@@ -360,7 +360,7 @@ export default async function (t) {
       const handle = withId('arrange-row', salt)?.children.find((n) => n.getAttribute('data-action') === 'arrange-handle');
       fire(handle, 'pointerdown', { pointerId: 1, clientY: 270 });
       await settle();
-      t.ok(withId('arrange-row', salt)?.getAttribute('class').includes('border-brand-500'), 'D6: المادّة الممسوكة مميَّزة');
+      t.ok(withId('arrange-row', salt)?.getAttribute('class').includes('shadow-soft'), 'D6: المادّة الممسوكة مميَّزة');
       fire(handle, 'pointermove', { pointerId: 1, clientY: 70 });
       fire(handle, 'pointermove', { pointerId: 1, clientY: 10 });
       await settle();
