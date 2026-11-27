@@ -54,7 +54,7 @@ const plugins = [
     setup(b) {
       b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/flocks$|\/Toast$|\/lib\/hallsChunk$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'dh-stub' }));
       b.onLoad({ filter: /.*/, namespace: 'dh-stub' }, (args) => ({ contents: STUBS[args.path], resolveDir: ROOT, loader: 'js' }));
-      b.onResolve({ filter: /^\.\/core$/ }, (args) => (/src\/lib\/repo\/(?:flocks|flockEdits|hallSheet|hallDelete)\.ts$/u.test(args.importer.replace(/\\/g, '/')) ? { path: 'core', namespace: 'dh-core' } : undefined));
+      b.onResolve({ filter: /^\.\/core$/ }, (args) => (/src\/lib\/repo\/(?:flocks|flockEdits|hallSheet|hallDelete|weighTickets)\.ts$/u.test(args.importer.replace(/\\/g, '/')) ? { path: 'core', namespace: 'dh-core' } : undefined));
       b.onLoad({ filter: /.*/, namespace: 'dh-core' }, () => ({ contents: CORE, resolveDir: ROOT, loader: 'js' }));
     },
   },
@@ -150,6 +150,7 @@ export default async function (t) {
         "export { FlockShapeError } from './src/lib/repo/flocks.ts';",
         "export { deleteHallFailure, deletedToast } from './src/pages/farm/DeleteHallDialog.tsx';",
         "export { RejectedError, NetworkError, UnknownOutcomeError } from './src/lib/errors.ts';",
+        "export { parseWeighTicket } from './src/lib/repo/weighTickets.ts';",
       ].join('\n'),
     );
   } catch (error) {
@@ -165,6 +166,8 @@ export default async function (t) {
   };
   const PREVIEW = HAND.preview;
   const DELETED = HAND.delete;
+  // الجزء D: تذكرة ملغاة لفوج حُذفت قاعته تُقرأ بحال فوجها void (العيّنة الحقيقية)، فلا تسقط صفحة التذكرة.
+  if (REAL) t.same(safe(() => p.parseWeighTicket(clone(REAL.ticket_after_delete)).stops.map((stop) => stop.flockStatus)), ['void'], 'D تذكرة ملغاة لفوج قاعة محذوفة تُقرأ وحال فوجها void');
   const H8 = PREVIEW.running.hall.id;
   const H4 = PREVIEW.empty.hall.id;
   const H5 = PREVIEW.blocked.hall.id;

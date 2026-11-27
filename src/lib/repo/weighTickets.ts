@@ -66,7 +66,8 @@ const kg = (row: Row, field: string): Milli => {
 const METHODS: readonly WeighMethod[] = ['scale', 'crates'];
 export const TICKET_STATUSES = ['draft', 'done', 'void'] as const;
 export type TicketStatus = (typeof TICKET_STATUSES)[number];
-const FLOCK_STATUSES = ['preparing', 'active', 'closed'] as const;
+// void: فوج حُذفت قاعته (0037) تبقى تذكرته الملغاة تُقرأ بحاله.
+const FLOCK_STATUSES = ['preparing', 'active', 'closed', 'void'] as const;
 /** حالة آخر فاتورة للتذكرة كما يرسلها الخادم (العقد §5.1): بعد إلغائها تعود التذكرة «بانتظار الفاتورة» وتبقى الملغاة بحالتها. */
 const SALE_STATUSES = ['posted', 'void'] as const;
 export type TicketSaleStatus = (typeof SALE_STATUSES)[number];
