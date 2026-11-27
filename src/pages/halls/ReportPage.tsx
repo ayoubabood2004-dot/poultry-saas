@@ -10,7 +10,7 @@ import type { Milli } from '../../domain/money';
 import { RejectedError } from '../../lib/errors';
 import { columnDecimals, fmtDay, fmtInt, fmtQtyCell, fmtScaledCell } from '../../lib/format';
 import { t, Trans } from '../../lib/i18n';
-import { loadHallSheet, type HallSheet, type SheetDay } from '../../lib/repo/hallSheet';
+import { loadHallSheet, type HallSheet, type SheetDay, type SheetSection } from '../../lib/repo/hallSheet';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
 import { sheetHallName } from '../farm/FlockPage';
@@ -19,8 +19,8 @@ import { downloadFile, IMAGE_WIDTH, reportImage, sendFile } from './reportImage'
 
 // «تقرير الوجبة» (طلب المالك 2026-11-21: «تقارير مبسّطة بجداول أرقام مثل ورقته»؛ عقد 0034/0035 S2، docs/HALLS_SHEET_PLAN.md المرحلة ٣):
 // /halls/report/:flockId بقراءة hall_sheet واحدة. خلاصة الوجبة جدولاً (الداخل، والهلاكات ونسبتها، والباقي، والعلف المرسل بالكيلو والأكياس، والغاز،
-// والمباع وصافي وزنه ومعدّل الوزن، ومعامل التحويل = العلف المرسل ÷ صافي المباع) من خلاصة الخادم، ثمّ جدول الورقة نفسه حتى اليوم بمجموعَي الهلاكات
-// والعلف التراكميين (جمع أيام الورقة بترتيبها)، وصفّ مجموع الخادم. بلا رسوم وزن يوميّ ولا علف مأكول. و«أرسل صورة» (reportImage) و«اطبع / PDF»
+// والمباع وصافي وزنه ومعدّل الوزن، ومعامل التحويل = العلف المرسل ÷ صافي المباع) من خلاصة الخادم، ثمّ جدول الورقة نفسه حتى اليوم وصفّ مجموع الخادم في
+// آخره (رسالة الزبون 2026-11-26: «ماكو داعي مجموع الهلاكات… بالأخير ينكتب المجموع»، والعلف كذلك: لا عمودَي مجموع تراكميّ). بلا رسوم وزن يوميّ ولا علف مأكول. و«أرسل صورة» (reportImage) و«اطبع / PDF»
 // (printAs)؛ والتقرير المفصّل (العلف بمستنداته والأدوية واللقاحات والكلفة، والإغلاق و«أعد فتح الدورة») رابطٌ إلى /halls/cycle/:flockId.
 // وبالشكل الرسميّ (عقد 0036 S1، «مثل تقارير المستشفيات»): رأسٌ باسم المنشأة والعنوان وشبكة بيانات الوجبة، والجدولان رسميّان بشريط اسميهما، وتذييلٌ بـ«أعدّه»
 // و«طُبع في» والتوقيعات؛ والصفحة عريضة في الشاشات الكبيرة.
@@ -43,14 +43,20 @@ const PRINT_STYLE = [
 ].join(' ');
 
 type SummaryRow = { key: string; label: string; value: string };
-/** صفّ الورقة في التقرير: اليوم ومجموعا الهلاكات والعلف حتى آخره. */
-type ReportDay = { day: SheetDay; deadCum: number; feedCum: Milli };
+/** صفّ الورقة في التقرير: اليوم كما في الورقة (بلا مجموع تراكميّ: المجموع في آخر الجدول وحده، رسالة الزبون 2026-11-26). */
+type ReportDay = { day: SheetDay };
 
 const dash = () => t('halls.rep.dash', '—');
 const kg = (value: Milli | null): string => (value === null ? dash() : fmtQtyCell(value, columnDecimals([value], 3) as 0 | 1 | 2 | 3));
 const kgCell = (value: Milli | null, decimals: 0 | 1 | 2 | 3) => (value === null ? '' : <Num>{fmtQtyCell(value, decimals)}</Num>);
 
 /** خلاصة الوجبة بصفوف «البند | القيمة» من summary الخادم، والغائب «—». */
+/**
+ * الكاز (0037، رسالة الزبون 2026-11-26) في التقرير حين سُجّل يوماً ما في الوجبة ولو صفراً: عموده في جدول الأيّام وسطره في الخلاصة بشرط واحد (مراجعة
+ * 2026-11-27: صفر لترٍ أظهر العمود دون السطر). واليوم الممسوح فارغ لا يُعدّ، فوجبة مُسح كازها كلّه بلا كاز.
+ */
+export const keroseneShown = (sheet: HallSheet): boolean => sheet.totals.kerosene > 0 || sheet.days.some((day) => day.kerosene !== null);
+
 export function summaryRows(sheet: HallSheet): SummaryRow[] {
   const s = sheet.summary;
   return [
@@ -64,6 +70,7 @@ export function summaryRows(sheet: HallSheet): SummaryRow[] {
     ...(s.feedBackKg !== null && s.feedBackKg > 0n ? [{ key: 'feed_back', label: t('batch.sum.feed_back', 'المرتجع والمنقول (كغم)'), value: kg(s.feedBackKg) }] : []),
     { key: 'feed_net', label: t('batch.sum.feed_net', 'صافي العلف (كغم)'), value: kg(s.feedNetKg) },
     { key: 'gas', label: t('batch.sum.gas', 'الغاز (قناني)'), value: fmtInt(s.gas) },
+    ...(keroseneShown(sheet) ? [{ key: 'kerosene', label: t('batch.sum.kerosene', 'الكاز (لتر)'), value: fmtInt(s.kerosene) }] : []),
     { key: 'sold', label: t('batch.sum.sold', 'المباع (طير)'), value: fmtInt(s.soldBirds) },
     { key: 'sold_kg', label: t('batch.sum.sold_kg', 'صافي وزن المباع (كغم)'), value: kg(s.soldNetKg) },
     { key: 'avg', label: t('batch.sum.avg', 'معدّل وزن الطير (كغم)'), value: s.avgWeightKg === null ? dash() : fmtScaledCell(s.avgWeightKg, 3, 3) },
@@ -71,16 +78,12 @@ export function summaryRows(sheet: HallSheet): SummaryRow[] {
   ];
 }
 
-/** أيام التقرير: من التسكين حتى اليوم (أو نهاية الوجبة المغلقة)، بالمجموعين التراكميين. */
+/** أيام التقرير: من التسكين حتى اليوم (أو نهاية الوجبة المغلقة). */
 export function reportDays(sheet: HallSheet): ReportDay[] {
-  let deadCum = 0;
-  let feedCum = 0n;
   const rows: ReportDay[] = [];
   for (const day of sheet.days) {
     if (day.on > sheet.today) break;
-    deadCum += day.dead;
-    feedCum += day.feedKg ?? 0n;
-    rows.push({ day, deadCum, feedCum });
+    rows.push({ day });
   }
   return rows;
 }
@@ -91,20 +94,43 @@ function BatchBody({ sheet }: { sheet: HallSheet }) {
   const feedDecimals = columnDecimals([sheet.totals.feedKg, ...rows.flatMap((row) => (row.day.feedKg === null ? [] : [row.day.feedKg]))], 3) as 0 | 1 | 2 | 3;
   const soldDecimals = columnDecimals(rows.flatMap((row) => (row.day.soldNetKg === null ? [] : [row.day.soldNetKg])), 3) as 0 | 1 | 2 | 3;
   const sold = sheet.totals.soldBirds > 0;
+  const kerosene = keroseneShown(sheet);
   const columns: Column<ReportDay>[] = [
     { key: 'age', header: t('sheet.col.age', 'العمر'), kind: 'number', cell: (row) => <Num>{fmtInt(row.day.age)}</Num> },
     { key: 'date', header: t('sheet.col.date', 'التاريخ'), cell: (row) => <Num>{fmtDay(row.day.on)}</Num> },
-    {
-      key: 'dead',
-      header: t('sheet.col.dead', 'الهلاكات'),
-      kind: 'number',
-      cell: (row) => (row.day.dayVersion === null && row.day.dead === 0 ? '' : <Num>{fmtInt(row.day.dead)}</Num>),
-      total: <Num>{fmtInt(sheet.totals.dead)}</Num>,
-    },
-    { key: 'dead_cum', header: t('batch.col.dead_cum', 'مجموع الهلاكات'), kind: 'number', cell: (row) => <Num>{fmtInt(row.deadCum)}</Num>, total: '' },
+    // قاعة مقسومة (0038): عمود هلاكات لكلّ قسم بدل «الهلاكات»، ومجموعه في آخره.
+    ...(sheet.sections
+      ? sheet.sections.map(
+          (section, index): Column<ReportDay> => ({
+            key: `dead_${section.no}`,
+            header: t('sheet.col.dead_part', 'هلاكات ق{n}', { n: fmtInt(section.no) }),
+            kind: 'number',
+            cell: (row) => (row.day.dayVersion === null && row.day.dead === 0 ? '' : <Num>{fmtInt(row.day.deadParts?.[index] ?? 0)}</Num>),
+            total: <Num>{fmtInt(sheet.totals.deadParts?.[index] ?? section.dead)}</Num>,
+          }),
+        )
+      : [
+          {
+            key: 'dead',
+            header: t('sheet.col.dead', 'الهلاكات'),
+            kind: 'number' as const,
+            cell: (row: ReportDay) => (row.day.dayVersion === null && row.day.dead === 0 ? '' : <Num>{fmtInt(row.day.dead)}</Num>),
+            total: <Num>{fmtInt(sheet.totals.dead)}</Num>,
+          },
+        ]),
     { key: 'gas', header: t('sheet.col.gas', 'الغاز'), kind: 'number', cell: (row) => (row.day.gas === null ? '' : <Num>{fmtInt(row.day.gas)}</Num>), total: <Num>{fmtInt(sheet.totals.gas)}</Num> },
+    ...(kerosene
+      ? [
+          {
+            key: 'kerosene',
+            header: t('sheet.col.kerosene', 'الكاز (لتر)'),
+            kind: 'number' as const,
+            cell: (row: ReportDay) => (row.day.kerosene === null ? '' : <Num>{fmtInt(row.day.kerosene)}</Num>),
+            total: <Num>{fmtInt(sheet.totals.kerosene)}</Num>,
+          },
+        ]
+      : []),
     { key: 'feed', header: t('sheet.col.feed', 'العلف (كغم)'), kind: 'number', cell: (row) => kgCell(row.day.feedKg, feedDecimals), total: <Num>{fmtQtyCell(sheet.totals.feedKg, feedDecimals)}</Num> },
-    { key: 'feed_cum', header: t('batch.col.feed_cum', 'مجموع العلف (كغم)'), kind: 'number', cell: (row) => <Num>{fmtQtyCell(row.feedCum, feedDecimals)}</Num>, total: '' },
     ...(layer
       ? [
           {
@@ -146,6 +172,25 @@ function BatchBody({ sheet }: { sheet: HallSheet }) {
           empty={dash()}
         />
       </section>
+      {sheet.sections ? (
+        // أقسام القاعة (0038): عدد كلّ قسم وهلاكاته ونسبتها والباقي فيه بعد الهلاكات (المبيع للقاعة كلّها لا يُقسم).
+        <section aria-label={t('batch.sections', 'الأقسام')} data-action="batch-sections">
+          <DataTable
+            variant="official"
+            caption={t('batch.sections', 'الأقسام')}
+            columns={[
+              { key: 'section', header: t('batch.sections.col.section', 'القسم'), cell: (row: SheetSection) => t('sheet.section', 'ق{n}', { n: fmtInt(row.no) }) },
+              { key: 'placed', header: t('batch.sections.col.placed', 'الداخل'), kind: 'number', cell: (row: SheetSection) => <Num>{fmtInt(row.placed)}</Num> },
+              { key: 'dead', header: t('batch.sections.col.dead', 'الهلاكات'), kind: 'number', cell: (row: SheetSection) => <Num>{fmtInt(row.dead)}</Num> },
+              { key: 'pct', header: t('batch.sections.col.pct', 'نسبة الهلاكات'), kind: 'number', cell: (row: SheetSection) => <Num>{pct(row.mortalityPct)}</Num> },
+              { key: 'remaining', header: t('batch.sections.col.remaining', 'الباقي بعد الهلاكات'), kind: 'number', cell: (row: SheetSection) => <Num>{fmtInt(row.remaining)}</Num> },
+            ]}
+            rows={sheet.sections}
+            rowKey={(row) => String(row.no)}
+            empty={dash()}
+          />
+        </section>
+      ) : null}
       <section aria-label={t('batch.days', 'أيام الوجبة')} data-action="batch-days">
         <DataTable
           variant="official"

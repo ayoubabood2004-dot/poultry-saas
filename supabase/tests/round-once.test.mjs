@@ -47,9 +47,9 @@ const OVERVIEW = 'select public.flocks_overview() as v';
 const DETAIL = 'select public.flock_detail($1) as v';
 const SHEET = 'select public.hall_sheet($1) as v';
 const SIG = {
-  dead: 'public.set_flock_dead(uuid, date, integer, uuid, boolean)',
+  dead: 'public.set_flock_dead(uuid, date, integer, uuid, boolean, integer[])',
   add: 'public.add_flock_gas(uuid, date, integer, uuid, boolean)',
-  day: 'public.save_flock_day(uuid, date, integer, integer, numeric, numeric, numeric, numeric, integer, integer, integer, text, integer, uuid, boolean)',
+  day: 'public.save_flock_day(uuid, date, integer, integer, numeric, numeric, numeric, numeric, integer, integer, integer, text, integer, uuid, boolean, integer[])',
   visit: 'public.save_flock_visit(uuid, uuid, date, timestamp with time zone, integer, integer, numeric, integer, integer, integer, text, integer, boolean, uuid, boolean)',
   dayJson: 'private.flock_day_json(public.flock_daily)',
   rebuild: 'private.flock_day_rebuild(public.flocks, date)',
@@ -74,9 +74,9 @@ const bodyOf = (file, head) => {
   return text.slice(start, text.indexOf('\n$$;', start) + 4);
 };
 
-/** صفّ اليوم كما يرجعه flock_day_json (0036: ومعه dead_entered)، بالفارغ لما لم يُذكر. */
+/** صفّ اليوم كما يرجعه flock_day_json (0036: ومعه dead_entered؛ و0038 dead_parts، فارغة لقاعة غير مقسومة)، بالفارغ لما لم يُذكر. */
 const dayJson = (o) => ({ on_date: null, version: null, dead: 0, culled: 0, feed_kg: null, water_l: null, temp_min: null, temp_max: null, eggs_total: null, eggs_cracked: null,
-  eggs_broken: null, note: null, dead_entered: false, ...o });
+  eggs_broken: null, note: null, dead_entered: false, dead_parts: null, ...o });
 
 const sorted = (v) => (Array.isArray(v) ? v.map(sorted) : v && typeof v === 'object' ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, sorted(v[k])])) : v ?? null);
 

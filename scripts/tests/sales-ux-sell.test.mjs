@@ -36,7 +36,7 @@ const STUBS = {
   session: 'export const useSession = () => globalThis.__ux.session; export const sessionStore = { get: () => globalThis.__ux?.session ?? { status: "loading" } };',
   Toast: 'export const toast = (spec) => { globalThis.__ux.toasts.push(spec); }; export function Toaster() { return null; }',
   purchasing: routed('purchasing', ['searchSuppliers', 'supplierTwins', 'createCustomer', 'listBoxes']),
-  image: 'export const toBlob = () => new Promise(() => {});',
+  image: 'export const toBlob = () => new Promise(() => {}); export const toJpeg = () => Promise.reject(new Error("toJpeg_unused"));',
   home: 'export const loadHomeSummary = () => new Promise(() => {}); export const countDraftReceipts = () => new Promise(() => {});',
 };
 const CORE = `import { RejectedError, ZeroRowsError } from ${ERRORS};

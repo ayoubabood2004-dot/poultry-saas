@@ -18,7 +18,7 @@ const phone = (n) => `96477029000${String(n).padStart(2, '0')}`;
 const SALE_SIG = 'public.record_bird_sale(uuid, uuid, uuid, integer, uuid, numeric, numeric, numeric, uuid, text)';
 const VOID_SIG = 'public.void_bird_sale(uuid, text, uuid)';
 const NETS_SIG = 'private.ticket_nets(uuid)';
-const DAY_SIG = 'public.save_flock_day(uuid, date, integer, integer, numeric, numeric, numeric, numeric, integer, integer, integer, text, integer, uuid, boolean)';
+const DAY_SIG = 'public.save_flock_day(uuid, date, integer, integer, numeric, numeric, numeric, numeric, integer, integer, integer, text, integer, uuid, boolean, integer[])';
 
 export default async function (t, db) {
   await db.setToday(TODAY, () => scenario(t, db));

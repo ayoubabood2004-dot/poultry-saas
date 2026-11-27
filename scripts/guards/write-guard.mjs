@@ -209,7 +209,7 @@ function resolveSpecifier(file, specifier) {
  * و«القاعة كالورقة» (0035): قارئ الورقة وإرسال العلف من «رصيد العلف» وإلغاؤه والقرار على المركون (hallSheet) تستوردها صفحات القاعات وحدها (حزمة القاعات).
  * و«احذف القاعة» (0037): ما سيُحذف والحذف (hallDelete) تستوردهما نافذة الحذف وحدها (حزمة القاعات).
  */
-export const PAGE_MODULES = new Set(['inventory', 'scopes', 'members', 'home', 'parties', 'cash', 'signin', 'uses', 'counts', 'purchasing', 'flocks', 'mill', 'purchases', 'flockIssues', 'dayBalance', 'millReport', 'money', 'debts', 'statement', 'halls', 'hallReports', 'weighTickets', 'flockClose', 'birdSales', 'flockEdits', 'sales', 'hallSheet', 'hallDelete']);
+export const PAGE_MODULES = new Set(['inventory', 'scopes', 'members', 'home', 'parties', 'cash', 'signin', 'uses', 'counts', 'purchasing', 'flocks', 'mill', 'purchases', 'flockIssues', 'dayBalance', 'millReport', 'money', 'debts', 'statement', 'halls', 'hallReports', 'weighTickets', 'flockClose', 'birdSales', 'flockEdits', 'sales', 'hallSheet', 'hallAdmin', 'hallDelete']);
 
 /** المسار ملف وحدة كسول بـrepo (src/lib/repo/inventory.ts …). */
 const isPageModule = (resolved) => {

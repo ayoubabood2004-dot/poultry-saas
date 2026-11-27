@@ -182,6 +182,8 @@ export function reopenWhyText(why: ReopenWhy | null): string {
       return t('halls.reopen.why.hall_archived', 'لا يُعاد فتح هذه الدورة: القاعة أو حقلها مؤرشف. أعِد المؤرشف منهما من الأرشيف أوّلاً.');
     case 'hall_reused':
       return t('halls.reopen.why.hall_reused', 'لا يُعاد فتح هذه الدورة: سُكّن في القاعة فوجٌ بعدها.');
+    case 'sections_changed':
+      return t('halls.reopen.why.sections_changed', 'لا يُعاد فتح هذه الدورة: تغيّرت أقسام القاعة بعد إغلاقها. أعِد أقسام القاعة كما كانت ثمّ أعد فتحها.');
     case 'carry_used':
       return t('halls.reopen.why.carry_used', 'لا يُعاد فتح هذه الدورة: العلف المنقول منها نُقل إلى الفوج التالي في القاعة.');
     case 'lot_consumed':

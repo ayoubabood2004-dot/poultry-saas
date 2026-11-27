@@ -48,6 +48,7 @@ async function bundle() {
     "export * as days from './src/lib/repo/hallReports.ts';",
     "export * as birds from './src/lib/repo/birdSales.ts';",
     "export * as flocks from './src/lib/repo/flocks.ts';",
+    "export * as hallAdmin from './src/lib/repo/hallAdmin.ts';",
     "export * as statement from './src/lib/repo/statement.ts';",
     "export * as money from './src/lib/repo/money.ts';",
     "export { ticketNets, billedKg, saleTotal, revenueSplit } from './src/domain/weighTicket.ts';",
@@ -129,6 +130,8 @@ const OPTIONAL = [
   /(^|\.)money$/u, /(^|\.)stores$/u, /^\.then$/u, /^\.ticket\.can$/u, /^\.site$/u, /^\.totals\.open$/u, /^\.today$/u, /(^|\.)gas$/u,
   /(^|\.)(dead_entered|gas_today|gas_today_version|feed_today_kg|feed_today|last_feed_item_id|feed_items)$/u,
   /^\.weeks\.feed_given_(kg|unweighed)$/u, /^\.kpis\.feed_close_left_(kg|unweighed)$/u,
+  // 0038 (القاعة المقسومة): مفاتيح تضيفها لقرّاء قائمين، وغيابها (خادم قبلها) «غير مقسومة».
+  /(^|\.)(section_counts|section_dead|dead_parts|sections)$/u,
 ];
 
 const camel = (key) => key.replace(/_([a-z0-9])/gu, (_, c) => c.toUpperCase());
@@ -216,7 +219,7 @@ export default async function (t) {
       flock_month: (v) => m.halls.parseFlockMonth(v),
       flock_feed: (v) => m.flocks.parseFlockFeed(v),
       record_flock_count_adjust: viaRpc(() => m.close.recordCountAdjust({ clientRef: 'r', id: 'i', flockId: 'f', on: '2026-11-12', birds: 1, reason: 'س', expectedLive: 1 })),
-      open_flock: viaRpc(() => m.flocks.openFlock({ hallId: 'h', placedOn: '2026-11-12', placedCount: 1, ageDays: 0, breed: 'س' }, 'r')),
+      open_flock: viaRpc(() => m.hallAdmin.openFlock({ hallId: 'h', placedOn: '2026-11-12', placedCount: 1, ageDays: 0, breed: 'س' }, 'r')),
       return_hall_carry: viaRpc(() => m.close.returnHallCarry('r', 'i', 'l', 'w')),
       reopen_flock: viaRpc(() => m.close.reopenFlock('c', 'س', 'r')),
     };

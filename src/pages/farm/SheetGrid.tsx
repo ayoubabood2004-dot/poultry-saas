@@ -11,7 +11,29 @@ import { fmtDay, fmtInt, fmtMilli } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { useDirtyForm } from '../../lib/pwa/dirty';
 import type { SheetDay } from '../../lib/repo/hallSheet';
-import { at, cellsOf, digitKey, editKey, enterMove, fillDown, gridKey, isRange, parseCount, parseTsv, pasteTargets, rangeOf, samePos, selectionTsv, within, type EditMode, type Pos, type Range, type Selection, type Shape } from './gridLogic';
+import {
+  at,
+  cellsOf,
+  digitKey,
+  editKey,
+  enterMove,
+  fillDown,
+  gridKey,
+  isRange,
+  parseCount,
+  parseLiters,
+  parseTsv,
+  pasteTargets,
+  rangeOf,
+  samePos,
+  selectionTsv,
+  within,
+  type EditMode,
+  type Pos,
+  type Range,
+  type Selection,
+  type Shape,
+} from './gridLogic';
 
 // ورقة القاعة مقفولة وفوقها قلم، وبعده جدول كإكسل (عقد 0036 الجزء S2؛ كلمة المالك 2026-11-24: «يكون مقفول… بس اكو شعار قلم مال تعديل فوك الجدول… بعد ما
 // اضغط زر التعديل… اريد الجدول يكون التحكم بي مثل جداول الاكسل يعني لمن ادوس ازرار الاسهم اكدر اتحرك بين الجداول وبين الخلايا… حتى الي يستخدم انظمة اكسل
@@ -23,8 +45,12 @@ import { at, cellsOf, digitKey, editKey, enterMove, fillDown, gridKey, isRange, 
 // بنسخة صفّ اليوم وset_flock_gas بالطابور والرافع الواحد)، والقيمة تظهر فور الحفظ («بانتظار الرفع» حتى يُعرف مصيرها)، وما رُدّ يُقال في خانته. والتحديد
 // والمحرّر بيوم الخانة وعمودها لا برقم صفّها (المراجعة العدائية R3)، والمحرّر المفتوح تعديلٌ لم يُحفظ (R2) لا يفقد تركيزه بنقرة (R1، R6).
 
-export type GridField = 'age' | 'date' | 'dead' | 'gas' | 'feed' | 'eggs' | 'note';
-export type WriteField = 'dead' | 'gas' | 'eggs' | 'note';
+/** هلاكات قسم في قاعة مقسومة (0038): ق1 … ق4 بدل «الهلاكات». */
+export type DeadPartField = 'dead1' | 'dead2' | 'dead3' | 'dead4';
+export type GridField = 'age' | 'date' | 'dead' | DeadPartField | 'gas' | 'kerosene' | 'feed' | 'eggs' | 'note';
+export type WriteField = 'dead' | DeadPartField | 'gas' | 'kerosene' | 'eggs' | 'note';
+/** خانة هلاكات: اليوم كلّه أو قسم منه. */
+export const isDeadField = (field: GridField): field is 'dead' | DeadPartField => field === 'dead' || field === 'dead1' || field === 'dead2' || field === 'dead3' || field === 'dead4';
 /** قيمة خانة: عدد (الهلاكات والغاز والبيض)، أو نصّ (الملاحظة)، أو null: فارغة (الغاز بلا قنانٍ، والملاحظة بلا نصّ). */
 export type CellValue = number | string | null;
 
@@ -94,8 +120,8 @@ export interface SheetGridProps {
   children(view: SheetGridView): ReactNode;
 }
 
-const WRITE_FIELDS: readonly GridField[] = ['dead', 'gas', 'eggs', 'note'];
-const STOP_FIELDS: readonly GridField[] = ['dead', 'gas', 'feed', 'eggs', 'note'];
+const WRITE_FIELDS: readonly GridField[] = ['dead', 'dead1', 'dead2', 'dead3', 'dead4', 'gas', 'kerosene', 'eggs', 'note'];
+const STOP_FIELDS: readonly GridField[] = ['dead', 'dead1', 'dead2', 'dead3', 'dead4', 'gas', 'kerosene', 'feed', 'eggs', 'note'];
 const isWrite = (field: GridField): field is WriteField => WRITE_FIELDS.includes(field);
 
 /**
@@ -258,7 +284,9 @@ const sameShownValue = (field: WriteField, value: CellValue, shown: CellValue): 
   field === 'note' ? (typeof value === 'string' ? value.trim() : '') === (typeof shown === 'string' ? shown.trim() : '') : value === shown;
 
 /** قيمة «امسح» لكلّ خانة: الغاز بلا قنانٍ، والملاحظة بلا نصّ، والهلاكات والبيض صفر. */
-const clearValue = (field: WriteField): CellValue => (field === 'gas' ? null : field === 'note' ? '' : 0);
+const clearValue = (field: WriteField): CellValue => (field === 'gas' || field === 'kerosene' ? null : field === 'note' ? '' : 0);
+/** عدد الخانة من نصّه: الكاز باللتر أو بالبرميل («2ب» = 400 لتر، 0037)، والباقي عدد صحيح. */
+const countOf = (field: WriteField, text: string): number | null => (field === 'kerosene' ? parseLiters(text) : parseCount(text));
 
 /** ما يعيده التراجع: القيمة السابقة؛ والهلاكات والبيض الفارغة تعود صفراً (لا يُمحى صفّ يوم)، والغاز الفارغ بلا قنانٍ، والملاحظة الفارغة بلا نصّ. */
 const restoreValue = (field: WriteField, value: CellValue): CellValue => (value === null || value === '' ? clearValue(field) : value);
@@ -558,7 +586,8 @@ export function SheetGrid(props: SheetGridProps) {
   const editorValue = (field: WriteField, text: string, shown: CellValue): { value: CellValue } | { same: true } | { error: string } => {
     if (field === 'note') return { value: text };
     if (text.trim() === '') return shown === null ? { same: true } : { value: clearValue(field) };
-    const n = parseCount(text);
+    const n = countOf(field, text);
+    if (n === null && field === 'kerosene') return { error: t('sheet.grid.not_liters', 'اكتب اللترات بالأرقام، أو البراميل بعدها «ب» (2ب = 400 لتر).') };
     return n === null ? { error: t('sheet.grid.not_count', 'اكتب عدداً صحيحاً بالأرقام.') } : { value: n };
   };
 
@@ -600,7 +629,7 @@ export function SheetGrid(props: SheetGridProps) {
       return false;
     }
     // إفراغ الهلاكات أو البيض صفرٌ بعد تأكيد يسمّي اليوم (العقد)؛ والصفر المكتوب صفرٌ بلا سؤال.
-    if ((field === 'dead' || field === 'eggs') && current.text.trim() === '') {
+    if ((isDeadField(field) || field === 'eggs') && current.text.trim() === '') {
       finish();
       setClearing({ change, before: spokenAt(current.at) });
       return true;
@@ -641,14 +670,14 @@ export function SheetGrid(props: SheetGridProps) {
       else if (field === 'note') value = raw;
       else if (raw.trim() === '') value = clearValue(field);
       else {
-        const n = parseCount(raw);
+        const n = countOf(field, raw);
         if (n === null) {
           entries.push(skip(t('sheet.grid.not_count_of', '«{text}» ليس عدداً صحيحاً.', { text: raw.trim() })));
           continue;
         }
         value = n;
       }
-      if (value === 0 && shown === null && (field === 'dead' || field === 'eggs') && (raw === null || raw.trim() === '')) {
+      if (value === 0 && shown === null && (isDeadField(field) || field === 'eggs') && (raw === null || raw.trim() === '')) {
         entries.push({ ...base, status: 'same', reason: null });
         continue;
       }
@@ -701,12 +730,12 @@ export function SheetGrid(props: SheetGridProps) {
       say(readHint(info));
       return;
     }
-    if (copyOf(cell) === '' || ((field === 'dead' || field === 'eggs') && valueOf(cell) === 0)) {
+    if (copyOf(cell) === '' || ((isDeadField(field) || field === 'eggs') && valueOf(cell) === 0)) {
       say(t('sheet.grid.empty_cell', 'الخانة فارغة.'));
       return;
     }
     const change: CellChange = { on: cell.on, field, value: clearValue(field) };
-    if (field === 'dead' || field === 'eggs') {
+    if (isDeadField(field) || field === 'eggs') {
       setClearing({ change, before: spokenAt(cell) });
       return;
     }

@@ -45,7 +45,7 @@ const STUBS = {
     export const loadHallsHistory = async (month) => __history(await globalThis.__rv.call('halls_history', [month]));`,
   session: 'export const useSession = () => globalThis.__rv.session; export const sessionStore = { get: () => globalThis.__rv?.session ?? { status: "loading" } };',
   Toast: 'export const toast = (spec) => { globalThis.__rv.toasts.push(spec); }; export function Toaster() { return null; }',
-  image: 'export const toBlob = (node, options) => globalThis.__rv.toBlob(node, options);',
+  image: 'export const toBlob = (node, options) => globalThis.__rv.toBlob(node, options); export const toJpeg = () => Promise.reject(new Error("toJpeg_unused"));',
   FlockCard: 'export default function FlockCard() { return null; }',
   hallsChunk: `import FlockPage, { HallPage } from './src/pages/farm/FlockPage.tsx';
     const nothing = () => null;

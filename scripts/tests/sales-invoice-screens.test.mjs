@@ -34,7 +34,7 @@ const STUBS = {
   session: 'export const useSession = () => globalThis.__si.session; export const sessionStore = { get: () => globalThis.__si?.session ?? { status: "loading" } };',
   Toast: 'export const toast = (spec) => { globalThis.__si.toasts.push(spec); }; export function Toaster() { return null; }',
   purchasing: routed('purchasing', ['searchSuppliers', 'supplierTwins', 'createCustomer', 'listBoxes']),
-  image: 'export const toBlob = (node, options) => globalThis.__si.toBlob(node, options);',
+  image: 'export const toBlob = (node, options) => globalThis.__si.toBlob(node, options); export const toJpeg = () => Promise.reject(new Error("toJpeg_unused"));',
 };
 // core بديل لملفّات repo كلّها: call يسجّل النداء ويجيب، وsend (قراءة الجداول) لا يجيب أبداً (لا جداول في هذه الفحوص).
 const CORE = `import { RejectedError, ZeroRowsError } from ${ERRORS};

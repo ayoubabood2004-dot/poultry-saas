@@ -388,6 +388,8 @@ export default async function (t, db) {
         await q('select public.save_flock_day($1, public.app_today(), 2, 0, 40, null, null, null, null, null, null, null, null, gen_random_uuid(), false)', [flock]);
         await q("select public.save_flock_day($1, date '2026-01-31', 1, null, null, null, null, null, null, null, null, null, null, gen_random_uuid(), true)", [flock]);
         await q('select public.set_flock_gas($1, public.app_today(), 2, null, gen_random_uuid(), false)', [flock]);
+        // 0037: وكاز اليوم، فلجدول الكاز صفوف للطرفين.
+        await q('select public.set_flock_kerosene($1, public.app_today(), 120, null, gen_random_uuid(), false)', [flock]);
         await q('select public.record_flock_weight($1, public.app_today(), 30, 120.5, gen_random_uuid())', [flock]);
         return { flock, hall };
       },

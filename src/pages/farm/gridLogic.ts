@@ -316,6 +316,21 @@ export function parseCount(text: string): number | null {
   return value.units > BigInt(Number.MAX_SAFE_INTEGER) ? Number.MAX_SAFE_INTEGER : Number(value.units);
 }
 
+/** لترات البرميل (جواب المالك 2026-11-26: الكاز يُكتب باللتر أو بالبرميل ويُحفظ لتراً، والبرميل 200 لتر). */
+export const BARREL_LITERS = 200;
+
+/**
+ * لترات الكاز كما تُكتب في خانته (0037): عدد اللترات كـparseCount، أو عدد براميل بعده «ب» أو «برميل» أو «براميل» («2ب» = 400 لتر، و«3 براميل» = 600)؛ وغيره
+ * null.
+ */
+export function parseLiters(text: string): number | null {
+  const match = /^\s*(.*?)\s*(\u{628}|\u{628}\u{631}\u{645}\u{64A}\u{644}|\u{628}\u{631}\u{627}\u{645}\u{64A}\u{644})?\s*$/u.exec(text); // i18n-ok: «ب» و«برميل» و«براميل» لاحقة البرميل كما يكتبها المستخدم
+  if (!match) return null;
+  const n = parseCount(match[1] ?? '');
+  if (n === null) return null;
+  return match[2] ? Math.min(n * BARREL_LITERS, Number.MAX_SAFE_INTEGER) : n;
+}
+
 /** رقم أو حرف من لوحة الحاسوب يبدأ تعديل خانة رقمية: الأرقام الغربية والعربية والفارسية وحدها. */
 export const digitKey = (text: string): boolean => /^[0-9\u{660}-\u{669}\u{6F0}-\u{6F9}]$/u.test(text);
 

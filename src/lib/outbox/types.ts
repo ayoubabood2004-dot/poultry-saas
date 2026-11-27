@@ -1,10 +1,11 @@
 // الطابور بلا نت لفشل الشبكة وحده. ما يدخله إلا كتابات الجولة: save_flock_day (مفتاح طبيعي «فوج + يوم» وbase_version: مجموع اليوم من ورقة القاعة،
 // 0035) وsave_flock_visit (0032: زيارة بمعرّف من الجهاز ونسختها، تُجمع ولا تتعارض) وset_flock_gas (0035: قناني غاز اليوم بنسخة صفّها، «فوج + يوم»)،
 // ومنذ 0036 (الجولة، كلمة المالك 2026-11-24): set_flock_dead (هلاكات اليوم مرّة واحدة: لا نسخة، والخادم يقول «سُجّلت قبل» بـdead_recorded) وadd_flock_gas
-// (قناني أُرسلت الآن تُضاف إلى مجموع اليوم: لا نسخة، وكلّ إضافة بمرجعها).
+// (قناني أُرسلت الآن تُضاف إلى مجموع اليوم: لا نسخة، وكلّ إضافة بمرجعها)، ومنذ 0037 (رسالة الزبون 2026-11-26): set_flock_kerosene (كاز اليوم باللتر بنسخة
+// صفّه، «فوج + يوم»، كالغاز من ورقة القاعة وحدها).
 // ماكو post_* ولا تسديد، لأن السحب من الدفعات والديون يحتاج الرصيد الحقيقي لحظة الترحيل (وعلف الجولة والورقة يُرسل بنت وحده).
 
-export const QUEUEABLE_FUNCTIONS = ['save_flock_day', 'save_flock_visit', 'set_flock_gas', 'set_flock_dead', 'add_flock_gas'] as const;
+export const QUEUEABLE_FUNCTIONS = ['save_flock_day', 'save_flock_visit', 'set_flock_gas', 'set_flock_dead', 'add_flock_gas', 'set_flock_kerosene'] as const;
 export type QueueableFunction = (typeof QUEUEABLE_FUNCTIONS)[number];
 
 /** ختم الهويّة: المستخدم والمنشأة اللي أكّدها الخادم لحظة الحفظ. العملية ما ترتفع إلا بهويّتها. */
@@ -27,6 +28,8 @@ export interface FlockDayPayload {
   eggs_cracked?: number | null;
   eggs_broken?: number | null;
   note?: string | null;
+  /** 0038: هلاكات كلّ قسم في قاعة مقسومة، مع dead (مجموعها) دائماً لا وحدها. */
+  dead_parts?: number[] | null;
 }
 
 /**
@@ -58,14 +61,23 @@ export interface FlockGasPayload {
  */
 type Absent<T> = { [K in keyof T]?: undefined };
 
-/** هلاكات اليوم مرّة واحدة (0036، set_flock_dead): العدد كما كُتب (صفر = «لا هلاكات اليوم»)، ولا تُضاف إلى ما سُجّل. */
+/**
+ * هلاكات اليوم مرّة واحدة (0036، set_flock_dead): العدد كما كُتب (صفر = «لا هلاكات اليوم»)، ولا تُضاف إلى ما سُجّل؛ وفي قاعة مقسومة (0038) هلاكات كلّ قسم
+ * (parts) ومجموعها dead.
+ */
 export type FlockDeadPayload = Absent<Omit<FlockDayPayload, 'dead'>> & {
   dead: number;
+  parts?: number[];
 };
 
 /** قناني غاز أُرسلت الآن (0036، add_flock_gas): تُضاف إلى مجموع اليوم (جواب المالك: «2 الصبح + 1 العصر = 3»). */
 export type FlockGasAddPayload = Absent<FlockDayPayload> & {
   add: number;
+};
+
+/** كاز اليوم باللتر (0037، جواب المالك 2026-11-26: رقم فقط مثل الغاز، عمود واحد باللتر والبرميل 200 لتر يُحوَّل على الجهاز): كما كُتب، وnull يمسحه. */
+export type FlockKerosenePayload = Absent<FlockDayPayload> & {
+  liters: number | null;
 };
 
 export type OpState =
@@ -87,7 +99,7 @@ interface OpBase extends Stamp {
   day: string;
   /**
    * save_flock_day: نسخة صفّ اليوم اللي شافها المستخدم (null = «أتوقّع ماكو صفّ»). save_flock_visit: نسخة الزيارة (null = زيارة جديدة).
-   * set_flock_gas: نسخة صفّ غاز اليوم (null = لا صفّ بعد). set_flock_dead وadd_flock_gas: null دائماً (لا نسخة تُشرط).
+   * set_flock_gas: نسخة صفّ غاز اليوم (null = لا صفّ بعد)، وset_flock_kerosene نسخة صفّ كازه. set_flock_dead وadd_flock_gas: null دائماً (لا نسخة تُشرط).
    */
   baseVersion: number | null;
   state: OpState;
@@ -125,7 +137,12 @@ export interface GasAddOp extends OpBase {
   payload: FlockGasAddPayload;
 }
 
-export type OutboxOp = DayOp | VisitOp | GasOp | DeadOp | GasAddOp;
+export interface KeroseneOp extends OpBase {
+  fn: 'set_flock_kerosene';
+  payload: FlockKerosenePayload;
+}
+
+export type OutboxOp = DayOp | VisitOp | GasOp | DeadOp | GasAddOp | KeroseneOp;
 
 /** رفّ المراجعة: المرفوض من الخادم بالنسختين جنب بعض، وما ينحذف تلقائياً أبداً. */
 export interface ReviewEntry extends Stamp {
@@ -141,9 +158,11 @@ export type SendResult =
   /**
    * version: نسخة صفّ اليوم (save_flock_day وset_flock_dead) أو نسخة الزيارة (save_flock_visit) أو نسخة صفّ الغاز (set_flock_gas وadd_flock_gas).
    * والزيارة ترجع معها الزيارة كما حُفظت (visit_json خاماً بعد فحص محلّله) وصفّ اليوم بعدها (flock_day_json، أو null حين لا تبقى زيارة حيّة)؛
-   * وset_flock_dead صفّ اليوم بعدها (day)، وadd_flock_gas غاز اليوم بعد الإضافة (gas: {on, cylinders, version}).
+   * وset_flock_dead صفّ اليوم بعدها (day)، وadd_flock_gas غاز اليوم بعد الإضافة (gas: {on, cylinders, version})، وset_flock_kerosene كاز اليوم بعدها
+   * (kerosene: {on, liters, version}) ونسختها نسخة صفّه. وnull وحدها لمسح غازٍ أو كازٍ لا صفّ له في الخادم (حُفظ بلا كتابة: لا صفّ ولا نسخة؛ مراجعة
+   * 2026-11-27): لا نسخة تنتقل إلى ما بعدها ولا يُعرض شيء.
    */
-  | { kind: 'saved'; version: number; visit?: unknown; day?: unknown; gas?: unknown }
+  | { kind: 'saved'; version: number | null; visit?: unknown; day?: unknown; gas?: unknown; kerosene?: unknown }
   /**
    * set_flock_dead (0036) ليوم سُجّلت هلاكاته قبلها برقم آخر: لم يُكتب شيء ولا يُضاف إلى ما سُجّل، والجهاز يبقيها في رفّ المراجعة بالرقمين (server =
    * صفّ اليوم كما هو، flock_day_json).
@@ -163,6 +182,8 @@ export type SendResult =
   | { kind: 'stale_visit'; server: unknown }
   /** غاز اليوم تغيّر بعد ما شافه المستخدم: رفّ المراجعة بـ«قيمتك والمحفوظة» (server = {on, cylinders, version}). */
   | { kind: 'stale_gas'; server: unknown }
+  /** كاز اليوم تغيّر بعد ما شافه المستخدم (0037): رفّ المراجعة بـ«قيمتك والمحفوظة» (server = {on, liters, version}). */
+  | { kind: 'stale_kerosene'; server: unknown }
   | { kind: 'rejected'; code: string; hint: string | null }
   /** 401، أو 42501 على الدالّة، أو PGRST301. */
   | { kind: 'identity_rejected' }

@@ -31,7 +31,8 @@ const REAL36 = readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'rou
 // وعيّنات «عوف سالفة العلف الماكول» (round-once-feed.test بـROUND_FEED_SAMPLES_OUT=1، يومها 2026-11-24): الوجبة التالية N في «قاعة الإغلاق» يوم تسكينها
 // بالمنقول إليها (سطر carry) والمرسل.
 const FEED36 = readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'round-feed-0036.json'), 'utf8');
-const OVERRIDES = ['loadOverviewJson', 'loadFlockDetail', 'createHall', 'updateHall', 'openFlock', 'recordFlockWeight'];
+const OVERRIDES = ['loadOverviewJson', 'loadFlockDetail', 'recordFlockWeight'];
+const ADMIN = ['createHall', 'updateHall', 'openFlock', 'setHallSections'];
 const STUBS = {
   // loadOverview مثل الحقيقي بالضبط (parseOverview(await loadOverviewJson())) بس عبر البديل، حتى الرئيسية القديمة تقرا من نفس الخادم المزيّف.
   flocks: `export * from ${REAL_FLOCKS}; import { parseOverview as __parseOverview } from ${REAL_FLOCKS}; ${OVERRIDES.map((n) => `export const ${n} = (...a) => globalThis.__farm.call('${n}', a);`).join(' ')}
@@ -40,6 +41,8 @@ const STUBS = {
   // إرسال العلف: جواب الخادم المزيّف بمحلّله الحقيقي (parseFeedSent).
   hallSheet: `export * from ${REAL_SHEET}; import { parseFeedSent as __sent } from ${REAL_SHEET};
     export const sendFlockFeed = async (request) => __sent(await globalThis.__farm.call('sendFlockFeed', [request]));`,
+  // إدارة القاعات (hallAdmin: خارج flocks.ts لحجم التثبيت المسبق) عبر البديل نفسه.
+  hallAdmin: ADMIN.map((n) => `export const ${n} = (...a) => globalThis.__farm.call('${n}', a);`).join(' '),
   session: 'export const useSession = () => globalThis.__farm.session;',
   Toast: 'export const toast = (spec) => { globalThis.__farm.toasts.push(spec); }; export function Toaster() { return null; }',
   home: 'export const loadHomeSummary = () => globalThis.__farm.call("loadHomeSummary", []);',
@@ -80,7 +83,7 @@ async function screens() {
       {
         name: 'farm-stubs',
         setup(b) {
-          b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/flocks$|\/lib\/repo\/hallSheet$|\/Toast$|\/lib\/repo\/home$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'farm-stub' }));
+          b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/flocks$|\/lib\/repo\/hallAdmin$|\/lib\/repo\/hallSheet$|\/Toast$|\/lib\/repo\/home$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'farm-stub' }));
           b.onLoad({ filter: /.*/, namespace: 'farm-stub' }, (args) => ({ contents: STUBS[args.path], resolveDir: ROOT, loader: 'js' }));
         },
       },
@@ -246,6 +249,39 @@ export default async function (t) {
         ],
         ['throw:FlockShapeError', 'throw:FlockShapeError', 'throw:FlockShapeError'],
         'T2: add_flock_gas بشكل غريب يرمي (لا قناني بعد إضافة، أو فوق 1,000، أو حالة غير حالتيه)',
+      );
+      // 0038: هلاكات الأقسام تُرسل بمعاملها مع مجموعها (p_parts وp_dead_parts)، ولا يُرسل المعامل بلا أقسام (خادم قبل 0038 لا يعرفه).
+      const splitDead = { ...op, id: 'op-s', fn: 'set_flock_dead', payload: { dead: 5, parts: [3, 2] }, baseVersion: null };
+      await outcome({ json: H.set_flock_dead_saved }, splitDead);
+      const deadBody = server.bodies.at(-1).body;
+      await outcome({ json: H.set_flock_dead_saved }, { ...splitDead, id: 'op-s2', payload: { dead: 4 } });
+      const plainBody = server.bodies.at(-1).body;
+      await outcome({ json: { status: 'saved', version: 3 } }, { ...op, id: 'op-s3', payload: { dead: 5, dead_parts: [3, 2] } });
+      const sheetBody = server.bodies.at(-1).body;
+      await outcome({ json: { status: 'saved', version: 3 } }, { ...op, id: 'op-s4', payload: { dead: 5 } });
+      const plainSheet = server.bodies.at(-1).body;
+      t.same(
+        [deadBody.p_parts, deadBody.p_dead, 'p_parts' in plainBody, sheetBody.p_dead_parts, sheetBody.p_dead, 'p_dead_parts' in plainSheet],
+        [[3, 2], 5, false, [3, 2], 5, false],
+        'T4: الأقسام بمعاملها مع مجموعها (set_flock_dead وsave_flock_day)، وبلاها لا معامل',
+      );
+      // 0037: كاز اليوم من ورقة القاعة يُرسل بدالّته ونسخة صفّه، والجواب بعقده (D3).
+      const keroOp = { ...op, id: 'op-k', fn: 'set_flock_kerosene', payload: { liters: 400 }, baseVersion: 1 };
+      const keroSaved = { status: 'saved', kerosene: { on: '2026-10-31', liters: 400, version: 2 } };
+      t.same(await outcome({ json: keroSaved }, keroOp), { kind: 'saved', version: 2, kerosene: keroSaved.kerosene }, 'T3: set_flock_kerosene saved بنسخة صفّ الكاز والكاز كما حُفظ');
+      t.same(
+        [server.bodies.at(-1).url.endsWith('/rpc/set_flock_kerosene'), server.bodies.at(-1).body],
+        [true, { p_flock: 'f-1', p_on: '2026-10-31', p_liters: 400, p_expected_version: 1, p_client_ref: 'op-k', p_queued: true }],
+        'T3: set_flock_kerosene بمعاملات العقد (اللترات ونسخة الصفّ والمرجع وqueued)',
+      );
+      t.same(
+        [
+          await outcome({ json: { status: 'stale_kerosene', server: { on: '2026-10-31', liters: 200, version: 3 } } }, keroOp),
+          await outcome({ json: { status: 'parked', reason: 'flock_closed' } }, keroOp),
+          await outcome({ json: { status: 'stale_gas', server: { on: '2026-10-31', cylinders: 2, version: 2 } } }, keroOp),
+        ],
+        [{ kind: 'stale_kerosene', server: { on: '2026-10-31', liters: 200, version: 3 } }, { kind: 'parked', reason: 'flock_closed' }, 'throw:FlockShapeError'],
+        'T3: stale_kerosene بقيمة الخادم، وparked بسببه، وحالة غير حالاته ترمي (تبقى بالطابور)',
       );
       t.eq(await tr.flockDayTransport.currentUserId(), 'u-1', 'T1: مستخدم الجلسة');
     } catch (error) {
@@ -763,6 +799,44 @@ export default async function (t) {
       t.same([textIn('f-a', 'round-dead-value'), Boolean(inCard('f-a', '-dead'))], ['5', false], 'N13 والقاعة مقفولة بما سُجّل (لا يُضاف إليه)');
     });
 
+    // ── NS: قاعة مقسومة (0038): خانة هلاكات لكلّ قسم، والفارغ صفر، والقسم بحدّ الباقي فيه، والمقفول بأقسامه ─────────────────────────────
+    await step('NS', async () => {
+      const server = makeServer();
+      const plain = server.overview;
+      // قاعة 1 مقسومة قسمين (2,500 لكلّ قسم)، وهلاكات ما قبل اليوم 10 في ق1 و4 في ق2.
+      server.overview = () => {
+        const json = plain();
+        const flockJson = json.sites[0].halls[0].flock;
+        flockJson.section_counts = [2500, 2500];
+        flockJson.section_dead = [10, 4];
+        json.sites[0].halls[0].sections = 2;
+        if (server.rows['f-a'].parts && flockJson.today) flockJson.today.dead_parts = server.rows['f-a'].parts;
+        return json;
+      };
+      const send = server.send;
+      server.send = async (op) => {
+        if (op.fn === 'set_flock_dead' && op.payload.parts) server.rows['f-a'].parts = op.payload.parts;
+        const result = await send(op);
+        if (op.fn === 'set_flock_dead' && result.day && op.payload.parts) result.day.dead_parts = op.payload.parts;
+        return result;
+      };
+      const { sent } = roundWith(server, 'u-ns');
+      await mount('/broiler/round');
+      const labels = descendants(card('f-a') ?? body()).filter((n) => n.localName === 'label').map((n) => n.textContent);
+      t.same([labels.slice(0, 2), inCard('f-a', '-dead') === null, inCard('f-b', '-dead') !== null], [['هلاكات ق1', 'هلاكات ق2'], true, true], 'NS قاعة مقسومة: خانة «هلاكات ق1» و«هلاكات ق2» بدل «هلاكات اليوم»، والقاعة غير المقسومة بخانتها');
+      type(inCard('f-a', '-dead2'), '2497');
+      await settle();
+      await save(150);
+      t.same([sent.length, textIn('f-a', 'round-error')], [0, 'هلاكات ق2 أكثر من طيوره الباقية (2,496).'], 'NS القسم لا يتجاوز الباقي فيه (عدده − هلاكاته)، ولا شيء يُرسل');
+      type(inCard('f-a', '-dead2'), '');
+      type(inCard('f-a', '-dead1'), '3');
+      await settle();
+      t.eq(textIn('f-a', 'round-dead-sum'), 'مجموع هلاكات القاعة: 3', 'NS المجموع تحت خانات الأقسام (والفارغ صفر)');
+      await save(150);
+      t.same(sent.map((op) => [op.fn, op.payload]), [['set_flock_dead', { dead: 3, parts: [3, 0] }]], 'NS الحفظ: set_flock_dead بالمجموع 3 وأقسامه [3، 0]');
+      t.same([textIn('f-a', 'round-dead-value'), textIn('f-a', 'round-dead-parts'), Boolean(inCard('f-a', '-dead1'))], ['3', 'ق1 3 · ق2 0', false], 'NS بعدها مقفولة بمجموعها وأقسامها');
+    });
+
     // ── N14: هلاكات كُتبت ثمّ سُجّلت قبل الحفظ: تُقال ولا تُرسل، و«حسناً» يمسحها ─────────────────────────────────────────────────────
     await step('N14', async () => {
       const server = makeServer();
@@ -983,6 +1057,23 @@ export default async function (t) {
       t.ok(text().includes('حُفظ هذا اليوم من جهاز آخر قبل أن تصل جولتك') && heads.includes('جولتك') && heads.includes('المحفوظ في الخادم'), 'R3b: الرفّ بنصّ مجموع اليوم القديم');
     });
 
+    // ── R3k: كاز من ورقة القاعة رُدّ بنسخة أقدم (0037): رفّ المراجعة يسمّيه بقيمتك وقيمة الخادم ───────────────────────────────────
+    await step('R3k', async () => {
+      m.onlineStore.set(false);
+      await m.saveRound(await m.openOutbox(), { userId: 'u-3k', orgId: 'org-1', displayName: 'علي' }, { fn: 'set_flock_kerosene', flockId: 'f-a', day: TODAY, payload: { liters: 600 }, baseVersion: 1 });
+      m.onlineStore.set(true);
+      const server = makeServer();
+      const { sent } = fresh(owner('u-3k'), { loadOverviewJson: () => server.overview() }, async () => ({ kind: 'stale_kerosene', server: { on: TODAY, liters: 200, version: 2 } }));
+      await mount('/broiler/round');
+      await settle(80);
+      const { review } = await queueOf('u-3k');
+      t.same([sent.map((op) => [op.fn, op.baseVersion, op.payload.liters]), review[0]?.reason], [[['set_flock_kerosene', 1, 600]], 'stale_kerosene'], 'R3k: الكاز ارتفع بنسخته، وstale_kerosene لرفّه');
+      const shelf = all().find((n) => n.getAttribute('data-review') !== null);
+      const cells = shelf ? descendants(shelf).filter((n) => n.localName === 'td').map((n) => n.textContent) : [];
+      t.ok(Boolean(shelf?.textContent.includes('تغيّر كاز هذا اليوم من جهاز آخر قبل أن يصل تعديلك') && shelf.textContent.includes('كاز اليوم')), `R3k: الرفّ بسببه ونوعه (${shelf?.textContent})`);
+      t.same(cells, ['الكاز (لتر)', '600', '200'], 'R3k: صفّ الرفّ «الكاز (لتر)» بقيمتك (600) وقيمة الخادم (200)');
+    });
+
     // ── R4: parked ← رفّ المراجعة بسببها، و«احذفه» بتأكيد يحذفها ─────────────────────────────────────────────────────────────────
     await step('R4', async () => {
       const server = makeServer();
@@ -1055,6 +1146,43 @@ export default async function (t) {
       fresh({ status: 'ready', workspace: ws({ role: 'hall_worker', divisions: ['broiler'] }), offline: false }, { loadOverviewJson: worker });
       await mount('/broiler');
       t.same([byAction('farm-round').length, byAction('hall-add').length, byAction('flock-open').length], [1, 0, 0], 'F1: عامل القاعة يشوف الجولة بلا إضافة قاعة ولا فتح فوج');
+    });
+
+    // ── FS: القاعة المقسومة (0038): «أقسام القاعة» في نافذة القاعة، وعدد كلّ قسم عند فتح الفوج ومجموعه العدد الداخل ──────────────────────
+    await step('FS', async () => {
+      const textOf = (action) => byAction(action)[0]?.textContent ?? null;
+      const halls = () => [hall('h-1', 'قاعة 1', flock('f-a', 'broiler')), { ...hall('h-3', 'قاعة 3', null), sections: 2 }];
+      const broiler = () => ({ today: TODAY, sites: [site('s-1', 'broiler', halls())] });
+      const { calls } = fresh(owner('u-fs'), { loadOverviewJson: broiler, openFlock: () => 'f-new', createHall: () => undefined, updateHall: () => 3, setHallSections: () => ({ status: 'saved', version: 4, sections: 2 }) });
+      await mount('/broiler');
+      fire(byAction('hall-add')[0], 'click');
+      await settle();
+      type(byIdSuffix('-name')[0], 'قاعة 1+2');
+      fire(all().find((n) => n.getAttribute('role') === 'radio' && n.textContent === 'قسمان') ?? body(), 'click');
+      await settle();
+      fire(byAction('hall-save')[0], 'click');
+      await settle(60);
+      t.same(calls.find(([name]) => name === 'createHall')?.[1], ['s-1', 'قاعة 1+2', null, 2], 'FS «أضف قاعة» بـ«قسمان»: createHall بأقسامها');
+      fire(byAction('flock-open')[0], 'click');
+      await settle();
+      const sectionInputs = byAction('section-count');
+      // العقد (مراجعة 2026-11-27): العدد الداخل يُكتب، وأعداد الأقسام تُملأ منه بالتساوي (الباقي للأوّل) وتُعدَّل بيد.
+      t.same([sectionInputs.length, byIdSuffix('-count').length, textOf('section-total')], [2, 1, 'المجموع يظهر حين تُكتب أعداد الأقسام كلّها.'], 'FS فتح فوج في قاعة مقسومة: العدد الداخل وخانة عدد لكلّ قسم تحته');
+      type(byIdSuffix('-count')[0], '27051');
+      await settle();
+      t.same([sectionInputs.map((input) => input.value), textOf('section-total')], [['13526', '13525'], 'مجموع الطيور المسكّنة: 27,051'], 'FS العدد يُقسم بالتساوي والباقي للقسم الأوّل (27,051 ← 13,526 + 13,525)');
+      type(sectionInputs[0], '13500');
+      await settle();
+      t.same([textOf('section-total'), byAction('flock-open-save')[0]?.hasAttribute('disabled')], ['مجموع الأقسام (27,025) لا يساوي عدد الطيور المسكّنة (27,051).', true], 'FS قسمٌ عُدّل بيده فصار المجموع غير العدد: يُقال قبل الحفظ ولا يُفتح');
+      type(byIdSuffix('-count')[0], '27050');
+      await settle();
+      t.same([sectionInputs.map((input) => input.value), textOf('section-total')], [['13500', '13525'], 'مجموع الأقسام (27,025) لا يساوي عدد الطيور المسكّنة (27,050).'], 'FS بعد تعديل قسمٍ بيده لا يُعاد التقسيم على تغيير العدد');
+      type(sectionInputs[0], '13525');
+      await settle();
+      t.eq(textOf('section-total'), 'مجموع الطيور المسكّنة: 27,050', 'FS المجموع يساوي العدد الداخل');
+      fire(byAction('flock-open-save')[0], 'click');
+      await settle(60);
+      t.same(calls.find(([name]) => name === 'openFlock')?.[1]?.[0], { hallId: 'h-3', placedOn: TODAY, placedCount: 27050, ageDays: 0, breed: '', sectionCounts: [13525, 13525] }, 'FS open_flock بالمجموع وعدد كلّ قسم');
     });
 
     // ── L5: ما يُكتب أثناء رفع الحفظ يبقى (غاز قاعة أخرى)، وما حُفظ يُفرغ ─────────────────────────────────────────────────────────

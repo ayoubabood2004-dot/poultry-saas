@@ -231,7 +231,7 @@ export default function ItemsBoardPage() {
         />
         <PendingApprovals role={role} />
       </div>
-      {view === 'day' ? <DayBalanceView orgName={workspace?.orgName ?? ''} /> : null}
+      {view === 'day' ? <DayBalanceView orgName={workspace?.orgName ?? ''} by={workspace?.displayName ?? ''} /> : null}
       {view === 'cards' && overview.data && overview.data.items.length > 0 ? (
         <div className="flex items-center gap-2">
           <Search aria-hidden="true" className="size-5 shrink-0 text-ink-muted" />

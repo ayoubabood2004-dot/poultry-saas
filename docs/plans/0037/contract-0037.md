@@ -1,163 +1,72 @@
-# Contract 0037 — «احذف القاعة» as if it never existed, and the keyboard everywhere
+# Contract 0037 — «الكاز» (kerosene) beside the gas in the hall sheet and the batch report
 
-Owner's request and answers: `docs/DECISIONS.md` section «2026-11-26». Base: branch `claude/festive-sagan-fq2iw3` at `b03aec2` (= `main` = production 0036).
-Rules that bind every part: CLAUDE.md (Fusha UI text through `t()`; numbers through `format.ts`; `DataTable` is the only table; no `window.confirm`;
-money/stock writes are one RPC with `client_ref`; every fix or feature with a test that fails before it; no ceiling raise; the guards stay on).
+Owner's request and answers: `docs/DECISIONS.md` section «2026-11-26». Kerosene is **a number only, like the gas** (no stock, no cost), **one column in litres** (typed in litres or in barrels; a barrel = 200 litres, converted on the device; the server stores litres). **Only the hall sheet and the batch report** — not the daily round, not the daily/history/cycle reports.
 
-The customer (through the owner, 2026-11-26, two photos and two voice notes) said:
-1. «هذن القاعات أريد أحذف منهم، ما گاعد أگدر أحذف… بالبداية سوّيت تجريبيات» — in production his org has five test halls created today
-   («قاعة 8 تجريبي» and «قاعه 1/4/5/6 تجريبي»), each with a running flock, 14–22 days of rounds and 7–8 feed sends from «رصيد العلف»
-   (55,000 kg «علف م/1» and 6,000 kg «علف م/2» in total). Today a hall with a flock shows no delete/archive action at all.
-2. «من أضيف قاعة… خلّينا أتحكّم بالكيبورد: أكتب 25000 وأدوس إنتر يحفظ» — today the hall dialog opens with no field focused and Enter does nothing.
+Base: `main` = production (0036). Rules that bind every part: CLAUDE.md (Fusha UI text through `t()`; numbers through `format.ts`; `DataTable` only; no `window.confirm`; one RPC per write with `client_ref`; every feature/fix with a test that FAILS on the code before it; no ceiling raise).
 
-Owner's answers (asked with options):
-- Deleting a hall that has a running flock with records: **«كأنها لم تكن»** — what was sent to it from the store goes back by a reversing movement,
-  its days (deaths, gas, weights) disappear from every report, the hall disappears from everywhere; only the audit trail keeps it.
-- Enter: **next field; Enter in the last field saves** (Excel/accounting style); Ctrl+Enter saves from any field; Esc closes;
-  on a computer the cursor starts in the first field when a window opens.
-
-Decided without asking (said to the owner):
-- One button «احذف القاعة» replaces «أرشف» for every hall the user can manage (today «أرشف» shows only for halls without a running flock).
-  - Hall without a running flock → hidden (archived) as «أرشف» does today; its ended cycles stay in the reports.
-  - Hall with a running flock → that flock is cancelled as if it never existed (below), then the hall is hidden.
-  - Ended (closed) cycles are history and are never cancelled by this. To remove an ended test cycle the user reopens it first
-    («أعد فتح الدورة», 0029) and then deletes the hall.
-  - Refused, with the reason and what to do, when the running flock has: a bird sale (money), a weigh ticket, feed carried in from the
-    previous cycle still applied, a period lock covering its placement day or today, or the hall is outside the user's scope.
-- The cursor goes to the first field automatically only on devices with a fine pointer (computers). Phones stay as today (no keyboard
-  popping over the sheet).
-
-Three parts, built in parallel in separate worktrees, integrated by the main session:
-- **D** — migration `0037_delete_hall` (DB only).
-- **H** — the delete-hall screens (repo + lazy dialog + entry points).
-- **K** — the keyboard everywhere (no DB).
+Two parts built in parallel, integrated by the main session:
+- **D** — migration `0037_kerosene` (DB only; a worktree agent).
+- **S** — repo parser, offline queue op, hall sheet column and cell sheet, batch report (main session).
 
 ---
 
-## Part D — `supabase/migrations/0037_delete_hall.sql` (+ `rollback_0037.sql`, harness entry, tests, real samples)
+## Part D — `supabase/migrations/0037_kerosene.sql` (+ `rollback_0037.sql`, tests, real samples)
 
-Every function rewritten here starts from its **latest** forward body (`grep -ln "create or replace function NAME(" supabase/migrations/0*.sql | tail -1`,
-never a `rollback_*` file), and `rollback_0037.sql` restores those bodies exactly (the rollback runner checks).
+Mirror the gas of `0035_hall_sheet.sql` (§أ table, `private.flock_gas_json`, §هـ `set_flock_gas`) for kerosene, word for word where possible. Build every changed function on its **latest body** (all four below are last defined in **0035**); `rollback_0037.sql` restores those bodies **word for word** and drops everything new.
 
-### D1. A cancelled flock
-- `flocks.status` check gains `'void'`; new columns `voided_at timestamptz`, `voided_by uuid`, `void_reason text` with
-  `check ((status = 'void') = (voided_at is not null))` and a reason length check (≤ 500). `flocks_closed_check` is unchanged (a void flock has
-  `closed_on` null). `flocks_one_live` (preparing/active) already excludes it.
-- A void flock never appears and never accepts a write:
-  - `private.flock_for(p_flock, p_write)` (latest 0026) raises `flock_void` («حُذفت قاعة هذا الفوج، فلا يُعرض ولا يُسجَّل له شيء.») for a void
-    flock, read or write.
-  - Every reader that lists flocks or aggregates their days excludes `status = 'void'` (at least: `halls_history`, `halls_day` /
-    `private.halls_day_totals`, `flock_cycles`, `flock_cycle_report`, `flock_month`, `hall_sheet`, `flock_detail`, `flock_feed`, `flock_sales`,
-    `flock_issue_options`, `flocks_overview` / `private.flock_summary`, `vaccine_board`, `vaccine_reminders`, `round_visits`, `bird_sale_form`,
-    `weigh_ticket_options`, `flock_close_form`, and any money/stock reader that lists flocks by name). Check each against the catalog query
-    `select proname from pg_proc where prosrc ~ 'public\.flocks\M'` and record in the migration header why each one is safe.
-  - Every writer that takes a flock refuses a void one with `flock_void` (via `flock_for(…, true)` or explicitly): `save_flock_visit`,
-    `save_flock_day`, `set_flock_dead`, `add_flock_gas`, `set_flock_gas`, `send_flock_feed`, `record_flock_issue`, `give_to_flocks`,
-    `record_flock_weight`, `record_flock_count_adjust`, `undo_vaccination`, `remove_flock_log`, `edit_flock`, `delete_flock`, `close_flock`,
-    `save_weigh_ticket`, `record_bird_sale`, … Queued round ops (`p_queued`) for a void flock park in `flock_day_rejects` with `flock_void`,
-    like `flock_closed` does today.
-  - Every `verify_*` holds with void flocks present (a test builds one in each relevant state).
+### D1. Table `public.flock_day_kerosene`
+Same shape as `public.flock_day_gas`, with `liters integer` instead of `cylinders`:
+- `constraint flock_day_kerosene_liters_check check (liters is null or liters between 0 and 20000)`, `flock_day_kerosene_version_check (version >= 1)`, `flock_day_kerosene_on_date_check (isfinite(on_date))`, `unique (org_id, id)`, `unique (org_id, flock_id, on_date)`, the two foreign keys as gas, index `flock_day_kerosene_hall`.
+- RLS on; read policy `flock_day_kerosene_read` (org + `in_scope_site(site_id)`) exactly like gas; audit trigger `audit_flock_day_kerosene`; `revoke all … from anon, authenticated; grant select … to authenticated; revoke truncate … from service_role`.
+- A row is **never deleted** while its batch lives (clearing = `liters null` with a bigger version — the ABA lesson 2026-11-16).
 
-### D2. `public.delete_hall_preview(p_hall uuid) returns jsonb` — read (stable, definer, `require('read')`)
-```json
-{
-  "hall":   {"id": "…", "name": "قاعة 8 تجريبي", "site_id": "…", "site": "حقل لحم", "version": 3},
-  "flock":  null | {
-    "id": "…", "version": 9, "status": "active", "placed_on": "2026-11-13", "placed_count": 25250,
-    "days": 14, "visits": 14, "gas_days": 13, "weights": 0, "logs": 0, "vaccinations": 0, "issues": 7,
-    "back": [{"warehouse_id": "…", "warehouse": "رصيد العلف", "item_id": "…", "item": "علف م/1", "qty": "14000.000", "base_unit": "kg"}]
-  },
-  "ended":  2,
-  "blocks": [{"code": "sales", "text": "في الفوج بيع طيور (فاتورة BS-00012)؛ ألغِ الفاتورة أوّلاً ثمّ احذف القاعة."}],
-  "plan":   "9f1c…"
-}
-```
-- `flock`: the running flock (preparing/active) or null. Counts are live rows (`days` = `flock_daily` rows; `visits` = live visits; `issues` =
-  posted issues; `vaccinations` = done vaccinations). `back` = posted issue lines summed per (store, item), ordered by store name then item name
-  (`collate "C"`), `qty` as text with 3 decimals in the item's base unit.
-- `ended`: closed flocks of the hall (they stay in the reports).
-- `blocks` and `plan` come from the **same private functions** `delete_hall` uses, in the same order (lesson 2026-11-15: the reader's "can"
-  is built from the writer's own checks). Codes: `sales`, `tickets`, `carry`, `period_locked`, `permission`. An archived hall → `hall_not_found`.
-- `plan` = md5 over: hall id+version, flock id+version (or none), the sorted posted issue ids+versions, the sorted done vaccination ids.
+### D2. `private.flock_kerosene_json(p_on date, k public.flock_day_kerosene) returns jsonb`
+`{"on": p_on, "liters": k.liters, "version": k.version}` (no row → liters and version null), like `flock_gas_json`.
 
-### D3. `public.delete_hall(p_hall uuid, p_expected_version int, p_expected_plan text, p_client_ref uuid) returns jsonb` — write
-- Idempotent by `client_ref` (`ref_claim`/`ref_store`) **and by state**: a hall already archived returns
-  `{"hall_id", "name", "deleted": true, "already": true, "back": []}` (a lost answer retried with a new ref changes nothing).
-- `require('flock.manage')`; `require('void')` when there are issues to reverse; `period_guard`; `lock_timeout 5s`; scope check.
-- Locks: hall `for update`, then the running flock, issues, masters and balances in **one order shared with** `void_flock_issue`,
-  `record_flock_issue`, `give_to_flocks`, `undo_vaccination` and `close_flock` (lesson 2026-11-11) — state the order in the header and prove it
-  with a two-session test (`pg_blocking_pids`, no 40P01).
-- `stale_hall` when the version differs; `stale_plan` («تغيّر ما في القاعة بعد فتح النافذة. راجع ما سيُحذف ثمّ احذف.») when the plan differs;
-  the first block raises its code (`hall_has_sales`, `hall_has_tickets`, `hall_has_carry`, `period_locked`, `forbidden`) with its text as hint.
-- Effects, all in this one transaction:
-  1. every posted issue of the running flock is voided exactly as `void_flock_issue` does (stock moves reversed to their lots dated today,
-     `flock_costs` reversing lines dated today, status `void`, reason «حُذفت القاعة «NAME»») — share one private core with `void_flock_issue`
-     rather than copying it;
-  2. its done vaccinations become `void` (same reason);
-  3. the flock becomes `void` (`voided_at`, `voided_by`, `void_reason`, `version + 1`);
-  4. the hall is archived (`archived_at = now()`, `version + 1`).
-  Rounds, visits, gas, weights, logs and counts stay as rows (audit trail) and are hidden by the flock's status. Nothing is deleted.
-- Result: `{"hall_id", "name", "deleted": true, "already": false, "flock_id": …|null, "voided_issues": 7, "back": [same shape as D2]}`.
+### D3. `public.set_flock_kerosene(p_flock uuid, p_on date, p_liters integer, p_expected_version bigint, p_client_ref uuid, p_queued boolean default false) returns jsonb`
+Exactly `set_flock_gas` (0035) with these differences only:
+- `v_fn = 'set_flock_kerosene'`; `ref_claim` payload keys `flock, on, liters, expected_version, queued`.
+- `date_in_future` hint names the kerosene: `format('يوم %s لم يأتِ بعد؛ يُكتب الكاز لليوم %s أو لما قبله من أيّام الوجبة.', …)`.
+- Parked (queued + `flock_closed` / `out_of_scope` / `period_locked`): `payload = {"kerosene": p_liters}`, `visit_id = md5('kerosene:' || coalesce(auth.uid()::text, '') || ':' || f.id::text || ':' || to_char(p_on, 'YYYY-MM-DD'))::uuid`, same `on conflict … do update` (version + 1, decision cleared); returns `{"status":"parked","reason":…}`.
+- `bad_value` when `p_liters < 0 or p_liters > 20000`: hint `'الكاز باللتر عدد صحيح من صفر إلى 20,000.'`.
+- Same value now (or no row and `p_liters` null) → `{"status":"saved","kerosene":{on,liters,version}}` with no write and no new version. Changed since the device's version → `{"status":"stale_kerosene","server":{on,liters,version}}`. Otherwise insert (version 1) or update (`version + 1`, `updated_at/by`) and return `saved` with the row.
+- Locks and order exactly as gas: `period_guard` → flock row `for update` → `flock_day_check(f, p_on)` → kerosene row `for update`. Permission `flock_day.save` (every active member, 0034).
+- Grants as `set_flock_gas` (execute to authenticated only).
 
-### D4. Invariants and tests
-- A `verify_*` check (new `verify_delete_hall` or inside `verify_halls`): no void flock with a posted issue, a done vaccination, or in a
-  non-archived hall; no flock_costs net ≠ 0 for a void flock.
-- Postgres tests (`supabase/tests/delete-hall.test.mjs`, unique id/phone prefixes checked with grep across every test file): preview shapes;
-  each block; stale hall/plan; idempotent retry (same ref, new ref after success); store balances back exactly (qty and value) and the item
-  ledger shows send + reversal; every reader in D1 without the flock; every writer in D1 refuses; queued round op parks `flock_void`;
-  ended cycles stay in `halls_history`; concurrency with `void_flock_issue`/`record_flock_issue` on the same flock; rollback restores.
-- Real samples: run preview and delete on a seeded org shaped like the customer's (running flock with days, feed sends from «رصيد العلف», an
-  ended cycle in another hall) and write the outputs to `scripts/tests/fixtures/delete-hall-0037.json` for part H's parsers.
+### D4. `public.hall_sheet(p_flock)` (latest body 0035) — additive keys only
+- Each day: `'kerosene'` (litres or null) and `'kerosene_version'` (null without a row), from a `left join public.flock_day_kerosene ks` beside the gas join.
+- `totals.kerosene`: `coalesce(sum(liters), 0)::bigint`; `summary.kerosene`: the same number.
+- Every other key, order and meaning unchanged (the deployed UI reads it between apply and merge).
+
+### D5. Guards (latest bodies 0035)
+- `public.edit_flock`: the `least(...)` of first activity days also takes `(select min(x.on_date) from public.flock_day_kerosene x where x.org_id = f.org_id and x.flock_id = f.id and x.liters is not null)` (placement cannot move after a kerosene day).
+- `private.flock_activity_after`: `union all select 'كاز', k.on_date, 8 from public.flock_day_kerosene k where … and k.liters is not null` (a batch is not closed before its last kerosene day).
+- `public.delete_flock`: kerosene recorded (`liters is not null`) is named «الكاز» in `flock_has_records` (after «الغاز»); cleared rows (`liters is null`) are deleted with the batch (before the flock delete, like gas).
+
+### D6. `public.verify_kerosene() returns table (check_name text, violations bigint)`
+New (do not rewrite `verify_hall_sheet`): `kerosene_days` (a row's day outside `placed_on .. coalesce(closed_on, app_today())` of its batch, or the batch not placed), `kerosene_versions` (`version < 1`), `kerosene_hall` (hall/site/division differ from the batch's), `sheet_kerosene_totals` (for every placed batch, as its org's owner like `verify_hall_sheet`: `hall_sheet(f).totals.kerosene` ≠ Σ `days[].kerosene`, and `summary.kerosene` ≠ `totals.kerosene`). Every check proven by a mutation in the tests (a broken body inside a rolled-back transaction, not a hand-written row).
+
+### D7. Rollback `rollback_0037.sql`
+Restores `hall_sheet`, `edit_flock`, `flock_activity_after`, `delete_flock` to their 0035 bodies word for word; drops `set_flock_kerosene`, `flock_kerosene_json`, `verify_kerosene`, the table. **Refuses loudly** (`raise exception` with a sentence) when any `flock_day_kerosene` row exists (even cleared: a device saw its version) or any `flock_day_rejects` row whose payload has the key `kerosene`. Register the blocking cases in `supabase/tests/seed.mjs` (`BLOCKING_REQUIRED` / `BLOCKING_SEEDS`) like 0035's gas, and the rollback runner must pass (`--upto` digest equal after rollback, verify zero).
+
+### D8. Harness registrations
+`supabase/tests/allowlist.json` (the new writer and verify), `role-matrix.test.mjs` (both places gas appears: the writer per role, and another org's flock → `flock_not_found`), any constraint-sentence table the constraints test reads (`src/lib/repo/constraints-flocks.ts` — the only `src/` file Part D may touch), and whatever catalog test asks for (run the whole DB suite, not only the new file).
+
+### D9. Tests `supabase/tests/kerosene.test.mjs`
+Mirror the gas cases of `hall-sheet.test.mjs`: saved (insert/update, same value no new version, clear to null keeps the row with version + 1), stale (old version, no version with a row, after clearing), every refusal code by a direct call (`flock_not_found`, `date_required`, `date_in_future`, `before_placement`, `flock_closed`, `flock_not_placed`, `period_locked`, `out_of_scope`, `bad_value` at −1 and 20,001; 0 and 20,000 accepted), queued parking (closed/out of scope/period locked → `parked`, payload `{"kerosene": n}`, re-parking bumps the reject version and clears the decision), ref replay (same result, different args → the existing ref rule), two real sessions racing for one day without a version (second waits on the flock row then `stale_kerosene`), `hall_sheet` keys (days, totals, summary; cleared day = null liters with its version), `edit_flock` / close (`flock_activity_after`) / `delete_flock` guards naming «كاز»/«الكاز», cleared rows deleted with the batch, `verify_kerosene` zero after every file and each check caught by its mutation, role matrix, rollback.
+Check every new id/phone prefix against **all** test files (grep) before use.
+
+### D10. Real samples
+With an env switch like `HALL_SHEET_SAMPLES_OUT`, write `scripts/tests/fixtures/kerosene-0037.json`: `{ hall_sheet: <a broiler batch with kerosene on two days and one cleared day>, set_flock_kerosene_saved, set_flock_kerosene_stale, set_flock_kerosene_parked }` (as returned by the database).
+
+Deliver on a branch with: the migration, the rollback, the tests, registrations, the fixture; `node supabase/tests/run.mjs` all green (and the rollback runner), `npm run lint` green. Report the digest (`--digest`) after the migration.
 
 ---
 
-## Part H — the delete-hall screens
+## Part S — screens (main session)
 
-- Repo (next to `archiveHall` in `src/lib/repo/flocks.ts`, or a new lazy module if size needs it): `loadDeleteHallPreview(hallId)` and
-  `deleteHall(hallId, version, plan, ref)`, with strict parsers (`scaled`/`fils`-style; a field that can be null is read as nullable).
-- `DeleteHallDialog` in the halls chunk (lazy like `HallDialogLazy` in `flockEditLazy.tsx`; offline → the existing `DialogOffline`).
-  - Loading → «جارٍ التحقّق ممّا في القاعة…»; read error → message + «أعد المحاولة».
-  - Blocks → each `text` as a list, no delete button.
-  - Running flock → «سيُلغى فوج القاعة كأنّه لم يكن:» then one line per effect: «يرجع إلى «STORE» QTY UNIT «ITEM»» for each `back` row;
-    «تختفي أيّامه (N يوماً) من كلّ التقارير»; and, when `ended > 0`, «الدورات المنتهية في القاعة (N) تبقى في التقارير». No flock →
-    «تختفي القاعة من الحقل والجولة اليومية» (+ the ended-cycles line).
-  - Confirm button «احذف القاعة» (danger, `data-action="hall-delete-confirm"`), busy while sending; one `client_ref` per opened dialog kept
-    across retries; `stale_plan`/`stale_hall` → re-read the preview and say so; success → toast naming what went back to the store, close,
-    refresh the farm table.
-- Entry points: the farm table row action «احذف» (`data-action="hall-delete"`) for every hall when `canManage` (replaces «أرشف»), and
-  «احذف القاعة» in the «عدّل القاعة» dialog footer (`data-action="hall-edit-delete"`).
-- Error texts for `flock_void`, `hall_has_sales`, `hall_has_tickets`, `hall_has_carry`, `stale_plan`, `stale_hall`, `period_locked` in the
-  error map (the server hint is shown when present).
-- Tests: DOM tests of each state with the fixture, then the real samples from part D through the same parsers (integration).
-
----
-
-## Part K — the keyboard everywhere (no DB)
-
-- One small module (boot-safe, measured) installed once by the shell: a document `keydown` listener in the **bubble** phase so component
-  handlers run first.
-  - Enter (no modifiers, not `isComposing`, not `defaultPrevented`) on a field — a text-like `input` (text, search, tel, email, number,
-    password, url, date…) or a `select` — whose scope is the closest `form` (else the closest `[role="dialog"]`): if a later field exists in
-    the scope (DOM order, enabled, visible, not readonly; textareas count as fields to move into) → focus it and select its text; if it is the
-    last field → submit: the scope's default submit button (`form.elements` includes footer buttons tied with `form=`) when enabled, else
-    nothing. Never submit through a disabled button (`requestSubmit()` alone ignores `disabled`).
-  - Ctrl+Enter / Cmd+Enter in any field of the scope (textarea included) → submit the same way.
-  - Skip: `textarea` (plain Enter), buttons/checkboxes/radios, `contenteditable`, anything inside `[data-enter="own"]` (pickers, scanner,
-    the sheet grid, search boxes with their own Enter) — audit the existing `onKeyDown` handlers and mark them.
-- `Dialog`: when it opens with no `[data-autofocus]`, on `matchMedia('(pointer: fine)')` focus the first field of its body and select it;
-  otherwise as today.
-- Every dialog with typing gets the existing `<form id>` + footer `<Button type="submit" form={id}>` pattern (today 2 hall dialogs,
-  `FlockEditDialog`, the day/weight dialogs in `FlockPage`, `CloseSections`, `TicketPage`, `CalendarPage`, `FlockCard`, `Reminders`,
-  `VaccinesPage`, `BatchPage`, `ProducePage`, `RecipePage`, `SaleCheckout`, `stock-shared`, `PartyStatementPage`, `AccountsPage`,
-  `ReviewDialog`… — check each). Page inputs outside dialogs (round cards: feed quantity and gas, settings, sales, mill, stores, accounts)
-  are audited one by one: a field with a clear save/send button next to it goes in a `form` with that button as submit.
-- Tests (DOM, real react-dom): Enter moves to the next field and selects it; Enter on the last field submits once; disabled submit → nothing;
-  Ctrl+Enter from the first field and from a textarea; IME composing ignored; a picker's own Enter wins; autofocus with fine pointer and not
-  with coarse; the hall dialog: name ⏎ → capacity focused, 25000 ⏎ → `createHall(site, name, 25000)` once.
-
----
-
-## Sizes and guards
-- No ceiling raise: precache ≤ 920,700 without keys (915,179 now), boot gzip ≤ 82,400, session path ≤ 149,000.
-- New Tailwind classes in boot CSS are forbidden (lesson 2026-11-16): reuse existing classes.
-- `npm run lint`, `npm run build` (with and without keys) and `npm run db:test` green before handing back.
+- `src/lib/repo/hallSheet.ts`: `SheetDay.kerosene: number | null`, `keroseneVersion: number | null` (absent → null for old samples), `totals.kerosene`, `summary.kerosene` (absent → 0).
+- Outbox: `set_flock_kerosene` queueable like `set_flock_gas` (one op per batch + day, merged into the newest pending one, version chained to the next op of the same day; results `saved` (`kerosene`), `stale_kerosene`, `parked`, `rejected`; review shelf names «الكاز» and both values).
+- Hall sheet: column «الكاز (لتر)» after «الغاز» with its server total; editable in edit mode; the touch cell sheet has «لتر | برميل» (barrel × 200), «امسح الكاز»; the grid accepts a number in litres or a number followed by «ب» for barrels (e.g. «2ب» = 400 litres); parked kerosene reads «الكاز n لتر».
+- Batch report: column «الكاز (لتر)» after «الغاز» with its total in the last row, and summary row «الكاز (لتر)».
+- Real samples from D pass through the real parsers.
