@@ -53,7 +53,7 @@ import { CARD_CLASS, givePath, LINK_CLASS } from './feed';
 import { FlockEditDialog } from './FlockEditDialog';
 import { HallDialog, OpenFlockDialog } from './hallDialogs';
 import { BARREL_LITERS } from './gridLogic';
-import { SheetGrid, type CellChange, type CellValue, type ChangeCheck, type ChangeResult, type GridCell, type GridField, type SheetGridView, type SheetSubmit } from './SheetGrid';
+import { SheetGrid, type CellChange, type CellValue, type ChangeCheck, type ChangeResult, type DeadPartField, type GridCell, type GridField, type SheetGridView, type SheetSubmit, type WriteField } from './SheetGrid';
 import { gasSoFar, loadTransport, parkText, soFar } from './roundText';
 import { farmPath, farmTitle, hallLabel, hallPath, loadOverviewKept, useStamp } from './shared';
 
@@ -72,7 +72,12 @@ import { farmPath, farmTitle, hallLabel, hallPath, loadOverviewKept, useStamp } 
 // أيام سبعة)، والمغلقة قراءة فقط. وما رُدّ من الأجهزة (flock_day_rejects) جمل بـ«أُدخلت» و«تجاهل»، وما بقي على هذا الجهاز ولم يُحفظ يُدلّ عليه.
 
 type Nav = { prev: HallView | null; next: HallView | null };
-type CellField = 'dead' | 'gas' | 'kerosene' | 'eggs' | 'note';
+/** خانة تُكتب في الورقة: الهلاكات (أو هلاكات قسم في قاعة مقسومة، 0038) والغاز والكاز والبيض والملاحظة. */
+type CellField = WriteField;
+/** رقم القسم (0..3) لخانة هلاكات قسم، وإلّا null. */
+const partIndex = (field: GridField): number | null => (field === 'dead1' ? 0 : field === 'dead2' ? 1 : field === 'dead3' ? 2 : field === 'dead4' ? 3 : null);
+/** خانة هلاكات القسم i (0..3). */
+const PART_FIELDS: readonly DeadPartField[] = ['dead1', 'dead2', 'dead3', 'dead4'];
 
 /** آخر قراءة ناجحة تبقى معروضة أثناء القراءة من جديد (useLoad يرجّع null أثناءها): الورقة ونوافذها لا تُطوى ولا تقفز. */
 function useKept<T>(data: T | null): T | null {
@@ -102,7 +107,7 @@ const rowDay = (on: Day): string => fmtDay(on).slice(0, 5);
 export type SavedEdit =
   | { kind: 'gas'; on: Day; version: number; cylinders: number | null }
   | { kind: 'kerosene'; on: Day; version: number; liters: number | null }
-  | { kind: 'day'; on: Day; version: number; dead?: number; culled?: number; eggs?: number | null; note?: string | null };
+  | { kind: 'day'; on: Day; version: number; dead?: number; deadParts?: number[] | null; culled?: number; eggs?: number | null; note?: string | null };
 
 const given = <T,>(value: T | null | undefined): value is T => value !== null && value !== undefined;
 
@@ -139,6 +144,7 @@ export function savedEdits(runs: readonly RoundRun[], key: string, flockId: stri
           on: entry.day,
           version,
           ...(given(payload.dead) ? { dead: payload.dead } : {}),
+          ...(given(payload.dead_parts) ? { deadParts: payload.dead_parts } : {}),
           ...(given(payload.culled) ? { culled: payload.culled } : {}),
           ...(given(payload.eggs_total) ? { eggs: payload.eggs_total } : {}),
           ...(given(payload.note) ? { note: payload.note === '' ? null : payload.note } : {}),
@@ -149,7 +155,7 @@ export function savedEdits(runs: readonly RoundRun[], key: string, flockId: stri
         if (after === null) continue;
         try {
           const row = parseDayRow(entry.result.day);
-          edits.push({ kind: 'day', on: entry.day, version: after, dead: row.dead ?? 0, culled: row.culled ?? 0, eggs: row.eggsTotal, note: row.note });
+          edits.push({ kind: 'day', on: entry.day, version: after, dead: row.dead ?? 0, deadParts: row.deadParts, culled: row.culled ?? 0, eggs: row.eggsTotal, note: row.note });
         } catch { // swallow-ok: صفّ يوم بشكل غريب لا يُعرض؛ القراءة من جديد بعد الرفع تعرضه من الخادم
           continue;
         }
@@ -218,6 +224,8 @@ interface Shown {
   dead: number;
   /** المستبعد القديم داخل dead: تعديل الهلاكات يصفّره. */
   culled: number;
+  /** 0038: هلاكات اليوم لكلّ قسم في قاعة مقسومة (مجموعها dead)، أو null. */
+  deadParts: number[] | null;
   eggs: number | null;
   note: string | null;
   gas: number | null;
@@ -235,6 +243,7 @@ interface Shown {
 function shownOf(day: SheetDay, ops: readonly OutboxOp[], saved: readonly SavedEdit[]): Shown {
   let deadOnly = day.dead - day.culled;
   let culled = day.culled;
+  let deadParts = day.deadParts;
   let eggs = day.eggsTotal;
   let note = day.note;
   let gas = day.gas;
@@ -259,6 +268,7 @@ function shownOf(day: SheetDay, ops: readonly OutboxOp[], saved: readonly SavedE
     }
     if (edit.version <= (dayVersion ?? 0)) continue;
     if (edit.dead !== undefined) deadOnly = edit.dead;
+    if (edit.deadParts !== undefined) deadParts = edit.deadParts;
     if (edit.culled !== undefined) culled = edit.culled;
     if (edit.eggs !== undefined) eggs = edit.eggs;
     if (edit.note !== undefined) note = edit.note;
@@ -279,10 +289,11 @@ function shownOf(day: SheetDay, ops: readonly OutboxOp[], saved: readonly SavedE
       kerosene = op.payload.liters;
       pending.add('kerosene');
     } else if (op.fn === 'set_flock_dead') {
-      // هلاكات اليوم مرّة من الجولة (0036): خانة الهلاكات وحدها تنتظر، ومجموعها من soFar.
+      // هلاكات اليوم مرّة من الجولة (0036): خانة الهلاكات وحدها تنتظر، ومجموعها من soFar (وأقسامها منها، 0038).
       pending.add('dead');
     } else if (op.fn === 'save_flock_day') {
       if (given(op.payload.dead)) pending.add('dead');
+      if (given(op.payload.dead_parts)) deadParts = op.payload.dead_parts;
       if (given(op.payload.culled)) culled = op.payload.culled;
       if (given(op.payload.eggs_total)) pending.add('eggs');
       if (given(op.payload.note)) {
@@ -294,9 +305,10 @@ function shownOf(day: SheetDay, ops: readonly OutboxOp[], saved: readonly SavedE
       if (op.payload.eggs_total !== null) pending.add('eggs');
     }
   }
-  const total = soFar({ dead: deadOnly + culled, culled: 0, feedKg: null, eggsTotal: eggs, eggsBroken: day.eggsBroken }, totals);
+  const total = soFar({ dead: deadOnly + culled, culled: 0, feedKg: null, eggsTotal: eggs, eggsBroken: day.eggsBroken, deadParts }, totals);
   return {
     dead: total.dead + total.culled,
+    deadParts: total.deadParts,
     culled,
     eggs: total.eggsTotal,
     note,
@@ -350,6 +362,11 @@ const barrelsText = (n: number): string =>
 
 function fieldLabel(field: CellField): string {
   switch (field) {
+    case 'dead1':
+    case 'dead2':
+    case 'dead3':
+    case 'dead4':
+      return t('sheet.col.dead_part', 'هلاكات ق{n}', { n: fmtInt((partIndex(field) ?? 0) + 1) });
     case 'dead':
       return t('sheet.col.dead', 'الهلاكات');
     case 'gas':
@@ -396,6 +413,22 @@ function cellWrite(sheet: HallSheet, day: SheetDay, field: CellField, shown: Sho
     if (n > MAX_KEROSENE_LITERS) return { kind: 'error', error: t('sheet.kerosene.max', 'الكاز من 0 إلى 20,000 لتر في اليوم (100 برميل).') };
     return { kind: 'input', input: { fn: 'set_flock_kerosene', ...base, payload: { liters: n }, baseVersion: shown.keroseneVersion } };
   }
+  const part = partIndex(field);
+  if (part !== null) {
+    // هلاكات قسم (0038): أقسام اليوم كما تُرى والقسم بقيمته الجديدة، ومجموعها هلاكات اليوم؛ والقسم لا يتجاوز الباقي فيه (عدده − هلاكاته في غير هذا
+    // اليوم، كما يفحص الخادم)، والمجموع لا يتجاوز الحيّ كالهلاكات.
+    const sections = sheet.sections;
+    const section = sections?.[part];
+    if (!sections || !section) return { kind: 'error', error: t('sheet.grid.no_day', 'هذا اليوم ليس في الورقة.') };
+    const current = shown.deadParts ?? sections.map(() => 0);
+    const parts = sections.map((_, index) => (index === part ? n : (current[index] ?? 0)));
+    const sum = parts.reduce((total, value) => total + value, 0);
+    const left = section.placed - section.dead + (day.deadParts?.[part] ?? 0);
+    if (n > MAX_BIRDS || n > left) return { kind: 'error', error: t('sheet.dead.part_max', 'هلاكات ق{n} أكثر من طيوره الباقية ({left}).', { n: fmtInt(part + 1), left: fmtInt(Math.max(left, 0)) }) };
+    const liveBound = sheet.summary.live + day.dead;
+    if (sum > liveBound) return { kind: 'error', error: t('sheet.dead.max', 'الهلاكات أكثر من الطيور الحيّة ({live}).', { live: fmtInt(Math.max(liveBound, 0)) }) };
+    return { kind: 'input', input: { fn: 'save_flock_day', ...base, payload: { dead: sum, dead_parts: parts, culled: shown.culled > 0 ? 0 : null }, baseVersion: shown.dayVersion } };
+  }
   if (field === 'dead') {
     // الحيّ الذي يقبله الخادم لهلاكات هذا اليوم: الحيّ الآن مع هلاكات اليوم نفسه.
     const liveBound = sheet.summary.live + day.dead;
@@ -414,7 +447,23 @@ function cellWrite(sheet: HallSheet, day: SheetDay, field: CellField, shown: Sho
 function CellSheet({ day, field, shown, submit, onClose, onSaved }: { day: SheetDay; field: CellField; shown: Shown; submit: SheetSubmit; onClose: () => void; onSaved: () => void }) {
   const id = useId();
   const online = useStore(onlineStore);
-  const current = field === 'dead' ? (shown.recorded ? shown.dead : null) : field === 'gas' ? shown.gas : field === 'kerosene' ? shown.kerosene : field === 'eggs' ? shown.eggs : null;
+  const part = partIndex(field);
+  const current =
+    part !== null
+      ? shown.recorded
+        ? (shown.deadParts?.[part] ?? 0)
+        : null
+      : field === 'dead'
+        ? shown.recorded
+          ? shown.dead
+          : null
+        : field === 'gas'
+          ? shown.gas
+          : field === 'kerosene'
+            ? shown.kerosene
+            : field === 'eggs'
+              ? shown.eggs
+              : null;
   const [value, setValue] = useState('');
   // الكاز باللتر أو بالبرميل (جواب المالك 2026-11-26): ما يُكتب بالبرميل يُحفظ لتراً (× 200).
   const [barrels, setBarrels] = useState(false);
@@ -1065,7 +1114,11 @@ function Cell({ children, pending, action }: { children: ReactNode; pending: boo
 const countNode = (value: CellValue): ReactNode => (typeof value === 'number' ? <Num>{fmtInt(value)}</Num> : '');
 
 /** أعمدة الورقة بترتيبها (مفاتيح أعمدة SheetTable نفسها): الجدول كإكسل يتنقّل بها. */
-const sheetFields = (layer: boolean): GridField[] => (layer ? ['age', 'date', 'dead', 'gas', 'kerosene', 'feed', 'eggs', 'note'] : ['age', 'date', 'dead', 'gas', 'kerosene', 'feed', 'note']);
+const sheetFields = (layer: boolean, sections = 0): GridField[] => {
+  // قاعة مقسومة (0038): خانة هلاكات لكلّ قسم بدل «الهلاكات».
+  const dead: GridField[] = sections > 1 ? PART_FIELDS.slice(0, sections) : ['dead'];
+  return layer ? ['age', 'date', ...dead, 'gas', 'kerosene', 'feed', 'eggs', 'note'] : ['age', 'date', ...dead, 'gas', 'kerosene', 'feed', 'note'];
+};
 
 function SheetTable({ sheet, ops, saved, view }: { sheet: HallSheet; ops: readonly OutboxOp[]; saved: readonly SavedEdit[]; view: SheetGridView }) {
   const layer = sheet.flock.kind === 'layer';
@@ -1101,20 +1154,40 @@ function SheetTable({ sheet, ops, saved, view }: { sheet: HallSheet; ops: readon
           <Num>{rowDay(day.on)}</Num>
         ),
     },
-    {
-      key: 'dead',
-      header: t('sheet.col.dead', 'الهلاكات'),
-      kind: 'number',
-      cell: (day, row) => {
-        const shown = shownOf(day, ops, saved);
-        return view.content(day, row, 'dead', (fresh) => (
-          <Cell pending={fresh ? fresh.pending : shown.pending.has('dead')} action="cell-dead">
-            {fresh ? countNode(fresh.value) : shown.recorded ? <Num>{fmtInt(shown.dead)}</Num> : ''}
-          </Cell>
-        ));
-      },
-      total: <Num>{fmtInt(sheet.totals.dead)}</Num>,
-    },
+    // قاعة مقسومة (0038): عمود هلاكات لكلّ قسم بدل «الهلاكات»، ومجموع كلّ قسم في آخره.
+    ...(sheet.sections
+      ? sheet.sections.map(
+          (section, index): Column<SheetDay> => ({
+            key: PART_FIELDS[index] ?? 'dead1',
+            header: t('sheet.col.dead_part', 'هلاكات ق{n}', { n: fmtInt(section.no) }),
+            kind: 'number',
+            cell: (day, row) => {
+              const shown = shownOf(day, ops, saved);
+              return view.content(day, row, PART_FIELDS[index] ?? 'dead1', (fresh) => (
+                <Cell pending={fresh ? fresh.pending : shown.pending.has('dead')} action="cell-dead-part">
+                  {fresh ? countNode(fresh.value) : shown.recorded ? <Num>{fmtInt(shown.deadParts?.[index] ?? 0)}</Num> : ''}
+                </Cell>
+              ));
+            },
+            total: <Num>{fmtInt(sheet.totals.deadParts?.[index] ?? section.dead)}</Num>,
+          }),
+        )
+      : [
+          {
+            key: 'dead',
+            header: t('sheet.col.dead', 'الهلاكات'),
+            kind: 'number' as const,
+            cell: (day: SheetDay, row: number) => {
+              const shown = shownOf(day, ops, saved);
+              return view.content(day, row, 'dead', (fresh) => (
+                <Cell pending={fresh ? fresh.pending : shown.pending.has('dead')} action="cell-dead">
+                  {fresh ? countNode(fresh.value) : shown.recorded ? <Num>{fmtInt(shown.dead)}</Num> : ''}
+                </Cell>
+              ));
+            },
+            total: <Num>{fmtInt(sheet.totals.dead)}</Num>,
+          },
+        ]),
     {
       key: 'gas',
       header: t('sheet.col.gas', 'الغاز'),
@@ -1273,6 +1346,11 @@ function useSheetCells(sheet: HallSheet | null, flockId: string, ops: readonly O
           return { value: null, copy: fmtDay(day.on), milli: null, spoken: fmtDay(day.on), access: 'read', why: t('sheet.grid.fixed', 'العمر والتاريخ لا يُكتبان.') };
         case 'dead':
           return count(shown.recorded ? shown.dead : null, writable ? 'write' : 'read');
+        case 'dead1':
+        case 'dead2':
+        case 'dead3':
+        case 'dead4':
+          return count(shown.recorded ? (shown.deadParts?.[partIndex(field) ?? 0] ?? 0) : null, writable ? 'write' : 'read');
         case 'gas':
           return count(shown.gas, writable ? 'write' : 'read');
         case 'kerosene':
@@ -1303,15 +1381,22 @@ function useSheetCells(sheet: HallSheet | null, flockId: string, ops: readonly O
       // مجموع هلاكات اللصق: كلّ يوم يُقبل وحده حتى الحيّ، ومعاً لا تتجاوز الحيّ الآن (الخادم يردّ live_negative). وهل التغيير تغييرٌ يقرّره الجدول بما
       // تعرضه الخانة (ورفعٌ في الطريق معها)، لا لقطة هذا الرسم (المراجعة R11): هنا الحدود وحدها، وcommit يكتب بما في الطابور لحظتها.
       let liveLeft = sheet.summary.live;
+      // أقسام يومٍ كتب فيه اللصق قسماً قبل قسم (0038): القسم التالي يُفحص على أقسامه بعد الأوّل، لا على ما في الخانات قبله.
+      const after = new Map<string, Shown>();
       return changes.map((change): ChangeCheck => {
         const day = sheet.days.find((entry) => entry.on === change.on);
         if (!day) return { kind: 'error', error: t('sheet.grid.no_day', 'هذا اليوم ليس في الورقة.') };
-        const shown = shownOf(day, ops, saved);
+        const shown = after.get(day.on) ?? shownOf(day, ops, saved);
         const outcome = cellWrite(sheet, day, change.field, shown, change.value);
         if (outcome.kind === 'error') return outcome;
-        if (change.field === 'dead' && typeof change.value === 'number') {
-          liveLeft -= change.value - day.dead;
+        const part = partIndex(change.field);
+        if ((change.field === 'dead' || part !== null) && typeof change.value === 'number') {
+          liveLeft -= part === null ? change.value - day.dead : change.value - (shown.deadParts?.[part] ?? 0);
           if (liveLeft < 0) return { kind: 'error', error: t('sheet.dead.max', 'الهلاكات أكثر من الطيور الحيّة ({live}).', { live: fmtInt(Math.max(sheet.summary.live, 0)) }) };
+        }
+        if (part !== null && outcome.kind === 'input' && outcome.input.fn === 'save_flock_day') {
+          const payload = outcome.input.payload;
+          after.set(day.on, { ...shown, dead: payload.dead ?? shown.dead, deadParts: payload.dead_parts ?? shown.deadParts, recorded: true });
         }
         return { kind: 'ok', shown: afterText(change.value) };
       });
@@ -1330,13 +1415,15 @@ function useSheetCells(sheet: HallSheet | null, flockId: string, ops: readonly O
         const latest = savedEdits(roundQueueStore.get().runs, stampKey(stamp), flockId);
         const dayInputs = new Map<string, { input: EnqueueInput; at: number[] }>();
         const gasInputs: { input: EnqueueInput; at: number[] }[] = [];
+        const written = new Map<string, Shown>();
         changes.forEach((change, index) => {
           const day = sheet.days.find((entry) => entry.on === change.on);
           if (!day) {
             results[index] = { kind: 'error', error: t('sheet.grid.no_day', 'هذا اليوم ليس في الورقة.') };
             return;
           }
-          const shown = shownOf(day, fresh, latest);
+          // أقسام يومٍ كُتب فيه قسمٌ قبل هذا في الدفعة نفسها (0038): يُبنى عليها، فلا يمحو القسم الثاني الأوّل في العملية المدموجة.
+          const shown = written.get(day.on) ?? shownOf(day, fresh, latest);
           if (sameShown(change, shown)) return;
           const outcome = cellWrite(sheet, day, change.field, shown, change.value);
           if (outcome.kind !== 'input') {
@@ -1344,6 +1431,9 @@ function useSheetCells(sheet: HallSheet | null, flockId: string, ops: readonly O
             return;
           }
           const input = outcome.input;
+          if (partIndex(change.field) !== null && input.fn === 'save_flock_day') {
+            written.set(day.on, { ...shown, dead: input.payload.dead ?? shown.dead, deadParts: input.payload.dead_parts ?? shown.deadParts, recorded: true });
+          }
           const open = dayInputs.get(change.on);
           if (input.fn === 'save_flock_day' && open && open.input.fn === 'save_flock_day') {
             // خانات اليوم الواحد (الهلاكات والبيض والملاحظة) عملية واحدة بنسخة صفّه.
@@ -1389,6 +1479,8 @@ function useSheetCells(sheet: HallSheet | null, flockId: string, ops: readonly O
 /** تغيير يساوي ما تعرضه الخانة: لا يُكتب (الهلاكات والبيض الفارغة ليست صفراً: الصفر يُسجَّل). */
 function sameShown(change: CellChange, shown: Shown): boolean {
   if (change.field === 'dead') return shown.recorded && change.value === shown.dead;
+  const part = partIndex(change.field);
+  if (part !== null) return shown.recorded && change.value === (shown.deadParts?.[part] ?? 0);
   if (change.field === 'gas') return change.value === shown.gas;
   if (change.field === 'kerosene') return change.value === shown.kerosene;
   if (change.field === 'eggs') return change.value === shown.eggs;
@@ -1523,7 +1615,7 @@ function SheetScreen({ kind, flockId, nav, site, summary, onGone }: { kind: Floc
           <SheetGrid
             title={sheetTitle(sheet.flock.hallName)}
             days={sheet.days}
-            fields={sheetFields(sheet.flock.kind === 'layer')}
+            fields={sheetFields(sheet.flock.kind === 'layer', sheet.sections?.length ?? 0)}
             today={sheet.today}
             canEdit={sheet.canWrite}
             online={online}

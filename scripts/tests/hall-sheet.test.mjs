@@ -21,6 +21,8 @@ import { descendants, Element, fire, installDom, settle } from './dom.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const FIX = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sheet.hand.json'), 'utf8'));
 // عيّنات القاعدة الحقيقية (supabase/tests/hall-sheet.test.mjs بـHALL_SHEET_SAMPLES_OUT=1): تمرّ بالمحلّلات الحقيقية (تكامل 0035).
+// قاعة مقسومة قسمين (0038، عقد Part S): الورقة نفسها بأقسامها، مكتوبة باليد قبل الهجرة.
+const SPLIT = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sections.hand.json'), 'utf8')).hall_sheet;
 const REAL = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sheet-0035.json'), 'utf8'));
 const REAL_FLOCKS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'flocks.ts'));
 const REAL_SHEET = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'hallSheet.ts'));
@@ -202,7 +204,7 @@ export default async function (t) {
       t.same(
         [sheet.totals, sheet.summary],
         [
-          { dead: 32, gas: 17, kerosene: 400, feedKg: 1000000n, feedBackKg: null, soldBirds: 1000, soldNetKg: 2350500n, eggsTotal: null },
+          { dead: 32, deadParts: null, gas: 17, kerosene: 400, feedKg: 1000000n, feedBackKg: null, soldBirds: 1000, soldNetKg: 2350500n, eggsTotal: null },
           { placed: 5000, dead: 32, mortalityPct: 64n, live: 3968, feedKg: 1000000n, feedBags: 20000n, feedBackKg: null, feedNetKg: 1000000n, gas: 17, kerosene: 400, soldBirds: 1000, soldNetKg: 2350500n, avgWeightKg: 2351n, fcr: 425n },
         ],
         'P المجاميع والخلاصة من الخادم كما هي (بالآلاف والمئات)، والكاز (0037)',
@@ -965,6 +967,21 @@ export default async function (t) {
       t.same(sent.at(-1) ? [sent.at(-1).fn, sent.at(-1).payload, sent.at(-1).baseVersion] : null, ['set_flock_kerosene', { liters: 5 }, 2], 'K2 يومٌ مُسح كازه من قبل: الكتابة بنسخة صفّه الممسوح (2) لا بلا نسخة');
     });
 
+    // ── K3: قاعة مقسومة (0038) باللمس: خانة «هلاكات ق2» تفتح ورقتها، والحفظ بأقسام اليوم ومجموعها ─────────────────────────────────
+    await step('K3 الأقسام باللمس', async () => {
+      const { sent } = fresh('hall_worker', sheetSetup(SPLIT), { userId: 'u-split' });
+      await mount(`/broiler/hall/${H7}`);
+      await pencil();
+      const row = rowOn(TODAY);
+      const cellsOf = row ? byAction('cell-dead-part', row) : [];
+      await tap(cellsOf[1] ?? null);
+      const dialog = dialogTitled('هلاكات ق2');
+      t.same([cellsOf.length, dialog !== null, textOf('cell-current', dialog ?? body())], [2, true, 'المسجّل الآن: 2'], 'K3 لمسة «هلاكات ق2» تفتح ورقتها بقيمتها');
+      await click(key(dialog, '6'));
+      await click(byAction('cell-done', dialog ?? body())[0], 120);
+      t.same(sent.map((op) => [op.fn, op.day, op.payload, op.baseVersion]), [['save_flock_day', TODAY, { dead: 8, dead_parts: [2, 6], culled: null }, SPLIT.days.find((day) => day.on === TODAY).day_version]], 'K3 «تم»: save_flock_day بمجموع اليوم 8 وأقسامه [2، 6] بنسخة صفّه');
+    });
+
     await step('F6 الطلب المجمَّد يسمّي يومه', async () => {
       fresh('hall_worker', sheetSetup(BROILER, { send_flock_feed: () => { throw new m.UnknownOutcomeError(); } }), { userId: 'u-f6' });
       await mount(`/broiler/hall/${H7}`);
@@ -1058,6 +1075,52 @@ export default async function (t) {
       );
       t.throws(() => m.parseHallSheet({ ...clone(BROILER), rejects: [{ ...clone(BROILER.rejects[0]), version: '1' }] }), 'R3 نسخة المركون نصّاً تُرفض (المفتاح الجديد بشكله)');
       t.throws(() => m.parseHallSheet((() => { const j = clone(BROILER); j.days[3].carry_in_kg = '10.000'; return j; })()), 'R3 منقول في غير يوم التسكين يُرفض');
+    });
+
+    // ── Q: القاعة المقسومة (0038): المحلّل وتقرير الوجبة ───────────────────────────────────────────────────────────────────
+    await step('Q الأقسام', async () => {
+      const split = m.parseHallSheet(clone(SPLIT));
+      t.same(
+        [split.sections?.map((x) => [x.no, x.placed, x.dead, x.mortalityPct, x.remaining]), split.totals.deadParts, split.days[20].deadParts, split.days.find((day) => day.dayVersion === null)?.deadParts],
+        [[[1, 2500, 18, 72n, 2482], [2, 2500, 14, 56n, 2486]], [18, 14], [2, 2], null],
+        'Q المحلّل: الأقسام بأعدادها وهلاكاتها ونسبها وباقيها، ومجاميعها، وأقسام كلّ يوم (ويوم بلا جولة null)',
+      );
+      const bad = (mutate) => {
+        const json = clone(SPLIT);
+        mutate(json);
+        try {
+          m.parseHallSheet(json);
+          return 'parsed';
+        } catch (error) {
+          return error instanceof m.HallSheetShapeError ? error.field : `other:${error?.message}`;
+        }
+      };
+      t.same(
+        [
+          bad((j) => { j.days[20].dead_parts = [3, 2]; }),
+          bad((j) => { j.days[20].dead_parts = [4]; }),
+          bad((j) => { j.days[20].dead_parts = [2, 1, 1]; }),
+          bad((j) => { j.sections[0].remaining = 1; }),
+          bad((j) => { j.sections[1].dead = 15; }),
+          bad((j) => { j.sections = null; }),
+        ],
+        ['dead_parts', 'dead_parts', 'dead_parts', 'sections', 'sections', 'dead_parts'],
+        'Q الصرامة: أقسام يوم لا تساوي هلاكاته، أو بغير عدد الأقسام، وقسم باقيه غير عدده ناقص هلاكاته، أو هلاكاته غير مجموع أيّامه، وأقسام أيّام بلا أقسام الوجبة: يُرفض',
+      );
+      fresh('viewer', { hall_sheet: () => clone(SPLIT) });
+      await mount(`/halls/report/${F7}`, m.h(m.Routes, null, m.h(m.Route, { path: '/halls/report/:flockId', element: m.h(m.ReportPage) })));
+      const sections = tableBy('الأقسام');
+      t.same(
+        [headers(sections), bodyRows(sections).map(cells)],
+        [['القسم', 'الداخل', 'الهلاكات', 'نسبة الهلاكات', 'الباقي بعد الهلاكات'], [['ق1', '2,500', '18', '0.72%', '2,482'], ['ق2', '2,500', '14', '0.56%', '2,486']]],
+        'Q تقرير الوجبة: جدول «الأقسام» بعدد كلّ قسم وهلاكاته ونسبتها والباقي فيه بعد الهلاكات',
+      );
+      const days = tableBy('أيام الوجبة');
+      t.same(
+        [headers(days).slice(0, 5), cells(footRow(days)).slice(0, 4), bodyRows(days).map(cells).at(-1)?.slice(2, 4)],
+        [['العمر', 'التاريخ', 'هلاكات ق1', 'هلاكات ق2', 'الغاز'], ['المجموع', '18', '14', '17'], ['2', '2']],
+        'Q تقرير الوجبة: عمود هلاكات لكلّ قسم بمجموعه في آخره بدل «الهلاكات»',
+      );
     });
 
     // ── R: تقرير الوجبة ─────────────────────────────────────────────────────────────────────────────────────────────

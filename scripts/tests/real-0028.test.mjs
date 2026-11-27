@@ -129,6 +129,8 @@ const OPTIONAL = [
   /(^|\.)money$/u, /(^|\.)stores$/u, /^\.then$/u, /^\.ticket\.can$/u, /^\.site$/u, /^\.totals\.open$/u, /^\.today$/u, /(^|\.)gas$/u,
   /(^|\.)(dead_entered|gas_today|gas_today_version|feed_today_kg|feed_today|last_feed_item_id|feed_items)$/u,
   /^\.weeks\.feed_given_(kg|unweighed)$/u, /^\.kpis\.feed_close_left_(kg|unweighed)$/u,
+  // 0038 (القاعة المقسومة): مفاتيح تضيفها لقرّاء قائمين، وغيابها (خادم قبلها) «غير مقسومة».
+  /(^|\.)(section_counts|section_dead|dead_parts|sections)$/u,
 ];
 
 const camel = (key) => key.replace(/_([a-z0-9])/gu, (_, c) => c.toUpperCase());

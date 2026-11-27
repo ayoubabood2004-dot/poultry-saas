@@ -31,7 +31,7 @@ const REAL36 = readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'rou
 // وعيّنات «عوف سالفة العلف الماكول» (round-once-feed.test بـROUND_FEED_SAMPLES_OUT=1، يومها 2026-11-24): الوجبة التالية N في «قاعة الإغلاق» يوم تسكينها
 // بالمنقول إليها (سطر carry) والمرسل.
 const FEED36 = readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'round-feed-0036.json'), 'utf8');
-const OVERRIDES = ['loadOverviewJson', 'loadFlockDetail', 'createHall', 'updateHall', 'archiveHall', 'openFlock', 'recordFlockWeight'];
+const OVERRIDES = ['loadOverviewJson', 'loadFlockDetail', 'createHall', 'updateHall', 'archiveHall', 'openFlock', 'recordFlockWeight', 'setHallSections'];
 const STUBS = {
   // loadOverview مثل الحقيقي بالضبط (parseOverview(await loadOverviewJson())) بس عبر البديل، حتى الرئيسية القديمة تقرا من نفس الخادم المزيّف.
   flocks: `export * from ${REAL_FLOCKS}; import { parseOverview as __parseOverview } from ${REAL_FLOCKS}; ${OVERRIDES.map((n) => `export const ${n} = (...a) => globalThis.__farm.call('${n}', a);`).join(' ')}
@@ -238,6 +238,21 @@ export default async function (t) {
         ],
         ['throw:FlockShapeError', 'throw:FlockShapeError', 'throw:FlockShapeError'],
         'T2: add_flock_gas بشكل غريب يرمي (لا قناني بعد إضافة، أو فوق 1,000، أو حالة غير حالتيه)',
+      );
+      // 0038: هلاكات الأقسام تُرسل بمعاملها مع مجموعها (p_parts وp_dead_parts)، ولا يُرسل المعامل بلا أقسام (خادم قبل 0038 لا يعرفه).
+      const splitDead = { ...op, id: 'op-s', fn: 'set_flock_dead', payload: { dead: 5, parts: [3, 2] }, baseVersion: null };
+      await outcome({ json: H.set_flock_dead_saved }, splitDead);
+      const deadBody = server.bodies.at(-1).body;
+      await outcome({ json: H.set_flock_dead_saved }, { ...splitDead, id: 'op-s2', payload: { dead: 4 } });
+      const plainBody = server.bodies.at(-1).body;
+      await outcome({ json: { status: 'saved', version: 3 } }, { ...op, id: 'op-s3', payload: { dead: 5, dead_parts: [3, 2] } });
+      const sheetBody = server.bodies.at(-1).body;
+      await outcome({ json: { status: 'saved', version: 3 } }, { ...op, id: 'op-s4', payload: { dead: 5 } });
+      const plainSheet = server.bodies.at(-1).body;
+      t.same(
+        [deadBody.p_parts, deadBody.p_dead, 'p_parts' in plainBody, sheetBody.p_dead_parts, sheetBody.p_dead, 'p_dead_parts' in plainSheet],
+        [[3, 2], 5, false, [3, 2], 5, false],
+        'T4: الأقسام بمعاملها مع مجموعها (set_flock_dead وsave_flock_day)، وبلاها لا معامل',
       );
       // 0037: كاز اليوم من ورقة القاعة يُرسل بدالّته ونسخة صفّه، والجواب بعقده (D3).
       const keroOp = { ...op, id: 'op-k', fn: 'set_flock_kerosene', payload: { liters: 400 }, baseVersion: 1 };
@@ -773,6 +788,44 @@ export default async function (t) {
       t.same([textIn('f-a', 'round-dead-value'), Boolean(inCard('f-a', '-dead'))], ['5', false], 'N13 والقاعة مقفولة بما سُجّل (لا يُضاف إليه)');
     });
 
+    // ── NS: قاعة مقسومة (0038): خانة هلاكات لكلّ قسم، والفارغ صفر، والقسم بحدّ الباقي فيه، والمقفول بأقسامه ─────────────────────────────
+    await step('NS', async () => {
+      const server = makeServer();
+      const plain = server.overview;
+      // قاعة 1 مقسومة قسمين (2,500 لكلّ قسم)، وهلاكات ما قبل اليوم 10 في ق1 و4 في ق2.
+      server.overview = () => {
+        const json = plain();
+        const flockJson = json.sites[0].halls[0].flock;
+        flockJson.section_counts = [2500, 2500];
+        flockJson.section_dead = [10, 4];
+        json.sites[0].halls[0].sections = 2;
+        if (server.rows['f-a'].parts && flockJson.today) flockJson.today.dead_parts = server.rows['f-a'].parts;
+        return json;
+      };
+      const send = server.send;
+      server.send = async (op) => {
+        if (op.fn === 'set_flock_dead' && op.payload.parts) server.rows['f-a'].parts = op.payload.parts;
+        const result = await send(op);
+        if (op.fn === 'set_flock_dead' && result.day && op.payload.parts) result.day.dead_parts = op.payload.parts;
+        return result;
+      };
+      const { sent } = roundWith(server, 'u-ns');
+      await mount('/broiler/round');
+      const labels = descendants(card('f-a') ?? body()).filter((n) => n.localName === 'label').map((n) => n.textContent);
+      t.same([labels.slice(0, 2), inCard('f-a', '-dead') === null, inCard('f-b', '-dead') !== null], [['هلاكات ق1', 'هلاكات ق2'], true, true], 'NS قاعة مقسومة: خانة «هلاكات ق1» و«هلاكات ق2» بدل «هلاكات اليوم»، والقاعة غير المقسومة بخانتها');
+      type(inCard('f-a', '-dead2'), '2497');
+      await settle();
+      await save(150);
+      t.same([sent.length, textIn('f-a', 'round-error')], [0, 'هلاكات ق2 أكثر من طيوره الباقية (2,496).'], 'NS القسم لا يتجاوز الباقي فيه (عدده − هلاكاته)، ولا شيء يُرسل');
+      type(inCard('f-a', '-dead2'), '');
+      type(inCard('f-a', '-dead1'), '3');
+      await settle();
+      t.eq(textIn('f-a', 'round-dead-sum'), 'مجموع هلاكات القاعة: 3', 'NS المجموع تحت خانات الأقسام (والفارغ صفر)');
+      await save(150);
+      t.same(sent.map((op) => [op.fn, op.payload]), [['set_flock_dead', { dead: 3, parts: [3, 0] }]], 'NS الحفظ: set_flock_dead بالمجموع 3 وأقسامه [3، 0]');
+      t.same([textIn('f-a', 'round-dead-value'), textIn('f-a', 'round-dead-parts'), Boolean(inCard('f-a', '-dead1'))], ['3', 'ق1 3 · ق2 0', false], 'NS بعدها مقفولة بمجموعها وأقسامها');
+    });
+
     // ── N14: هلاكات كُتبت ثمّ سُجّلت قبل الحفظ: تُقال ولا تُرسل، و«حسناً» يمسحها ─────────────────────────────────────────────────────
     await step('N14', async () => {
       const server = makeServer();
@@ -1069,6 +1122,34 @@ export default async function (t) {
       fresh({ status: 'ready', workspace: ws({ role: 'hall_worker', divisions: ['broiler'] }), offline: false }, { loadOverviewJson: worker });
       await mount('/broiler');
       t.same([byAction('farm-round').length, byAction('hall-add').length, byAction('flock-open').length], [1, 0, 0], 'F1: عامل القاعة يشوف الجولة بلا إضافة قاعة ولا فتح فوج');
+    });
+
+    // ── FS: القاعة المقسومة (0038): «أقسام القاعة» في نافذة القاعة، وعدد كلّ قسم عند فتح الفوج ومجموعه العدد الداخل ──────────────────────
+    await step('FS', async () => {
+      const textOf = (action) => byAction(action)[0]?.textContent ?? null;
+      const halls = () => [hall('h-1', 'قاعة 1', flock('f-a', 'broiler')), { ...hall('h-3', 'قاعة 3', null), sections: 2 }];
+      const broiler = () => ({ today: TODAY, sites: [site('s-1', 'broiler', halls())] });
+      const { calls } = fresh(owner('u-fs'), { loadOverviewJson: broiler, openFlock: () => 'f-new', createHall: () => undefined, updateHall: () => 3, setHallSections: () => ({ status: 'saved', version: 4, sections: 2 }) });
+      await mount('/broiler');
+      fire(byAction('hall-add')[0], 'click');
+      await settle();
+      type(byIdSuffix('-name')[0], 'قاعة 1+2');
+      fire(all().find((n) => n.getAttribute('role') === 'radio' && n.textContent === 'قسمان') ?? body(), 'click');
+      await settle();
+      fire(byAction('hall-save')[0], 'click');
+      await settle(60);
+      t.same(calls.find(([name]) => name === 'createHall')?.[1], ['s-1', 'قاعة 1+2', null, 2], 'FS «أضف قاعة» بـ«قسمان»: createHall بأقسامها');
+      fire(byAction('flock-open')[0], 'click');
+      await settle();
+      const sectionInputs = byAction('section-count');
+      t.same([sectionInputs.length, byIdSuffix('-count').length, textOf('section-total')], [2, 0, 'المجموع يظهر حين تُكتب أعداد الأقسام كلّها.'], 'FS فتح فوج في قاعة مقسومة: خانة عدد لكلّ قسم بدل العدد الواحد');
+      type(sectionInputs[0], '13525');
+      type(sectionInputs[1], '13525');
+      await settle();
+      t.eq(textOf('section-total'), 'مجموع الطيور المسكّنة: 27,050', 'FS المجموع تحتها هو العدد الداخل');
+      fire(byAction('flock-open-save')[0], 'click');
+      await settle(60);
+      t.same(calls.find(([name]) => name === 'openFlock')?.[1]?.[0], { hallId: 'h-3', placedOn: TODAY, placedCount: 27050, ageDays: 0, breed: '', sectionCounts: [13525, 13525] }, 'FS open_flock بالمجموع وعدد كلّ قسم');
     });
 
     // ── L5: ما يُكتب أثناء رفع الحفظ يبقى (غاز قاعة أخرى)، وما حُفظ يُفرغ ─────────────────────────────────────────────────────────

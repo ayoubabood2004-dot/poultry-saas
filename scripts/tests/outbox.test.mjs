@@ -886,6 +886,35 @@ export default async function (t) {
     }
   }
 
+  // ─── 0038: هلاكات الأقسام (parts في set_flock_dead وdead_parts في save_flock_day) ──────────────────────────────────────────────
+  // P1) الأقسام صالحة (من قسمين إلى أربعة، أعداد صحيحة بحدود الخادم) ومجموعها الهلاكات المكتوبة معها، وإلّا لا تدخل الطابور؛ والأحدث يحلّ محلّ الأقدم
+  // بأقسامه؛ وتصحيح الورقة يحمل أقسامه مع مجموعه ويندمج بمجموع اليوم.
+  {
+    const db = await open();
+    const refusedOf = async (input) => q.saveRound(db, ALI, input).then(() => 'queued', (error) => error?.code ?? error?.message);
+    const deadWith = (parts, n = 5) => ({ fn: 'set_flock_dead', flockId: 'p1', day: '2026-11-26', payload: { dead: n, parts }, baseVersion: null });
+    t.same(
+      [
+        await refusedOf(deadWith([3, 3])),
+        await refusedOf(deadWith([5])),
+        await refusedOf(deadWith([1, 1, 1, 1, 1])),
+        await refusedOf(deadWith([6, -1])),
+        await refusedOf(deadWith([2.5, 2.5])),
+        await refusedOf(day('p1b', '2026-11-26', { dead: 5, dead_parts: [4, 0] }, 1)),
+        await refusedOf(day('p1b', '2026-11-26', { dead_parts: [4, 1] }, 1)),
+      ],
+      ['not_queueable', 'not_queueable', 'not_queueable', 'not_queueable', 'not_queueable', 'not_queueable', 'not_queueable'],
+      'P1 أقسام لا تساوي الهلاكات، أو بقسم واحد أو خمسة، أو سالبة أو كسر، أو بلا هلاكاتها: لا تدخل الطابور',
+    );
+    const first = await q.saveRound(db, ALI, deadWith([3, 2]));
+    const second = await q.saveRound(db, ALI, deadWith([1, 6], 7));
+    const opsNow = await readOps(db);
+    t.same([second.id === first.id, opsNow.filter((op) => op.flockId === 'p1').map((op) => op.payload)], [true, [{ dead: 7, parts: [1, 6] }]], 'P1 الأحدث يحلّ محلّ الأقدم بأقسامه (لم يُرسل)');
+    await q.saveRound(db, ALI, day('p1c', '2026-11-26', { dead: 4, dead_parts: [3, 1] }, 2));
+    await q.saveRound(db, ALI, day('p1c', '2026-11-26', { note: 'تهوية' }, 9));
+    t.same((await readOps(db)).filter((op) => op.flockId === 'p1c').map((op) => op.payload), [{ dead: 4, dead_parts: [3, 1], note: 'تهوية' }], 'P1 تصحيح الورقة بأقسامه يندمج بمجموع اليوم والملاحظة بعده');
+  }
+
   // ─── 0037: كاز اليوم (set_flock_kerosene) ────────────────────────────────────────────────────────────────────────────────
   const kerosene = (flockId, onDate, liters, baseVersion = null) => ({ fn: 'set_flock_kerosene', flockId, day: onDate, payload: { liters }, baseVersion });
   /** خادم كاز كخادم الغاز: صفّ لكلّ (فوج، يوم) بنسخته، والنسخة المختلفة stale_kerosene بقيمته، والمرجع يعيد أوّل جواب. */

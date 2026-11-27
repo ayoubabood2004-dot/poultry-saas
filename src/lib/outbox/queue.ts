@@ -105,6 +105,9 @@ const MAX_BIRDS = 10_000_000;
 const MAX_CYLINDERS = 1000;
 export const MAX_KEROSENE_LITERS = 20_000;
 const whole = (value: unknown, min: number, max: number): value is number => typeof value === 'number' && Number.isInteger(value) && value >= min && value <= max;
+/** هلاكات الأقسام (0038): من قسمين إلى أربعة، كلّ قسم عدد صحيح بحدود الخادم، ومجموعها الهلاكات المكتوبة معها. */
+const partsOf = (parts: unknown, dead: unknown): boolean =>
+  Array.isArray(parts) && parts.length >= 2 && parts.length <= 4 && parts.every((part) => whole(part, 0, MAX_BIRDS)) && typeof dead === 'number' && parts.reduce((sum: number, part: number) => sum + part, 0) === dead;
 
 function mergePayload(older: FlockDayPayload, newer: FlockDayPayload): FlockDayPayload {
   const merged: Record<string, unknown> = { ...older };
@@ -172,6 +175,9 @@ export async function enqueueAll(db: IDBDatabase, stamp: Stamp, inputs: readonly
     }
     // 0036: الهلاكات عدد صحيح بحدود الخادم، والإضافة قنينة على الأقلّ وحتى 1,000؛ ولا نسخة لأيّهما.
     if (input.fn === 'set_flock_dead' && (!whole(input.payload?.dead, 0, MAX_BIRDS) || input.baseVersion !== null)) throw new OutboxError('not_queueable');
+    // 0038: هلاكات الأقسام صالحة ومجموعها الهلاكات، ولا تُكتب بلاها في مجموع اليوم.
+    if (input.fn === 'set_flock_dead' && input.payload.parts !== undefined && !partsOf(input.payload.parts, input.payload.dead)) throw new OutboxError('not_queueable');
+    if (input.fn === 'save_flock_day' && input.payload?.dead_parts !== undefined && input.payload.dead_parts !== null && !partsOf(input.payload.dead_parts, input.payload.dead)) throw new OutboxError('not_queueable');
     if (input.fn === 'add_flock_gas' && (!whole(input.payload?.add, 1, MAX_CYLINDERS) || input.baseVersion !== null)) throw new OutboxError('not_queueable');
   }
   if (!stamp.userId || !stamp.orgId) throw new OutboxError('no_identity');
@@ -192,7 +198,7 @@ async function write(store: IDBObjectStore, stamp: Stamp, input: EnqueueInput, n
     // أحدث عملية هلاكات لليوم وحدها، وبس إذا بعدها منتظرة: القيمة الأحدث تحلّ محلّ القديمة (لم تُرسل، فلا شيء يُضاف).
     const open = newestOf(existing.filter((op) => op.fn === 'set_flock_dead'));
     if (open?.fn === 'set_flock_dead' && open.state === 'pending') {
-      const merged: DeadOp = { ...open, payload: { dead: input.payload.dead }, updatedAt: now };
+      const merged: DeadOp = { ...open, payload: input.payload.parts ? { dead: input.payload.dead, parts: [...input.payload.parts] } : { dead: input.payload.dead }, updatedAt: now };
       await requestResult(store.put(merged));
       return merged;
     }

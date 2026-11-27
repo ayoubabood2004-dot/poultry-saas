@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js';
 import type { Day } from '../../domain/dates';
 import { parseDecimal, toScale } from '../../domain/decimal';
 import type { FlockKind } from '../../domain/flocks';
+import { MAX_SECTIONS, validParts } from '../../domain/sections';
 import type { Milli } from '../../domain/money';
 import type { BaseUnit } from '../../domain/units';
 import { IdentityError, RejectedError, ZeroRowsError } from '../errors';
@@ -85,6 +86,16 @@ const pick = <T extends string>(row: Row, field: string, allowed: readonly T[]):
 const unitOf = (row: Row, field: string): BaseUnit => pick(row, field, BASE_UNITS);
 /** مفتاح أضافته 0036 لقارئ قائم: غيابه (خادم قبلها أو نسخة جهاز قديمة) null، ووجوده بشكله وإلّا رُفض. */
 const since0036 = <T>(row: Row, field: string, read: (row: Row, field: string) => T): T | null => (row[field] === undefined ? null : read(row, field));
+/**
+ * أعداد الأقسام (0038): null، أو عدد صحيح غير سالب لكلّ قسم من قسمين إلى أربعة؛ وغيره شكل غريب. والغائب (خادم قبل 0038 أو نسخة جهاز منه) null كما
+ * since0036.
+ */
+export const partsOf = (row: Row, field: string): number[] | null => {
+  const value = row[field];
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value) || !validParts(value)) throw new FlockShapeError(field);
+  return [...value];
+};
 
 /**
  * خانات اليوم كما انحفظت: العلف بالآلاف (غرام)، والحرارة بالأعشار؛ null = ما انسجّلت. والماء (water_l) خارج الشاشات (كلمة المالك
@@ -105,6 +116,8 @@ export interface DayValues {
 export interface DayRow extends DayValues {
   onDate: Day;
   version: number;
+  /** 0038: هلاكات اليوم لكلّ قسم في قاعة مقسومة (مجموعها dead)، أو null: قاعة غير مقسومة أو خادم قبل 0038. */
+  deadParts: number[] | null;
   /**
    * 0036: «سُجّلت هلاكات اليوم» (الجولة تُدخلها مرّة ثمّ تتضلّل)، أو null: خادم قبل 0036 أو نسخة جهاز منه. والغائب يُقرأ في الجولة كما ملأته الهجرة
    * القائمة: سُجّلت إن كان في اليوم هلاكات.
@@ -118,6 +131,7 @@ export function parseDayRow(value: unknown): DayRow {
     onDate: str(row, 'on_date'),
     version: int(row, 'version'),
     deadEntered: since0036(row, 'dead_entered', flag),
+    deadParts: partsOf(row, 'dead_parts'),
     dead: optInt(row, 'dead'),
     culled: optInt(row, 'culled'),
     feedKg: scaled(row, 'feed_kg', 3),
@@ -161,6 +175,10 @@ export interface FlockSummary {
   /** بالمئات؛ null = ما انسجّل بيض اليوم («—» مو صفر، القاعدة 32). */
   hdepToday: bigint | null;
   rejectsPending: number;
+  /** 0038: عدد طيور كلّ قسم في قاعة مقسومة (مجموعه العدد الداخل)، أو null: غير مقسومة أو خادم قبل 0038. */
+  sectionCounts: number[] | null;
+  /** 0038: هلاكات كلّ قسم في الوجبة كلّها (الباقي فيه = عدده − هلاكاته)، أو null. */
+  sectionDead: number[] | null;
   /** 0036 (الجولة): قناني غاز اليوم، أو null: لم يُسجَّل غاز اليوم (أو خادم قبل 0036). */
   gasToday: number | null;
   /** نسخة صفّ غاز اليوم، أو null: لا صفّ. */
@@ -238,6 +256,8 @@ export function parseFlock(value: unknown): FlockSummary {
     eggsToday: optInt(row, 'eggs_today'),
     hdepToday: scaled(row, 'hdep_today', 2),
     rejectsPending: optInt(row, 'rejects_pending') ?? 0,
+    sectionCounts: partsOf(row, 'section_counts'),
+    sectionDead: partsOf(row, 'section_dead'),
     ...roundKeys(row),
   };
 }
@@ -247,6 +267,8 @@ export interface HallView {
   name: string;
   capacity: number | null;
   version: number;
+  /** 0038: أقسام القاعة (1 = غير مقسومة، حتى 4)؛ خادم قبل 0038: 1. */
+  sections: number;
   flock: FlockSummary | null;
 }
 
@@ -302,6 +324,14 @@ export interface FlocksOverview {
   feedItems: FeedItem[];
 }
 
+/** أقسام القاعة من 1 إلى 4، والغائب (خادم قبل 0038) 1. */
+function sectionsOf(hall: Row): number {
+  if (hall.sections === undefined) return 1;
+  const sections = int(hall, 'sections');
+  if (sections < 1 || sections > MAX_SECTIONS) throw new FlockShapeError('sections');
+  return sections;
+}
+
 export function parseOverview(value: unknown): FlocksOverview {
   const json = record(value, 'overview');
   return {
@@ -318,6 +348,7 @@ export function parseOverview(value: unknown): FlocksOverview {
         name: str(hall, 'name'),
         capacity: optInt(hall, 'capacity'),
         version: int(hall, 'version'),
+        sections: sectionsOf(hall),
         flock: hall.flock === null || hall.flock === undefined ? null : parseFlock(hall.flock),
       })),
     })),
@@ -506,13 +537,36 @@ async function written(make: (db: SupabaseClient) => Promise<Row[]>): Promise<Ro
   return row;
 }
 
-export async function createHall(siteId: string, name: string, capacity: number | null): Promise<void> {
-  await written(async (db) => updatedRows(withStatus(await db.from('halls').insert({ site_id: siteId, name: name.trim(), capacity }).select('id, version'))));
+export async function createHall(siteId: string, name: string, capacity: number | null, sections = 1): Promise<void> {
+  // أقسام القاعة (0038) تُكتب عند إنشائها؛ والعمود يُرسل لقاعة مقسومة وحدها (خادم قبل 0038 لا يعرفه).
+  await written(async (db) =>
+    updatedRows(withStatus(await db.from('halls').insert({ site_id: siteId, name: name.trim(), capacity, ...(sections > 1 ? { sections } : {}) }).select('id, version'))),
+  );
 }
 
 /** الاسم والسعة بشرط النسخة اللي انفتح عليها النموذج (صفر صفوف = تغيّرت بعده). */
-export async function updateHall(id: string, version: number, name: string, capacity: number | null): Promise<void> {
-  await written(async (db) => updatedRows(withStatus(await db.from('halls').update({ name: name.trim(), capacity }).eq('id', id).eq('version', version).select('id, version'))));
+export async function updateHall(id: string, version: number, name: string, capacity: number | null): Promise<number> {
+  const row = await written(async (db) => updatedRows(withStatus(await db.from('halls').update({ name: name.trim(), capacity }).eq('id', id).eq('version', version).select('id, version'))));
+  // نسخة القاعة بعد الحفظ: تغيير أقسامها بعده يُشرط بها.
+  return int(row, 'version');
+}
+
+/** جواب set_hall_sections (0038): حُفظ بنسخة القاعة وأقسامها، أو stale_hall (تغيّرت القاعة بعد فتح النافذة). */
+export type HallSectionsResult = { status: 'saved' | 'stale_hall'; version: number; sections: number };
+
+export function parseHallSections(value: unknown): HallSectionsResult {
+  const answer = record(value, 'set_hall_sections');
+  const status = answer.status;
+  if (status !== 'saved' && status !== 'stale_hall') throw new FlockShapeError('status');
+  const hall = record(answer.hall, 'hall');
+  return { status, version: int(hall, 'version'), sections: sectionsOf(hall) };
+}
+
+/**
+ * أقسام القاعة (0038، من 1 إلى 4) بشرط نسختها؛ ووجبتها القائمة بلا هلاكات تُقسم بالتساوي، وبهلاكات تُرفض (sections_after_deaths). بمرجع النافذة.
+ */
+export async function setHallSections(hallId: string, sections: number, expectedVersion: number, clientRef: string): Promise<HallSectionsResult> {
+  return parseHallSections(await call<unknown>('set_hall_sections', { p_hall: hallId, p_sections: sections, p_expected_version: expectedVersion, p_client_ref: clientRef }));
 }
 
 /** أرشفة القاعة (لا حذف أبداً)؛ قاعة بيها فوج شغّال ترفض (hall_in_use). */
@@ -528,6 +582,8 @@ export interface OpenFlockInput {
   placedCount: number;
   ageDays: number;
   breed: string;
+  /** 0038: عدد كلّ قسم في قاعة مقسومة (مجموعه placedCount)، أو غائب. */
+  sectionCounts?: number[];
 }
 
 /** فتح وتسكين بخطوة وحدة (النسخة الأولى: بلا كلفة أفراخ، chick_source = opening). يرجّع معرّف الفوج. */
@@ -540,6 +596,7 @@ export async function openFlock(input: OpenFlockInput, clientRef: string): Promi
       p_age_days: input.ageDays,
       p_breed: input.breed.trim(),
       p_client_ref: clientRef,
+      ...(input.sectionCounts ? { p_section_counts: input.sectionCounts } : {}),
     }),
     'open_flock',
   );
@@ -745,7 +802,15 @@ export async function sendFlockDay(op: OutboxOp): Promise<SendResult> {
       });
     } else if (op.fn === 'set_flock_dead') {
       // هلاكات اليوم مرّة (0036): العدد كما كُتب، والمرجع معرّف العملية.
-      answer = await call<unknown>('set_flock_dead', { p_flock: op.flockId, p_on: op.day, p_dead: op.payload.dead, p_client_ref: op.id, p_queued: true });
+      // وفي قاعة مقسومة (0038) هلاكات كلّ قسم: المعامل يُرسل معها وحدها (خادم قبل 0038 لا يعرفه).
+      answer = await call<unknown>('set_flock_dead', {
+        p_flock: op.flockId,
+        p_on: op.day,
+        p_dead: op.payload.dead,
+        p_client_ref: op.id,
+        p_queued: true,
+        ...(op.payload.parts ? { p_parts: op.payload.parts } : {}),
+      });
     } else if (op.fn === 'add_flock_gas') {
       // قناني أُرسلت الآن تُضاف إلى مجموع اليوم (0036): كلّ إضافة بمرجعها، فإعادتها لا تضاعفها.
       answer = await call<unknown>('add_flock_gas', { p_flock: op.flockId, p_on: op.day, p_add: op.payload.add, p_client_ref: op.id, p_queued: true });
@@ -787,6 +852,8 @@ export async function sendFlockDay(op: OutboxOp): Promise<SendResult> {
         p_base_version: op.baseVersion,
         p_client_ref: op.id,
         p_queued: true,
+        // 0038: هلاكات كلّ قسم مع مجموعها، والمعامل معها وحدها (خادم قبل 0038 لا يعرفه).
+        ...(p.dead_parts ? { p_dead_parts: p.dead_parts } : {}),
       });
     }
   } catch (error) {

@@ -45,8 +45,12 @@ import {
 // بنسخة صفّ اليوم وset_flock_gas بالطابور والرافع الواحد)، والقيمة تظهر فور الحفظ («بانتظار الرفع» حتى يُعرف مصيرها)، وما رُدّ يُقال في خانته. والتحديد
 // والمحرّر بيوم الخانة وعمودها لا برقم صفّها (المراجعة العدائية R3)، والمحرّر المفتوح تعديلٌ لم يُحفظ (R2) لا يفقد تركيزه بنقرة (R1، R6).
 
-export type GridField = 'age' | 'date' | 'dead' | 'gas' | 'kerosene' | 'feed' | 'eggs' | 'note';
-export type WriteField = 'dead' | 'gas' | 'kerosene' | 'eggs' | 'note';
+/** هلاكات قسم في قاعة مقسومة (0038): ق1 … ق4 بدل «الهلاكات». */
+export type DeadPartField = 'dead1' | 'dead2' | 'dead3' | 'dead4';
+export type GridField = 'age' | 'date' | 'dead' | DeadPartField | 'gas' | 'kerosene' | 'feed' | 'eggs' | 'note';
+export type WriteField = 'dead' | DeadPartField | 'gas' | 'kerosene' | 'eggs' | 'note';
+/** خانة هلاكات: اليوم كلّه أو قسم منه. */
+export const isDeadField = (field: GridField): field is 'dead' | DeadPartField => field === 'dead' || field === 'dead1' || field === 'dead2' || field === 'dead3' || field === 'dead4';
 /** قيمة خانة: عدد (الهلاكات والغاز والبيض)، أو نصّ (الملاحظة)، أو null: فارغة (الغاز بلا قنانٍ، والملاحظة بلا نصّ). */
 export type CellValue = number | string | null;
 
@@ -116,8 +120,8 @@ export interface SheetGridProps {
   children(view: SheetGridView): ReactNode;
 }
 
-const WRITE_FIELDS: readonly GridField[] = ['dead', 'gas', 'kerosene', 'eggs', 'note'];
-const STOP_FIELDS: readonly GridField[] = ['dead', 'gas', 'kerosene', 'feed', 'eggs', 'note'];
+const WRITE_FIELDS: readonly GridField[] = ['dead', 'dead1', 'dead2', 'dead3', 'dead4', 'gas', 'kerosene', 'eggs', 'note'];
+const STOP_FIELDS: readonly GridField[] = ['dead', 'dead1', 'dead2', 'dead3', 'dead4', 'gas', 'kerosene', 'feed', 'eggs', 'note'];
 const isWrite = (field: GridField): field is WriteField => WRITE_FIELDS.includes(field);
 
 /**
@@ -625,7 +629,7 @@ export function SheetGrid(props: SheetGridProps) {
       return false;
     }
     // إفراغ الهلاكات أو البيض صفرٌ بعد تأكيد يسمّي اليوم (العقد)؛ والصفر المكتوب صفرٌ بلا سؤال.
-    if ((field === 'dead' || field === 'eggs') && current.text.trim() === '') {
+    if ((isDeadField(field) || field === 'eggs') && current.text.trim() === '') {
       finish();
       setClearing({ change, before: spokenAt(current.at) });
       return true;
@@ -673,7 +677,7 @@ export function SheetGrid(props: SheetGridProps) {
         }
         value = n;
       }
-      if (value === 0 && shown === null && (field === 'dead' || field === 'eggs') && (raw === null || raw.trim() === '')) {
+      if (value === 0 && shown === null && (isDeadField(field) || field === 'eggs') && (raw === null || raw.trim() === '')) {
         entries.push({ ...base, status: 'same', reason: null });
         continue;
       }
@@ -726,12 +730,12 @@ export function SheetGrid(props: SheetGridProps) {
       say(readHint(info));
       return;
     }
-    if (copyOf(cell) === '' || ((field === 'dead' || field === 'eggs') && valueOf(cell) === 0)) {
+    if (copyOf(cell) === '' || ((isDeadField(field) || field === 'eggs') && valueOf(cell) === 0)) {
       say(t('sheet.grid.empty_cell', 'الخانة فارغة.'));
       return;
     }
     const change: CellChange = { on: cell.on, field, value: clearValue(field) };
-    if (field === 'dead' || field === 'eggs') {
+    if (isDeadField(field) || field === 'eggs') {
       setClearing({ change, before: spokenAt(cell) });
       return;
     }

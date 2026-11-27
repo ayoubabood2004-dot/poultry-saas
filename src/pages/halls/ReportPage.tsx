@@ -10,7 +10,7 @@ import type { Milli } from '../../domain/money';
 import { RejectedError } from '../../lib/errors';
 import { columnDecimals, fmtDay, fmtInt, fmtQtyCell, fmtScaledCell } from '../../lib/format';
 import { t, Trans } from '../../lib/i18n';
-import { loadHallSheet, type HallSheet, type SheetDay } from '../../lib/repo/hallSheet';
+import { loadHallSheet, type HallSheet, type SheetDay, type SheetSection } from '../../lib/repo/hallSheet';
 import { useSession } from '../../lib/session';
 import { useLoad } from '../../lib/useLoad';
 import { sheetHallName } from '../farm/FlockPage';
@@ -94,13 +94,26 @@ function BatchBody({ sheet }: { sheet: HallSheet }) {
   const columns: Column<ReportDay>[] = [
     { key: 'age', header: t('sheet.col.age', 'العمر'), kind: 'number', cell: (row) => <Num>{fmtInt(row.day.age)}</Num> },
     { key: 'date', header: t('sheet.col.date', 'التاريخ'), cell: (row) => <Num>{fmtDay(row.day.on)}</Num> },
-    {
-      key: 'dead',
-      header: t('sheet.col.dead', 'الهلاكات'),
-      kind: 'number',
-      cell: (row) => (row.day.dayVersion === null && row.day.dead === 0 ? '' : <Num>{fmtInt(row.day.dead)}</Num>),
-      total: <Num>{fmtInt(sheet.totals.dead)}</Num>,
-    },
+    // قاعة مقسومة (0038): عمود هلاكات لكلّ قسم بدل «الهلاكات»، ومجموعه في آخره.
+    ...(sheet.sections
+      ? sheet.sections.map(
+          (section, index): Column<ReportDay> => ({
+            key: `dead_${section.no}`,
+            header: t('sheet.col.dead_part', 'هلاكات ق{n}', { n: fmtInt(section.no) }),
+            kind: 'number',
+            cell: (row) => (row.day.dayVersion === null && row.day.dead === 0 ? '' : <Num>{fmtInt(row.day.deadParts?.[index] ?? 0)}</Num>),
+            total: <Num>{fmtInt(sheet.totals.deadParts?.[index] ?? section.dead)}</Num>,
+          }),
+        )
+      : [
+          {
+            key: 'dead',
+            header: t('sheet.col.dead', 'الهلاكات'),
+            kind: 'number' as const,
+            cell: (row: ReportDay) => (row.day.dayVersion === null && row.day.dead === 0 ? '' : <Num>{fmtInt(row.day.dead)}</Num>),
+            total: <Num>{fmtInt(sheet.totals.dead)}</Num>,
+          },
+        ]),
     { key: 'gas', header: t('sheet.col.gas', 'الغاز'), kind: 'number', cell: (row) => (row.day.gas === null ? '' : <Num>{fmtInt(row.day.gas)}</Num>), total: <Num>{fmtInt(sheet.totals.gas)}</Num> },
     ...(kerosene
       ? [
@@ -155,6 +168,25 @@ function BatchBody({ sheet }: { sheet: HallSheet }) {
           empty={dash()}
         />
       </section>
+      {sheet.sections ? (
+        // أقسام القاعة (0038): عدد كلّ قسم وهلاكاته ونسبتها والباقي فيه بعد الهلاكات (المبيع للقاعة كلّها لا يُقسم).
+        <section aria-label={t('batch.sections', 'الأقسام')} data-action="batch-sections">
+          <DataTable
+            variant="official"
+            caption={t('batch.sections', 'الأقسام')}
+            columns={[
+              { key: 'section', header: t('batch.sections.col.section', 'القسم'), cell: (row: SheetSection) => t('sheet.section', 'ق{n}', { n: fmtInt(row.no) }) },
+              { key: 'placed', header: t('batch.sections.col.placed', 'الداخل'), kind: 'number', cell: (row: SheetSection) => <Num>{fmtInt(row.placed)}</Num> },
+              { key: 'dead', header: t('batch.sections.col.dead', 'الهلاكات'), kind: 'number', cell: (row: SheetSection) => <Num>{fmtInt(row.dead)}</Num> },
+              { key: 'pct', header: t('batch.sections.col.pct', 'نسبة الهلاكات'), kind: 'number', cell: (row: SheetSection) => <Num>{pct(row.mortalityPct)}</Num> },
+              { key: 'remaining', header: t('batch.sections.col.remaining', 'الباقي بعد الهلاكات'), kind: 'number', cell: (row: SheetSection) => <Num>{fmtInt(row.remaining)}</Num> },
+            ]}
+            rows={sheet.sections}
+            rowKey={(row) => String(row.no)}
+            empty={dash()}
+          />
+        </section>
+      ) : null}
       <section aria-label={t('batch.days', 'أيام الوجبة')} data-action="batch-days">
         <DataTable
           variant="official"

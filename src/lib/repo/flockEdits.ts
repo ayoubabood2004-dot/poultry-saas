@@ -37,6 +37,8 @@ export interface EditFlockInput {
   ageDays: number;
   /** فارغة أو فراغات = بلا سلالة (null). */
   breed: string;
+  /** 0038: عدد كلّ قسم في وجبة مقسومة (مجموعه placedCount)، أو غائب. */
+  sectionCounts?: number[];
 }
 
 export interface EditedFlock {
@@ -85,6 +87,7 @@ export async function editFlock(input: EditFlockInput, clientRef: string): Promi
       p_age_days: input.ageDays,
       p_breed: breed === '' ? null : breed,
       p_client_ref: clientRef,
+      ...(input.sectionCounts ? { p_section_counts: input.sectionCounts } : {}),
     }),
     input.flockId,
   );

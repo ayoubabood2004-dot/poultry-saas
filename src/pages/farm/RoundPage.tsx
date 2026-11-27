@@ -43,15 +43,26 @@ import { farmPath, farmTitle, hallLabel, hallPath, roundLazies, useOverview, use
 
 type RowStatus = 'saved' | 'device' | 'parked' | 'review' | 'held';
 
-/** خانات القاعة كما كُتبت: '' = فارغة (لا شيء يُرسل). */
+/** خانات القاعة كما كُتبت: '' = فارغة (لا شيء يُرسل). وفي قاعة مقسومة (0038) خانة هلاكات لكلّ قسم (dead1..dead4) بدل dead. */
 interface RoundEntry {
   dead: string;
+  dead1: string;
+  dead2: string;
+  dead3: string;
+  dead4: string;
   gas: string;
   eggsTotal: string;
   eggsBroken: string;
 }
 
 type EntryField = keyof RoundEntry;
+/** خانات هلاكات الأقسام بترتيبها (ق1 … ق4). */
+const PART_FIELDS = ['dead1', 'dead2', 'dead3', 'dead4'] as const;
+type PartField = (typeof PART_FIELDS)[number];
+/** خانات هلاكات أقسام القاعة (بعدد أقسامها)، أو [] لقاعة غير مقسومة. */
+const partFields = (flock: FlockSummary): PartField[] => PART_FIELDS.slice(0, flock.sectionCounts?.length ?? 0);
+/** «ق1». */
+const sectionName = (index: number): string => t('round.section', 'ق{n}', { n: fmtInt(index + 1) });
 
 /** علف اليوم كما قرأته الجولة: مجموعه بالكيلو (أو null: لم يُرسل) وسطر لكلّ مادّة. */
 interface SentToday {
@@ -59,9 +70,44 @@ interface SentToday {
   lines: FlockSummary['feedToday'];
 }
 
-const EMPTY_ENTRY: RoundEntry = { dead: '', gas: '', eggsTotal: '', eggsBroken: '' };
-const ENTRY_FIELDS: EntryField[] = ['dead', 'gas', 'eggsTotal', 'eggsBroken'];
+const EMPTY_ENTRY: RoundEntry = { dead: '', dead1: '', dead2: '', dead3: '', dead4: '', gas: '', eggsTotal: '', eggsBroken: '' };
+const ENTRY_FIELDS: EntryField[] = ['dead', 'dead1', 'dead2', 'dead3', 'dead4', 'gas', 'eggsTotal', 'eggsBroken'];
 const typed = (value: string): boolean => value.trim() !== '';
+/** كُتبت هلاكات القاعة: خانتها، أو خانة قسم من أقسامها في قاعة مقسومة. */
+const deadTyped = (flock: FlockSummary, entry: RoundEntry): boolean => {
+  const parts = partFields(flock);
+  return parts.length > 0 ? parts.some((field) => typed(entry[field])) : typed(entry.dead);
+};
+/** ما كُتب في هلاكات القاعة نصّاً: «ق1 3، ق2 2» لقاعة مقسومة، وإلّا الخانة. */
+const deadTypedText = (flock: FlockSummary, entry: RoundEntry): string => {
+  const parts = partFields(flock);
+  if (parts.length === 0) return entry.dead.trim();
+  return parts
+    .map((field, index) => (typed(entry[field]) ? t('round.dead.part_text', '{section} {n}', { section: sectionName(index), n: entry[field].trim() }) : null))
+    .filter((text): text is string => text !== null)
+    .join(t('list.separator', '، '));
+};
+
+/**
+ * هلاكات أقسام القاعة كما كُتبت (0038): الفارغ صفر ما دام قسمٌ كُتب، وكلّ قسم عدد صحيح لا يتجاوز الباقي فيه (عدده − هلاكاته قبل اليوم، كما يفحص الخادم)؛
+ * أو null: لم يُكتب شيء؛ أو الخطأ بخانته.
+ */
+function readParts(flock: FlockSummary, entry: RoundEntry): { parts: number[] } | { field: PartField; message: string } | null {
+  const fields = partFields(flock);
+  if (fields.length === 0 || !fields.some((field) => typed(entry[field]))) return null;
+  const parts: number[] = [];
+  for (const [index, field] of fields.entries()) {
+    const text = entry[field].trim();
+    const n = text === '' ? 0 : wholeCount(text);
+    if (n === null) return { field, message: t('round.error.bad_part', 'اكتب هلاكات {section} عدداً صحيحاً، أو اتركها فارغة (صفر).', { section: sectionName(index) }) };
+    const left = (flock.sectionCounts?.[index] ?? 0) - (flock.sectionDead?.[index] ?? 0);
+    if (n > left) return { field, message: t('round.error.part_over', 'هلاكات {section} أكثر من طيوره الباقية ({left}).', { section: sectionName(index), left: fmtInt(Math.max(left, 0)) }) };
+    parts.push(n);
+  }
+  return { parts };
+}
+/** عدد صحيح من أرقام (غربية بعد التحويل) بحدّ الخادم، أو null. */
+const wholeCount = (text: string): number | null => (/^[0-9]{1,8}$/u.test(text) ? Number(text) : null); // number-ok: هلاكات قسم من أرقام الخانة وحدها
 
 interface RoundRow {
   flock: FlockSummary;
@@ -389,7 +435,8 @@ function RoundCard({ row, kind, today, entry, onChange, error, status, online, s
         {error.message}
       </p>
     ) : null;
-  const late = entry !== null && entered && typed(entry.dead);
+  const late = entry !== null && entered && deadTyped(row.flock, entry);
+  const parts = partFields(row.flock);
   const gasToday = gas.cylinders === null ? t('round.gas.today_none', 'اليوم: لم يُسجَّل غاز') : t('round.gas.today', 'اليوم: {n}', { n: cylindersText(gas.cylinders) });
   return (
     <div className={CARD_CLASS} data-flock={row.flock.id}>
@@ -430,6 +477,12 @@ function RoundCard({ row, kind, today, entry, onChange, error, status, online, s
                     {entered ? fmtInt(total.dead + total.culled) : '—'}
                   </span>
                 </div>
+                {/* قاعة مقسومة (0038): هلاكات كلّ قسم تحت مجموعها. */}
+                {entered && total.deadParts ? (
+                  <p className="text-sm" data-action="round-dead-parts">
+                    {total.deadParts.map((part, index) => t('round.dead.part_text', '{section} {n}', { section: sectionName(index), n: fmtInt(part) })).join(' · ')}
+                  </p>
+                ) : null}
                 <p className="text-sm font-semibold">{entered ? t('round.dead.entered', 'سُجّلت هلاكات اليوم') : t('round.dead.missing', 'لم تُسجَّل هلاكات اليوم بعد')}</p>
                 {total.deadPending ? (
                   <p className="text-sm" data-action="round-dead-pending">
@@ -440,10 +493,10 @@ function RoundCard({ row, kind, today, entry, onChange, error, status, online, s
                 {late ? (
                   <div className="flex flex-col gap-1" data-action="round-dead-late">
                     <p role="alert" className="text-sm text-warn-800 dark:text-warn-200">
-                      {t('round.dead.late', 'كتبت «{typed}» ثمّ سُجّلت هلاكات اليوم قبل أن تحفظ، فلن يُرسل ما كتبته.', { typed: entry.dead.trim() })}
+                      {t('round.dead.late', 'كتبت «{typed}» ثمّ سُجّلت هلاكات اليوم قبل أن تحفظ، فلن يُرسل ما كتبته.', { typed: deadTypedText(row.flock, entry) })}
                     </p>
                     <div>
-                      <Button variant="ghost" onClick={() => onChange({ ...entry, dead: '' })} data-action="round-dead-late-ok">
+                      <Button variant="ghost" onClick={() => onChange({ ...entry, dead: '', dead1: '', dead2: '', dead3: '', dead4: '' })} data-action="round-dead-late-ok">
                         {t('round.dead.late_ok', 'حسناً')}
                       </Button>
                     </div>
@@ -452,7 +505,26 @@ function RoundCard({ row, kind, today, entry, onChange, error, status, online, s
               </div>
             ) : (
               <>
-                {input('dead', t('round.dead.label', 'هلاكات اليوم'))}
+                {parts.length > 0 ? (
+                  // قاعة مقسومة (0038، جواب المالك): خانة هلاكات لكلّ قسم، والفارغ صفر ما دام قسمٌ كُتب، والمجموع تحتها.
+                  <div className="grid grid-cols-2 gap-3" data-action="round-dead-sections">
+                    {parts.map((field, index) => (
+                      <div key={field} className="flex min-w-0 flex-col gap-1">
+                        {input(field, t('round.dead.part_label', 'هلاكات {section}', { section: sectionName(index) }))}
+                        {errorFor(field)}
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  input('dead', t('round.dead.label', 'هلاكات اليوم'))
+                )}
+                {entry && parts.length > 0 && deadTyped(row.flock, entry) ? (
+                  <p className="text-sm" data-action="round-dead-sum">
+                    {t('round.dead.sum', 'مجموع هلاكات القاعة: {n}', {
+                      n: fmtInt(parts.reduce((sum, field) => sum + (wholeCount(entry[field].trim() === '' ? '0' : entry[field].trim()) ?? 0), 0)),
+                    })}
+                  </p>
+                ) : null}
                 <p className="text-xs text-ink-muted">{t('round.dead.hint', 'تُدخل مرّة واحدة في اليوم، ثمّ تُقفل.')}</p>
               </>
             )}
@@ -547,7 +619,7 @@ function RoundCard({ row, kind, today, entry, onChange, error, status, online, s
 
 /** ما يُرسل من خانات القاعة: الهلاكات قبل تسجيلها، والغاز، وبيض البيّاض. */
 function sendable(row: RoundRow, entry: RoundEntry, kind: FlockKind): boolean {
-  return (!row.total.deadEntered && typed(entry.dead)) || typed(entry.gas) || (kind === 'layer' && (typed(entry.eggsTotal) || typed(entry.eggsBroken)));
+  return (!row.total.deadEntered && deadTyped(row.flock, entry)) || typed(entry.gas) || (kind === 'layer' && (typed(entry.eggsTotal) || typed(entry.eggsBroken)));
 }
 
 /**
@@ -671,9 +743,16 @@ export default function RoundPage({ kind }: { kind: FlockKind }) {
       const recordedAt = new Date().toISOString();
       for (const row of ready) {
         const entry = entryOf(row);
+        // قاعة مقسومة (0038): هلاكات الأقسام أوّلاً بخاناتها، ومجموعها هلاكات اليوم يُفحص كما يُفحص الرقم الواحد.
+        const split = row.total.deadEntered ? null : readParts(row.flock, entry);
+        if (split !== null && 'field' in split) {
+          nextErrors[row.flock.id] = { field: split.field, message: split.message };
+          continue;
+        }
+        const deadText = row.total.deadEntered ? '' : split ? String(split.parts.reduce((sum, part) => sum + part, 0)) : partFields(row.flock).length > 0 ? '' : entry.dead; // number-ok: مجموع هلاكات الأقسام نصّاً لفحص الجولة نفسه، لا عرض
         // الهلاكات قبل تسجيلها وحدها، والفحص على اليوم بعدها كما يفحصه الخادم (لا تتجاوز الحيّ بداية اليوم)، والبيض كما كان (0032).
         const read = readVisit(
-          { dead: row.total.deadEntered ? '' : entry.dead, culled: '', feedKg: '', eggsTotal: kind === 'layer' ? entry.eggsTotal : '', eggsBroken: kind === 'layer' ? entry.eggsBroken : '' },
+          { dead: deadText, culled: '', feedKg: '', eggsTotal: kind === 'layer' ? entry.eggsTotal : '', eggsBroken: kind === 'layer' ? entry.eggsBroken : '' },
           { kind, liveStart: row.liveStart, totals: { dead: row.total.dead, culled: row.total.culled, eggsTotal: row.total.eggsTotal } },
         );
         if ('error' in read) {
@@ -691,7 +770,7 @@ export default function RoundPage({ kind }: { kind: FlockKind }) {
         }
         sent.push({ row, from: inputs.length });
         const base = { flockId: row.flock.id, day: today, baseVersion: null } as const;
-        if (read.values.dead !== null) inputs.push({ ...base, fn: 'set_flock_dead', payload: { dead: read.values.dead } });
+        if (read.values.dead !== null) inputs.push({ ...base, fn: 'set_flock_dead', payload: split ? { dead: read.values.dead, parts: split.parts } : { dead: read.values.dead } });
         if (gasRead.add !== null) inputs.push({ ...base, fn: 'add_flock_gas', payload: { add: gasRead.add } });
         if (read.values.eggs_total !== null || read.values.eggs_broken !== null) {
           // البيض زيارة تُضاف (بمعرّف من الجهاز، بلا نسخة)، بلا هلاكات: تلك في عمليتها.

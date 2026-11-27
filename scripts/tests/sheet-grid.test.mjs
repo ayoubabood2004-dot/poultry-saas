@@ -23,6 +23,8 @@ import { descendants, Element, fire, installDom, settle } from './dom.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const FIX = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sheet.hand.json'), 'utf8'));
 const REAL = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sheet-0035.json'), 'utf8'));
+// قاعة مقسومة قسمين (0038، عقد Part S): الورقة نفسها بأقسامها، مكتوبة باليد قبل الهجرة.
+const SPLIT = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sections.hand.json'), 'utf8')).hall_sheet;
 // أنماط الجدول كما تُنشر (sheetGrid.css): قواعدها التي يُعتمد عليها تُفحص بنصّها.
 const CSS = (() => {
   try {
@@ -515,6 +517,38 @@ export default async function (t) {
       await typeIn('٢ كغم');
       await press('Enter', {}, 60);
       t.same([max, textOf('grid-error'), sent.length], ['الكاز من 0 إلى 20,000 لتر في اليوم (100 برميل).', 'اكتب اللترات بالأرقام، أو البراميل بعدها «ب» (2ب = 400 لتر).', 1], 'G5 الكاز فوق 20,000 لتر أو بغير اللتر والبرميل: الجملة في الخانة ولا شيء يُكتب');
+    });
+
+    // ── G5ق: القاعة المقسومة (0038): عمود هلاكات لكلّ قسم يُكتب بأقسام يومه ────────────────────────────────────────────────────
+    await step('G5 الأقسام', async () => {
+      const { sent } = await open(SPLIT);
+      const heads = descendants(section(sheetTable(), 'thead') ?? body()).filter((n) => n.localName === 'th').map((n) => n.textContent);
+      t.same(
+        [heads, cells((section(sheetTable(), 'tfoot')?.children ?? []).find((c) => c.localName === 'tr')).slice(0, 4)],
+        [['العمر', 'التاريخ', 'هلاكات ق1', 'هلاكات ق2', 'الغاز', 'الكاز (لتر)', 'العلف (كغم)', 'الملاحظات'], ['المجموع', '18', '14', '17']],
+        'G5 الأقسام: عمود هلاكات لكلّ قسم بدل «الهلاكات»، ومجموع كلّ قسم في آخره',
+      );
+      t.same(cells(bodyRows(sheetTable())[20]).slice(2, 4), ['2', '2'], 'G5 الأقسام: يوم بهلاكاته (4) مقسومة على قسميه');
+      await pencil();
+      t.same([cursorAt(), textOf('grid-name')], ['20:2', 'هلاكات ق1 · يوم 03/12/2026 (العمر 20)'], 'G5 الأقسام: الخانة النشطة هلاكات ق1 اليوم');
+      await press('5');
+      await press('Enter', {}, 120);
+      t.same(ops(sent), [['save_flock_day', SPLIT.days[20].on, { dead: 7, dead_parts: [5, 2], culled: null }, SPLIT.days[20].day_version]], 'G5 الأقسام: 5 في ق1 = مجموع اليوم 7 بأقسامه [5، 2] بنسخة صفّ اليوم');
+      await moveTo(19, 2);
+      await press('3');
+      await typeIn('3000');
+      await press('Enter', {}, 60);
+      t.same([textOf('grid-error'), sent.length], ['هلاكات ق1 أكثر من طيوره الباقية (2,483).', 1], 'G5 الأقسام: القسم لا يتجاوز الباقي فيه (عدده − هلاكاته في غير هذا اليوم)');
+      await press('Escape');
+      const paste = async (text) => {
+        await press('v', { ctrl: true });
+        fire(focused() ?? body(), 'paste', { clipboardData: { getData: (type) => (type === 'text/plain' ? text : '') } });
+        await settle(30);
+      };
+      await moveTo(15, 2);
+      await paste('4\t6');
+      await click(byAction('grid-batch-go')[0], 200);
+      t.same(ops(sent).at(-1), ['save_flock_day', SPLIT.days[15].on, { dead: 10, dead_parts: [4, 6], culled: null }, SPLIT.days[15].day_version], 'G5 الأقسام: لصق القسمين ليوم واحد عملية واحدة بالقسمين معاً (لا يمحو الثاني الأوّل)');
     });
 
     // ── G6: الحفظ بالترتيب، وبلا نت، والمردود ─────────────────────────────────────────────────────────────────────

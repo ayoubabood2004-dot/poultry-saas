@@ -12,6 +12,7 @@ import { fmtDay, fmtInt } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { deleteFlock, editFlock } from '../../lib/repo/flockEdits';
 import type { FlockSummary } from '../../lib/repo/flocks';
+import { SectionCountsFields, sectionCountsOf } from './hallDialogs';
 
 // تعديل الفوج وحذفه (0028، كلمة الزبون 2026-11-15: «قاعة 5: أدخلت الفوج وغلطت بتاريخ التسكين ولا أستطيع تعديله… كلّ خطوة تحتاج
 // تعديلاً»): نافذة واحدة لجدول الحقل وشاشة الفوج، للمدير والمالك (flock.manage، والمنع الحقيقي بالخادم). التاريخ والعدد والعمر عند التسكين
@@ -62,6 +63,10 @@ export function FlockEditDialog({ hallName, flock, onClose, onSaved, onDeleted, 
   const initialBreed = flock.breed ?? '';
   const [day, setDay] = useState(initialDay);
   const [count, setCount] = useState(initialCount);
+  // وجبة مقسومة (0038): عدد كلّ قسم بدل العدد الواحد، ومجموعها العدد الداخل.
+  const initialParts = (flock.sectionCounts ?? []).map((n) => String(n)); // number-ok: عدد قسم نصّاً في خانته للتعديل، لا عرض
+  const [parts, setParts] = useState<string[]>(initialParts);
+  const split = initialParts.length > 0;
   const [age, setAge] = useState(initialAge);
   const [breed, setBreed] = useState(initialBreed);
   const [busy, setBusy] = useState<'save' | 'delete' | null>(null);
@@ -73,13 +78,15 @@ export function FlockEditDialog({ hallName, flock, onClose, onSaved, onDeleted, 
 
   const placedOn = parseDayText(day);
   const dayError = placedOn === null ? t('day.invalid', 'اكتب التاريخ يوم/شهر/سنة، مثل 30/09/2026.') : placedOn > today ? t('day.future', 'التاريخ بعد اليوم.') : null;
-  const countValue = wholeNumber(count);
-  const countError = count.trim() !== '' && (countValue === null || countValue < 1) ? t('farm.open.count.bad', 'اكتب عدد الطيور عدداً صحيحاً أكبر من صفر.') : null;
+  const sectionCounts = split ? sectionCountsOf(parts) : null;
+  const countValue = split ? (sectionCounts ? sectionCounts.reduce((sum, n) => sum + n, 0) : null) : wholeNumber(count);
+  const countError = !split && count.trim() !== '' && (countValue === null || countValue < 1) ? t('farm.open.count.bad', 'اكتب عدد الطيور عدداً صحيحاً أكبر من صفر.') : null;
+  const partsChanged = split && parts.some((part, index) => part !== initialParts[index]);
   // الفارغ صفر كما في نافذة الفتح («صفر لأفراخ عمر يوم»).
   const ageValue = wholeNumber(age === '' ? '0' : age, 1000);
   const ageError = ageValue === null ? t('farm.open.age.bad', 'اكتب العمر بالأيام عدداً صحيحاً من 0 إلى 1,000.') : null;
   // بلا تغيير عن المحفوظ لا حفظ: لا نداء يرجع «لم يتغيّر شيء».
-  const changed = placedOn !== flock.placedOn || countValue !== flock.placedCount || ageValue !== flock.ageDaysAtPlacement || breed.trim() !== initialBreed;
+  const changed = placedOn !== flock.placedOn || countValue !== flock.placedCount || partsChanged || ageValue !== flock.ageDaysAtPlacement || breed.trim() !== initialBreed;
   const ready = placedOn !== null && !dayError && countValue !== null && countValue > 0 && ageValue !== null && changed;
 
   const fail = (failure: unknown) => {
@@ -94,7 +101,10 @@ export function FlockEditDialog({ hallName, flock, onClose, onSaved, onDeleted, 
     setBusy('save');
     setError(null);
     try {
-      const saved = await editFlock({ flockId: flock.id, expectedVersion: flock.version, placedOn, placedCount: countValue, ageDays: ageValue, breed }, editRef.current);
+      const saved = await editFlock(
+        { flockId: flock.id, expectedVersion: flock.version, placedOn, placedCount: countValue, ageDays: ageValue, breed, ...(sectionCounts && partsChanged ? { sectionCounts } : {}) },
+        editRef.current,
+      );
       toast({ tone: 'success', title: t('farm.flock.edit.done', 'حُفظ تعديل فوج «{hall}»: التسكين {date} بعدد {count}.', { hall: hallName, date: fmtDay(saved.placedOn), count: fmtInt(saved.placedCount) }) });
       onSaved();
     } catch (failure) {
@@ -123,7 +133,7 @@ export function FlockEditDialog({ hallName, flock, onClose, onSaved, onDeleted, 
       open
       onClose={onClose}
       locked={busy !== null}
-      dirty={day !== initialDay || count !== initialCount || age !== initialAge || breed !== initialBreed}
+      dirty={day !== initialDay || count !== initialCount || partsChanged || age !== initialAge || breed !== initialBreed}
       title={t('farm.flock.edit.title', 'تعديل فوج «{hall}»', { hall: hallName })}
       footer={
         <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-between">
@@ -148,9 +158,13 @@ export function FlockEditDialog({ hallName, flock, onClose, onSaved, onDeleted, 
         <Field id={`${id}-day`} label={t('farm.open.day', 'تاريخ التسكين')} error={dayError} hint={t('farm.flock.edit.day.hint', 'يوم/شهر/سنة، ولا يكون بعد أوّل يوم سُجّل فيه شيء لهذا الفوج.')}>
           <input id={`${id}-day`} className="input tabular-nums" dir="ltr" inputMode="numeric" autoComplete="off" placeholder={t('org.go_live.placeholder', 'يوم/شهر/سنة')} value={day} onChange={(event) => setDay(event.target.value)} />
         </Field>
-        <Field id={`${id}-count`} label={t('farm.open.count', 'عدد الطيور المسكّنة')} error={countError}>
-          <input id={`${id}-count`} className="input tabular-nums" dir="ltr" inputMode="numeric" autoComplete="off" value={count} onChange={(event) => setCount(event.target.value)} />
-        </Field>
+        {split ? (
+          <SectionCountsFields id={id} values={parts} onChange={setParts} />
+        ) : (
+          <Field id={`${id}-count`} label={t('farm.open.count', 'عدد الطيور المسكّنة')} error={countError}>
+            <input id={`${id}-count`} className="input tabular-nums" dir="ltr" inputMode="numeric" autoComplete="off" value={count} onChange={(event) => setCount(event.target.value)} />
+          </Field>
+        )}
         <Field id={`${id}-age`} label={t('farm.open.age', 'العمر عند التسكين بالأيام')} error={ageError} hint={t('farm.open.age.hint', 'صفر لأفراخ عمر يوم.')}>
           <input id={`${id}-age`} className="input tabular-nums" dir="ltr" inputMode="numeric" autoComplete="off" value={age} onChange={(event) => setAge(event.target.value)} />
         </Field>

@@ -28,6 +28,8 @@ export interface FlockDayPayload {
   eggs_cracked?: number | null;
   eggs_broken?: number | null;
   note?: string | null;
+  /** 0038: هلاكات كلّ قسم في قاعة مقسومة، مع dead (مجموعها) دائماً لا وحدها. */
+  dead_parts?: number[] | null;
 }
 
 /**
@@ -59,9 +61,13 @@ export interface FlockGasPayload {
  */
 type Absent<T> = { [K in keyof T]?: undefined };
 
-/** هلاكات اليوم مرّة واحدة (0036، set_flock_dead): العدد كما كُتب (صفر = «لا هلاكات اليوم»)، ولا تُضاف إلى ما سُجّل. */
+/**
+ * هلاكات اليوم مرّة واحدة (0036، set_flock_dead): العدد كما كُتب (صفر = «لا هلاكات اليوم»)، ولا تُضاف إلى ما سُجّل؛ وفي قاعة مقسومة (0038) هلاكات كلّ قسم
+ * (parts) ومجموعها dead.
+ */
 export type FlockDeadPayload = Absent<Omit<FlockDayPayload, 'dead'>> & {
   dead: number;
+  parts?: number[];
 };
 
 /** قناني غاز أُرسلت الآن (0036، add_flock_gas): تُضاف إلى مجموع اليوم (جواب المالك: «2 الصبح + 1 العصر = 3»). */
