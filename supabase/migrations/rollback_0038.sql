@@ -1,8 +1,9 @@
 -- rollback_0038 — تراجع «القاعة بأقسام» (0038_hall_sections؛ مشغّل التراجع بالحزمة FOUNDATION ٨٢٠، ٨٧٦): يرجّع public.set_flock_dead
 --   وpublic.save_flock_day وprivate.flock_day_rebuild وprivate.flock_day_json وprivate.flock_summary وpublic.flocks_overview كما في 0036، وpublic.hall_sheet
---   وpublic.edit_flock كما في 0037، وpublic.open_flock وpublic.reopen_flock وprivate.reopen_block كما في 0029، حرفاً بحرف (md5 نفسه بالكتالوج)، والأربعة التي
---   تغيّر توقيعها بتواقيعها القديمة ومنحها؛ ويُسقط verify_hall_sections وset_hall_sections وflock_parts_check وflock_parts_input، ثمّ أعمدة الأقسام الأربعة
---   (بقيودها ومنح عمود القاعة) بعد الأجسام التي تقرؤها، ثمّ مساعداتها (بعد القيود التي تناديها).
+--   وpublic.edit_flock وpublic.verify_kerosene كما في 0037، وpublic.verify_hall_sheet كما في 0035، وpublic.open_flock وpublic.reopen_flock وprivate.reopen_block
+--   كما في 0029، حرفاً بحرف (md5 نفسه بالكتالوج)، والأربعة التي تغيّر توقيعها بتواقيعها القديمة ومنحها؛ ويُسقط verify_hall_sections وset_hall_sections
+--   وflock_parts_check وflock_parts_input، ثمّ أعمدة الأقسام الأربعة (بقيودها ومنح عمود القاعة) بعد الأجسام التي تقرؤها، ثمّ مساعداتها (بعد القيود التي
+--   تناديها).
 -- **طريق رفض (الكتلة الأولى أدناه):** ما لا يحمله النموذج القديم يوقف التراجع بصوت بلا أن يغيّر شيئاً، بفرع لكلّ حقيقة مستقلّة: قاعة مقسومة أقساماً،
 --   ووجبة بأعداد أقسام (ولو مغلقة: إعادة فتحها بعد التراجع تفقد قسمتها)، وزيارة أو صفّ يوم بهلاكات أقسام (ولو زيارة ملغاة: سجلّ ما كتبه جهاز).
 -- تنعاد بأمان: الكتلة الأولى تخرج إن لم يبقَ عمود أقسام القاعة، وdrop function if exists قبل التواقيع القديمة، وcreate or replace، وdrop column if exists.
@@ -1072,6 +1073,175 @@ language sql stable security definer set search_path = public, pg_temp as $$
         where y.org_id = x.org_id and y.close_id = x.id and y.status = 'posted')
       then 'count_superseded'
   end
+$$;
+
+-- public.verify_kerosene كما في 0037_kerosene.sql.
+create or replace function public.verify_kerosene() returns table (check_name text, violations bigint)
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_claims text := current_setting('request.jwt.claims', true);
+  v_sub text := current_setting('request.jwt.claim.sub', true);
+  v_totals bigint := 0;
+  v_org record;
+  v_user uuid;
+  v_flock record;
+  v_s jsonb;
+begin
+  return query
+  -- للوجبة القائمة الحدّ الأعلى اليوم، ولا يقلّ عن يوم كتابة الصفّ بتوقيت بغداد: في الإنتاج هو اليوم نفسه (الساعة لا ترجع)، والحزمة تثبّت أيّاماً أقدم من
+  -- صفوف كتبتها ملفّات قبلها بساعتها الحقيقية (درس 2026-11-10).
+  select 'kerosene_days'::text, count(*) from public.flock_day_kerosene k
+  join public.flocks f on f.org_id = k.org_id and f.id = k.flock_id
+  where k.liters is not null and (f.placed_on is null or k.on_date < f.placed_on
+    or k.on_date > coalesce(f.closed_on, greatest(public.app_today(), (k.created_at at time zone 'Asia/Baghdad')::date)))
+  union all
+  select 'kerosene_versions', count(*) from public.flock_day_kerosene k where k.version < 1
+  union all
+  select 'kerosene_hall', count(*) from public.flock_day_kerosene k
+  join public.flocks f on f.org_id = k.org_id and f.id = k.flock_id
+  where (k.hall_id, k.site_id, k.division_id) is distinct from (f.hall_id, f.site_id, f.division_id);
+
+  for v_org in select distinct x.org_id from public.flocks x where x.placed_on is not null order by 1 loop
+    select m.user_id into v_user from public.members m
+    where m.org_id = v_org.org_id and m.role = 'owner' and m.archived_at is null and m.accepted_at is not null and private.account_live(m.user_id)
+    order by m.created_at, m.id limit 1;
+    continue when v_user is null;
+    perform set_config('request.jwt.claims', jsonb_build_object('sub', v_user, 'role', 'authenticated')::text, true);
+    perform set_config('request.jwt.claim.sub', v_user::text, true);
+    for v_flock in select x.id from public.flocks x where x.org_id = v_org.org_id and x.placed_on is not null order by x.id loop
+      begin
+        v_s := public.hall_sheet(v_flock.id);
+        v_totals := v_totals + (
+          select count(*) from (
+            select coalesce(sum((d.j ->> 'kerosene')::bigint), 0) as kerosene
+            from jsonb_array_elements(v_s -> 'days') as d(j)
+          ) as s
+          where (v_s -> 'totals' ->> 'kerosene')::bigint is distinct from s.kerosene
+            or (v_s -> 'summary' ->> 'kerosene')::bigint is distinct from (v_s -> 'totals' ->> 'kerosene')::bigint);
+      exception when others then
+        v_totals := v_totals + 1;
+      end;
+    end loop;
+  end loop;
+  perform set_config('request.jwt.claims', coalesce(v_claims, ''), true);
+  perform set_config('request.jwt.claim.sub', coalesce(v_sub, ''), true);
+  return query select 'sheet_kerosene_totals'::text, v_totals;
+end
+$$;
+
+-- public.verify_hall_sheet كما في 0035_hall_sheet.sql.
+create or replace function public.verify_hall_sheet() returns table (check_name text, violations bigint)
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_claims text := current_setting('request.jwt.claims', true);
+  v_sub text := current_setting('request.jwt.claim.sub', true);
+  v_totals bigint := 0;
+  v_days bigint := 0;
+  v_fcr bigint := 0;
+  v_org record;
+  v_user uuid;
+  v_flock record;
+  v_s jsonb;
+begin
+  return query
+  select 'for_day_range'::text, count(*) from public.flock_issues x
+  join public.flocks f on f.org_id = x.org_id and f.id = x.flock_id
+  where x.for_day is not null and (f.placed_on is null or x.for_day < f.placed_on or x.for_day > x.issued_on)
+  union all
+  select 'gas_days', count(*) from public.flock_day_gas g
+  join public.flocks f on f.org_id = g.org_id and f.id = g.flock_id
+  where g.cylinders is not null and (f.placed_on is null or g.on_date < f.placed_on or (f.closed_on is not null and g.on_date > f.closed_on))
+  union all
+  select 'gas_versions', count(*) from public.flock_day_gas g where g.version < 1
+  union all
+  select 'gas_hall', count(*) from public.flock_day_gas g
+  join public.flocks f on f.org_id = g.org_id and f.id = g.flock_id
+  where (g.hall_id, g.site_id, g.division_id) is distinct from (f.hall_id, f.site_id, f.division_id);
+
+  for v_org in select distinct x.org_id from public.flocks x where x.placed_on is not null order by 1 loop
+    select m.user_id into v_user from public.members m
+    where m.org_id = v_org.org_id and m.role = 'owner' and m.archived_at is null and m.accepted_at is not null and private.account_live(m.user_id)
+    order by m.created_at, m.id limit 1;
+    continue when v_user is null;
+    perform set_config('request.jwt.claims', jsonb_build_object('sub', v_user, 'role', 'authenticated')::text, true);
+    perform set_config('request.jwt.claim.sub', v_user::text, true);
+    for v_flock in select x.id, x.kind, x.status from public.flocks x where x.org_id = v_org.org_id and x.placed_on is not null order by x.id loop
+      v_s := null;
+      begin
+        v_s := public.hall_sheet(v_flock.id);
+        v_totals := v_totals + (
+          select count(*) from (
+            select coalesce(sum((d.j ->> 'dead')::bigint), 0) as dead, coalesce(sum((d.j ->> 'gas')::bigint), 0) as gas,
+              coalesce(sum((d.j ->> 'feed_kg')::numeric), 0) as feed_kg, coalesce(sum((d.j ->> 'feed_back_kg')::numeric), 0) as back_kg,
+              coalesce(sum((d.j ->> 'sold_birds')::bigint), 0) as sold, coalesce(sum((d.j ->> 'sold_net_kg')::numeric), 0) as sold_kg,
+              coalesce(sum((d.j ->> 'eggs_total')::bigint), 0) as eggs
+            from jsonb_array_elements(v_s -> 'days') as d(j)
+          ) as s
+          where (v_s -> 'totals' ->> 'dead')::bigint <> s.dead or (v_s -> 'totals' ->> 'gas')::bigint <> s.gas
+            or (v_s -> 'totals' ->> 'feed_kg')::numeric <> s.feed_kg or (v_s -> 'totals' ->> 'feed_back_kg')::numeric <> s.back_kg
+            or (v_s -> 'summary' ->> 'feed_net_kg')::numeric <> s.feed_kg - s.back_kg
+            or (v_s -> 'totals' ->> 'sold_birds')::bigint <> s.sold
+            or (v_s -> 'totals' ->> 'sold_net_kg')::numeric <> s.sold_kg
+            or (v_s -> 'totals' ->> 'eggs_total')::bigint is distinct from (case when v_flock.kind = 'layer' then s.eggs end));
+        v_days := v_days + (
+          select count(*) from (
+            select (d.j ->> 'on')::date as on_date, (d.j ->> 'feed_kg')::numeric as kg, (d.j ->> 'feed_back_kg')::numeric as back
+            from jsonb_array_elements(v_s -> 'days') as d(j)
+          ) as s
+          full join (
+            select u.on_date, sum(u.kg) filter (where u.side = 'in') as kg, sum(u.kg) filter (where u.side = 'back') as back
+            from (
+              select o.side, o.on_date, case
+                  when o.base_unit = 'kg' then round(o.qty_base, 3)
+                  when o.base_unit = 'L' and o.density_kg_per_l > 0 then round(o.qty_base * o.density_kg_per_l, 3)
+                  when o.base_unit = 'pc' and o.piece_mass_kg > 0 then round(o.qty_base * o.piece_mass_kg, 3) end as kg
+              from (
+                select 'in' as side, coalesce(x.for_day, x.issued_on) as on_date, l.qty_base, l.base_unit, l.density_kg_per_l, l.piece_mass_kg
+                from public.flock_issues x join public.flock_issue_lines l on l.org_id = x.org_id and l.issue_id = x.id
+                where x.org_id = v_org.org_id and x.flock_id = v_flock.id and x.status = 'posted' and l.cost_kind = 'feed'
+                union all
+                select 'in', l.applied_on, l.qty_base, l.base_unit, l.density_kg_per_l, l.piece_mass_kg
+                from public.flock_close_lines l
+                where l.org_id = v_org.org_id and l.to_flock_id = v_flock.id and l.carry_status = 'applied' and l.cost_kind = 'feed'
+                union all
+                select 'back', c.closed_on, l.qty_base, l.base_unit, l.density_kg_per_l, l.piece_mass_kg
+                from public.flock_closes c join public.flock_close_lines l on l.org_id = c.org_id and l.close_id = c.id
+                where c.org_id = v_org.org_id and c.flock_id = v_flock.id and c.status = 'closed' and l.cost_kind = 'feed' and l.action in ('return', 'carry')
+              ) as o
+            ) as u
+            group by u.on_date
+          ) as t on t.on_date = s.on_date
+          where s.on_date is null or (t.on_date is null and (s.kg is not null or s.back is not null))
+            or (t.on_date is not null and (s.kg is distinct from t.kg or s.back is distinct from t.back)));
+      exception when others then
+        v_totals := v_totals + 1;
+      end;
+      -- الوجبة المغلقة: معامل التحويل في الورقة = fcr_final في تقرير الدورة (الصافي نفسه وصافي المباع نفسه). الورقة نفسها المقروءة أعلاه (v_s)
+      -- لا قراءة ثانية لها، وورقة رمت = خرق كما كانت. ووجبة مغلقة بلا مبيع (لا يوم في flock_count_days بصافٍ موجب، وهو مصدر v_sold_kg في
+      -- التقرير وشرط fcr_final فيه) معاملها في التقرير null بتعريفه، فتُقارن الورقة بـnull بلا قراءة التقرير: مئات الدورات المغلقة بلا بيع
+      -- كانت تتجاوز مهلة الطلب (8 ثوانٍ).
+      if v_flock.status = 'closed' then
+        begin
+          if v_s is null then
+            v_fcr := v_fcr + 1;
+          elsif not exists (select 1 from private.flock_count_days(v_flock.id) as k where k.sold_kg > 0) then
+            v_fcr := v_fcr + (case when (v_s -> 'summary' ->> 'fcr') is not null then 1 else 0 end);
+          else
+            v_fcr := v_fcr + (case when (v_s -> 'summary' ->> 'fcr')::numeric
+              is distinct from (public.flock_cycle_report(v_flock.id) -> 'kpis' ->> 'fcr_final')::numeric then 1 else 0 end);
+          end if;
+        exception when others then
+          v_fcr := v_fcr + 1;
+        end;
+      end if;
+    end loop;
+  end loop;
+  perform set_config('request.jwt.claims', coalesce(v_claims, ''), true);
+  perform set_config('request.jwt.claim.sub', coalesce(v_sub, ''), true);
+  return query select 'sheet_totals'::text, v_totals
+    union all select 'sheet_feed_by_day'::text, v_days
+    union all select 'sheet_fcr_final'::text, v_fcr;
+end
 $$;
 
 -- ٤) المساعدان اللذان لا يقرؤهما أيّ جسم بعد، ثمّ الأعمدة (قيودها ومنح عمود القاعة يسقطان معها)، ثمّ مساعدات القيود.

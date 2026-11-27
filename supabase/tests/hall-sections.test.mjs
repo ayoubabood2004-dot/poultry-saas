@@ -1,7 +1,8 @@
 // «القاعة بأقسام» (0038، العقد docs/plans/0038/contract-0038.md «الجزء D»؛ DECISIONS 2026-11-26): halls.sections (1 إلى 4) وflocks.section_counts (عدد كلّ
 // قسم) وdead_parts في الزيارات وصفوف الأيّام؛ والكتّاب: open_flock وedit_flock بأعداد الأقسام، وset_flock_dead وsave_flock_day بهلاكات الأقسام، والكاتب الجديد
 // set_hall_sections، وقاعدة flock_day_rebuild الواحدة (sections_required)، وحدّ كلّ قسم (flock_parts_check)، وreopen_flock بـsections_changed ومرآته
-// reopen_block؛ والقرّاء (flock_day_json وflock_summary وflocks_overview وhall_sheet بمفاتيح جديدة فقط)؛ والثابت verify_hall_sections؛ وملفّ التراجع.
+// reopen_block؛ والقرّاء (flock_day_json وflock_summary وflocks_overview وhall_sheet بمفاتيح جديدة فقط، وhall_sheet بخطّة عامّة لكلّ جلسة بالجواب نفسه)؛
+// والثابت verify_hall_sections، وثابتا الورقة والكاز يقرآن الورقة مرّة (verify_hall_sheet يفحص مفاتيح الكاز، وverify_kerosene ورقة الوجبة بكازها)؛ وملفّ التراجع.
 // منشأة هذا الملفّ: المعرّفات d3838000 والهواتف 96477038380 (والمنشأة الثانية بالبادئتين نفسيهما من الرقم 41).
 // البذرة (اليوم المثبَّت 2026-11-27): حقل لحم بقاعات — «قاعة 1» مقسومة قسمين عند إنشائها (27,051 طيراً قبل 20 يوماً بالتساوي: عيّنة الورقة)، و«قاعة 2»
 // قسمين بأعداد مرسلة (5,000 + 3,000، لتعديل الوجبة)، و«قاعة 3» ثلاثة أقسام (1,000 = 334 + 333 + 333، لحدّ القسم)، و«قاعة 4» غير مقسومة (500)،
@@ -203,6 +204,7 @@ async function scenario(t, db) {
     // بصمة المرجع: نداء بلا أعداد (الواجهة المنشورة) بصمته كما قبل 0038، فإعادته بالمرجع نفسه وبمعامل فارغ صريح ترجع جوابه.
     const ref = uid();
     const first = await one(U.owner, OPEN_OLD, [empty2, day(-1), 10, ref]);
+    F.bare = first.flock_id;
     const again = await call(db, U.owner, OPEN, [empty2, day(-1), 10, ref, null]);
     same([first.section_counts, again.value, (await db.admin("select args_hash = md5(jsonb_build_object('hall', $2::uuid, 'placed_on', $3::date, 'count', 10, 'age', 0, 'breed', null)::text) as v from public.rpc_refs where fn = 'open_flock' and client_ref = $1", [ref, empty2, day(-1)])).rows[0]?.v],
       [[5, 5], first, true], 'تسكين بلا أعداد بتوقيعه القديم (6 معاملات) يقسم بالتساوي، وبصمته بصمة ما قبل 0038، والإعادة بالمرجع نفسه بمعامل فارغ صريح = الجواب الأوّل');
@@ -588,6 +590,59 @@ async function scenario(t, db) {
       `طفرة في أقسام الورقة يمسكها الثابت (الباقي ${sheets.sheet?.sheet_sections}، والهلاكات ${sheets.sheetDead?.sheet_sections})`);
   });
 
+  // ── ١٠ب) الورقة تُقرأ مرّة: verify_hall_sheet يقرأ كلّ ورقة ويفحص مفاتيح كازها، وverify_kerosene ورقة الوجبة بكازها وحدها ────────────────────
+  // ورقة مكسورة ترمي لوجبة بعينها: verify_hall_sheet يعدّها خرقاً لكلّ وجبة مسكَّنة (الورقة تحت الفحص تُقرأ ولو بلا سجلّات: معامل مختلَق لوجبة مغلقة بلا
+  // شيء لا يظهر إلّا بقراءتها)، وverify_kerosene لوجبة بكازها وحده («قاعة 1» بكاز يُكتب داخل المعاملة)؛ والضابط: الجسم الحقيقيّ صفر. ومجموع كاز فارغ
+  // بدل الصفر لا يظهر إلّا في ورقة وجبة بلا كاز: يمسكه verify_hall_sheet، وverify_kerosene لا يقرأ ورقتها (طفرة تثبت أنّ غيره يمسك ما يتخطّاه).
+  await section('الثابتان والورقة', async () => {
+    const throwFor = (flock) => [[SIG.sheet, [["  perform private.require('read');\n", `  perform private.require('read');\n  if p_flock = '${flock}'::uuid then\n    raise exception 'probe' using hint = 'ضابط.';\n  end if;\n`]]]];
+    const both = async (fns, kerosene) => mutant(db, U.owner, fns, async ({ oq, attempt }) => {
+      if (kerosene) await inside(attempt, U.owner, 'select public.set_flock_kerosene($1, $2, 10, null, $3, false) as v', [F.s2, day(-2), uid()]);
+      const sheetRows = Object.fromEntries((await oq('select check_name, violations::int as v from public.verify_hall_sheet()')).rows.map((r) => [r.check_name, r.v]));
+      const keroRows = Object.fromEntries((await oq('select check_name, violations::int as v from public.verify_kerosene()')).rows.map((r) => [r.check_name, r.v]));
+      return [sheetRows.sheet_totals, keroRows.sheet_kerosene_totals];
+    });
+    same({
+      control: await both([], true),
+      bare: await both(throwFor(F.bare), true),
+      split: await both(throwFor(F.s2), true),
+      splitNoKerosene: await both(throwFor(F.s2), false),
+    }, { control: [0, 0], bare: [1, 0], split: [1, 1], splitNoKerosene: [1, 0] },
+    'verify_hall_sheet يقرأ ورقة كلّ وجبة (ولو بلا شيء)، وverify_kerosene ورقة وجبة بكازها وحده؛ والضابط صفر');
+    const nullTotals = await both([[SIG.sheet, [['coalesce(sum(z.liters), 0)::bigint', 'sum(z.liters)::bigint']]]], true);
+    t.ok(nullTotals[0] > 0 && nullTotals[1] === 0,
+      `مجموع كاز فارغ بدل الصفر في ورقة وجبة بلا كاز يمسكه verify_hall_sheet في قراءته (${nullTotals[0]})، وverify_kerosene لا يقرأ ورقتها (${nullTotals[1]})`);
+  });
+
+  // ── ١٠ج) الورقة بخطّة عامّة لكلّ جلسة: الإعداد على الدالّة، والجواب نفسه حرفاً بلا الإعداد ─────────────────────────────────────────────
+  // كلّ وجبة مسكَّنة في منشأتي الملفّ بهويّة مالكها: الورقة بالإعداد (الخطّة العامّة) = الورقة بجسمها بلا الإعداد (الخطّة المخصّصة لكلّ نداء).
+  await section('الورقة بخطّة عامّة', async () => {
+    const config = (await db.admin("select coalesce(p.proconfig, '{}') as c from pg_proc p where p.oid = 'public.hall_sheet(uuid)'::regprocedure")).rows[0].c;
+    t.ok(config.includes('plan_cache_mode=force_generic_plan'), `hall_sheet بإعداد الخطّة العامّة على الدالّة (${config.join('، ')})`);
+    const SHEETS = `do $s$
+declare v_org record; v_flock record;
+begin
+  create temp table _sheets (flock uuid primary key, sheet text) on commit drop;
+  for v_org in select f.org_id, (select m.user_id from public.members m where m.org_id = f.org_id and m.role = 'owner' and m.archived_at is null
+      and m.accepted_at is not null order by m.created_at, m.id limit 1) as owner
+    from public.flocks f where f.org_id in ('${G.org}', '${O2.org}') and f.placed_on is not null group by f.org_id loop
+    perform set_config('request.jwt.claims', jsonb_build_object('sub', v_org.owner, 'role', 'authenticated')::text, true);
+    perform set_config('request.jwt.claim.sub', v_org.owner::text, true);
+    for v_flock in select x.id from public.flocks x where x.org_id = v_org.org_id and x.placed_on is not null loop
+      insert into _sheets values (v_flock.id, public.hall_sheet(v_flock.id)::text);
+    end loop;
+  end loop;
+end $s$`;
+    const read = (fns) => mutant(db, U.owner, fns, async ({ oq }) => {
+      await oq(SHEETS);
+      return (await oq("select count(*)::int as n, md5(string_agg(flock::text || sheet, ',' order by flock)) as d from _sheets")).rows[0];
+    });
+    const generic = await read([]);
+    const custom = await read([[SIG.sheet, [[" SET plan_cache_mode TO 'force_generic_plan'\n", '']]]]);
+    t.ok(generic.n > 0 && generic.n === custom.n && generic.d === custom.d,
+      `كلّ ورقة في منشأتي الملفّ بالخطّة العامّة هي نفسها بلا إعدادها (${generic.n} ورقة، ${generic.d === custom.d ? 'البصمة نفسها' : 'بصمتان'})`);
+  });
+
   // ── ١١) الطفرات: كلّ قاعدة مكسورة يمسكها فحصها ─────────────────────────────────────────────────────────────────────────
   await section('الطفرات', async () => {
     const CASES = [
@@ -712,11 +767,12 @@ async function scenario(t, db) {
       ['0036_round_once.sql', 'private.flock_day_json'], ['0036_round_once.sql', 'private.flock_summary'], ['0036_round_once.sql', 'public.flocks_overview'],
       ['0037_kerosene.sql', 'public.hall_sheet'], ['0037_kerosene.sql', 'public.edit_flock'], ['0029_bird_sales_close.sql', 'public.open_flock'],
       ['0029_bird_sales_close.sql', 'public.reopen_flock'], ['0029_bird_sales_close.sql', 'private.reopen_block'],
+      ['0037_kerosene.sql', 'public.verify_kerosene'], ['0035_hall_sheet.sql', 'public.verify_hall_sheet'],
     ];
     const rollback = readFileSync(path.join(MIGRATIONS, 'rollback_0038.sql'), 'utf8');
     const migration = readFileSync(path.join(MIGRATIONS, '0038_hall_sections.sql'), 'utf8');
     same(HEADS.filter(([file, head]) => !rollback.includes(bodyOf(file, head))).map(([, head]) => head), [],
-      'ملفّ التراجع يرجّع الأجسام الإحدى عشرة كما في آخر هجرة عرّفتها (0029 و0036 و0037) حرفاً');
+      'ملفّ التراجع يرجّع الأجسام الثلاثة عشر كما في آخر هجرة عرّفتها (0029 و0035 و0036 و0037) حرفاً');
     same(HEADS.filter(([file, head]) => migration.includes(bodyOf(file, head)) || !migration.includes(`create or replace function ${head}(`)).map(([, head]) => head), [],
       'والهجرة تعيد تعريفها كلّها بجسم غير جسمها السابق');
     // آخر تعريف: لا هجرة بعد التي أُخذ منها الجسم تعرّفه (لا رجوع إلى جسم قديم).
