@@ -117,7 +117,8 @@ const statusOf = (result: SendResult | undefined | null): RowStatus => {
   if (!result) return 'device';
   if (result.kind === 'saved') return 'saved';
   if (result.kind === 'parked') return 'parked';
-  if (result.kind === 'stale_day' || result.kind === 'stale_visit' || result.kind === 'stale_gas' || result.kind === 'dead_recorded' || result.kind === 'rejected') return 'review';
+  if (result.kind === 'stale_day' || result.kind === 'stale_visit' || result.kind === 'stale_gas' || result.kind === 'stale_kerosene' || result.kind === 'dead_recorded' || result.kind === 'rejected')
+    return 'review';
   return 'held';
 };
 
@@ -152,7 +153,7 @@ function statusText(status: RowStatus): string {
   }
 }
 
-type ShelfField = 'dead' | 'culled' | 'feed_kg' | 'eggs_total' | 'eggs_broken' | 'cylinders' | 'add' | 'note';
+type ShelfField = 'dead' | 'culled' | 'feed_kg' | 'eggs_total' | 'eggs_broken' | 'cylinders' | 'add' | 'liters' | 'note';
 
 /** الهلاكات في صفّ اليوم كما يعرضها الخادم: النافق والمستبعد القديم معاً (الورقة)، أو null. */
 function dayDeaths(server: unknown): number | null {
@@ -177,6 +178,8 @@ function ReviewShelf({ entries, names, halls, kind, onRemove }: { entries: reado
     { key: 'eggs_broken', label: t('round.eggs_broken', 'المكسور') },
     { key: 'cylinders', label: t('round.review.gas', 'الغاز (قناني)') },
     { key: 'add', label: t('round.review.gas_add', 'الغاز المضاف (قناني)') },
+    // 0037: كاز اليوم من ورقة القاعة (لا من الجولة) يصل الرفّ إن رُدّ أو رُكن.
+    { key: 'liters', label: t('round.review.kerosene', 'الكاز (لتر)') },
     { key: 'note', label: t('round.review.note', 'الملاحظة') },
   ];
   const shown = (value: unknown, amount?: boolean): string => {
@@ -215,7 +218,9 @@ function ReviewShelf({ entries, names, halls, kind, onRemove }: { entries: reado
                     ? field.amount || field.key === 'dead' || field.key === 'culled' || present(mine[field.key]) || present(server?.[field.key])
                     : field.key === 'cylinders'
                       ? op.fn === 'set_flock_gas'
-                      : field.key !== 'add' && present(mine[field.key]),
+                      : field.key === 'liters'
+                        ? op.fn === 'set_flock_kerosene'
+                        : field.key !== 'add' && present(mine[field.key]),
                 );
         const serverOf = (field: ShelfField): unknown => (op.fn === 'set_flock_dead' ? dayDeaths(entry.server) : op.fn === 'add_flock_gas' ? null : server?.[field]);
         const reason =
@@ -223,13 +228,15 @@ function ReviewShelf({ entries, names, halls, kind, onRemove }: { entries: reado
             ? t('round.review.stale', 'حُفظ هذا اليوم من جهاز آخر قبل أن تصل جولتك، فلم تُكتب فوقه.')
             : entry.reason === 'stale_gas'
               ? t('round.review.stale_gas', 'تغيّر غاز هذا اليوم من جهاز آخر قبل أن يصل تعديلك، فلم يُكتب فوقه.')
-              : entry.reason === 'stale_visit'
-                ? staleVisitText(entry.server)
-                : entry.reason === 'dead_recorded'
-                  ? t('round.review.dead_recorded', 'سُجّلت هلاكات هذا اليوم من جهاز آخر: {n}', { n: fmtInt(dayDeaths(entry.server) ?? 0) })
-                  : entry.reason === 'parked'
-                    ? t('round.review.parked', 'لم يُحفظ: {why}. ووصل إلى صفحة القاعة أيضاً.', { why: parkText(entry.hint) })
-                    : describeError(new RejectedError(entry.reason, entry.hint)).detail;
+              : entry.reason === 'stale_kerosene'
+                ? t('round.review.stale_kerosene', 'تغيّر كاز هذا اليوم من جهاز آخر قبل أن يصل تعديلك، فلم يُكتب فوقه.')
+                : entry.reason === 'stale_visit'
+                  ? staleVisitText(entry.server)
+                  : entry.reason === 'dead_recorded'
+                    ? t('round.review.dead_recorded', 'سُجّلت هلاكات هذا اليوم من جهاز آخر: {n}', { n: fmtInt(dayDeaths(entry.server) ?? 0) })
+                    : entry.reason === 'parked'
+                      ? t('round.review.parked', 'لم يُحفظ: {why}. ووصل إلى صفحة القاعة أيضاً.', { why: parkText(entry.hint) })
+                      : describeError(new RejectedError(entry.reason, entry.hint)).detail;
         const what =
           op.fn === 'save_flock_visit'
             ? visit?.void
@@ -241,7 +248,9 @@ function ReviewShelf({ entries, names, halls, kind, onRemove }: { entries: reado
               ? t('round.review.dead_once', 'هلاكات اليوم')
               : op.fn === 'add_flock_gas'
                 ? t('round.review.gas_added', 'غاز أُضيف')
-                : null;
+                : op.fn === 'set_flock_kerosene'
+                  ? t('round.review.kerosene_set', 'كاز اليوم')
+                  : null;
         return (
           <div key={entry.id} className={CARD_CLASS} data-review={entry.id}>
             <p className="font-semibold">

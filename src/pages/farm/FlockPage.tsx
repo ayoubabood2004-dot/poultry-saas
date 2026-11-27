@@ -8,6 +8,7 @@ import { Dialog } from '../../components/ui/Dialog';
 import { Field } from '../../components/ui/Field';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
+import { Segmented } from '../../components/ui/Segmented';
 import { useWidePage } from '../../components/ui/OfficialReport';
 import { toast } from '../../components/ui/Toast';
 import { WeightPad } from '../../components/ui/WeightPad';
@@ -19,12 +20,27 @@ import { naturalCompare } from '../../domain/naturalOrder';
 import type { BaseUnit } from '../../domain/units';
 import { parseDayText } from '../../lib/dayText';
 import { describeError, NotConnectedError, RejectedError } from '../../lib/errors';
-import { columnDecimals, fmtDay, fmtInt, fmtMilli, fmtQty, fmtQtyCell } from '../../lib/format';
+import { columnDecimals, fmtCounted, fmtDay, fmtInt, fmtMilli, fmtQty, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { onlineStore } from '../../lib/online';
-import { openOutbox, pendingOps, removeReview, reviewEntries, saveRound, visitDayVersion, type EnqueueInput, type FlockDayPayload, type FlockGasPayload, type OutboxOp, type ReviewEntry, type SendResult } from '../../lib/outbox';
+import {
+  MAX_KEROSENE_LITERS,
+  openOutbox,
+  pendingOps,
+  removeReview,
+  reviewEntries,
+  saveRound,
+  visitDayVersion,
+  type EnqueueInput,
+  type FlockDayPayload,
+  type FlockGasPayload,
+  type FlockKerosenePayload,
+  type OutboxOp,
+  type ReviewEntry,
+  type SendResult,
+} from '../../lib/outbox';
 import type { FlockSummary, HallView, SiteView } from '../../lib/repo/flocks';
-import { parseDayRow, parseGas, recordFlockWeight } from '../../lib/repo/flocks';
+import { parseDayRow, parseGas, parseKerosene, recordFlockWeight } from '../../lib/repo/flocks';
 import { listenOtherWindows } from '../../lib/roundWindows';
 import { decideFlockReject, loadHallSheet, sendFlockFeed, toBaseQty, voidSheetFeed, type FeedSend, type HallSheet, type RejectDecision, type SheetDay, type SheetFeedItem, type SheetFeedLine, type SheetReject, type SheetUnit } from '../../lib/repo/hallSheet';
 import { refreshRoundQueue, roundQueueStore, stampKey, uploadRounds, type RoundRun } from '../../lib/roundUploads';
@@ -36,6 +52,7 @@ import { newTicketPath } from '../halls/ticketParts';
 import { CARD_CLASS, givePath, LINK_CLASS } from './feed';
 import { FlockEditDialog } from './FlockEditDialog';
 import { HallDialog, OpenFlockDialog } from './hallDialogs';
+import { BARREL_LITERS } from './gridLogic';
 import { SheetGrid, type CellChange, type CellValue, type ChangeCheck, type ChangeResult, type GridCell, type GridField, type SheetGridView, type SheetSubmit } from './SheetGrid';
 import { gasSoFar, loadTransport, parkText, soFar } from './roundText';
 import { farmPath, farmTitle, hallLabel, hallPath, loadOverviewKept, useStamp } from './shared';
@@ -43,7 +60,9 @@ import { farmPath, farmTitle, hallLabel, hallPath, loadOverviewKept, useStamp } 
 // صفحة القاعة = ورقة القاعة (طلب المالك 2026-11-21 بصورة ورقته «هلاكات قاعة (7)»، «وجبة 2026-11-13»؛ عقد 0034/0035 الجزء C/S2،
 // docs/HALLS_SHEET_PLAN.md المرحلة ٢): العنوان «هلاكات قاعة (N)» وتحته «وجبة يوم/شهر/سنة»، ثمّ صفّ واحد من الأفعال الكبيرة بلا قوائم داخل قوائم
 // («أرسل علفاً» و«بيع» و«التقرير» و«عدّل الوجبة» و«أغلق الوجبة» أو «أعِد فتحها»)، ثمّ جدول الورقة نفسه من hall_sheet: العمر | التاريخ | الهلاكات |
-// الغاز | العلف | الملاحظات (وللبيّاض البيض)، صفّ لكلّ يوم من التسكين حتى نهاية الوجبة، واليوم معلَّم وظاهر عند الفتح، وصفّ مجموع من الخادم.
+// الغاز | الكاز (لتر) | العلف | الملاحظات (وللبيّاض البيض)، صفّ لكلّ يوم من التسكين حتى نهاية الوجبة، واليوم معلَّم وظاهر عند الفتح، وصفّ مجموع من الخادم.
+// والكاز (0037، رسالة الزبون 2026-11-26) رقمٌ باللتر مثل الغاز من هذه الورقة وحدها (لا الجولة): set_flock_kerosene بنسخة صفّه، ويُكتب باللتر أو بالبرميل
+// (البرميل 200 لتر، جواب المالك) ويُحفظ لتراً.
 // والورقة مقفولة (عقد 0036 S2، كلمة المالك 2026-11-24): لا خانة تُلمس، وفوقها «✎ تعديل الجدول»، وبعده جدول كإكسل (SheetGrid: الأسهم وEnter وTab والكتابة
 // فوق القيمة والنسخ واللصق والتراجع بالحاسوب، والكتابة بقواعد ورقة الخانة نفسها cellWrite)؛ وباللمس في وضع التعديل:
 // لمسة على خانة الهلاكات أو الغاز أو البيض أو الملاحظة تفتح ورقة سفلية بلوحة أرقام التطبيق و«تم» (هلاكات يوم = 3 لمسات)، بالطابور نفسه بلا نت:
@@ -53,7 +72,7 @@ import { farmPath, farmTitle, hallLabel, hallPath, loadOverviewKept, useStamp } 
 // أيام سبعة)، والمغلقة قراءة فقط. وما رُدّ من الأجهزة (flock_day_rejects) جمل بـ«أُدخلت» و«تجاهل»، وما بقي على هذا الجهاز ولم يُحفظ يُدلّ عليه.
 
 type Nav = { prev: HallView | null; next: HallView | null };
-type CellField = 'dead' | 'gas' | 'eggs' | 'note';
+type CellField = 'dead' | 'gas' | 'kerosene' | 'eggs' | 'note';
 
 /** آخر قراءة ناجحة تبقى معروضة أثناء القراءة من جديد (useLoad يرجّع null أثناءها): الورقة ونوافذها لا تُطوى ولا تقفز. */
 function useKept<T>(data: T | null): T | null {
@@ -82,6 +101,7 @@ const rowDay = (on: Day): string => fmtDay(on).slice(0, 5);
  */
 export type SavedEdit =
   | { kind: 'gas'; on: Day; version: number; cylinders: number | null }
+  | { kind: 'kerosene'; on: Day; version: number; liters: number | null }
   | { kind: 'day'; on: Day; version: number; dead?: number; culled?: number; eggs?: number | null; note?: string | null };
 
 const given = <T,>(value: T | null | undefined): value is T => value !== null && value !== undefined;
@@ -95,6 +115,15 @@ export function savedEdits(runs: readonly RoundRun[], key: string, flockId: stri
       const { version } = entry.result;
       if (entry.fn === 'set_flock_gas') {
         edits.push({ kind: 'gas', on: entry.day, version, cylinders: (entry.payload as FlockGasPayload).cylinders });
+      } else if (entry.fn === 'set_flock_kerosene') {
+        // كاز اليوم (0037): كما أرجعه الخادم إن قرأه المحلّل، وإلّا كما أُرسل (النسخة من الجواب نفسه).
+        let liters = (entry.payload as FlockKerosenePayload).liters;
+        try {
+          if (entry.result.kerosene !== undefined) liters = parseKerosene(entry.result.kerosene).liters;
+        } catch { // swallow-ok: جواب بشكل غريب: يُعرض ما أُرسل، والقراءة من جديد بعد الرفع تعرض الخادم
+          /* كما أُرسل */
+        }
+        edits.push({ kind: 'kerosene', on: entry.day, version, liters });
       } else if (entry.fn === 'add_flock_gas') {
         // قناني أُرسلت من الجولة (0036): غاز اليوم بعد الإضافة كما أرجعه الخادم (فحصه المحلّل قبل أن تُعدّ محفوظة)، لا الإضافة وحدها.
         try {
@@ -192,8 +221,11 @@ interface Shown {
   eggs: number | null;
   note: string | null;
   gas: number | null;
+  /** لترات الكاز (0037)، أو null: لم يُسجَّل. */
+  kerosene: number | null;
   dayVersion: number | null;
   gasVersion: number | null;
+  keroseneVersion: number | null;
   /** لليوم جولة محفوظة أو منتظرة: الهلاكات تُعرض ولو صفراً. */
   recorded: boolean;
   /** في الخانة عملية لم تُرفع بعد. */
@@ -206,13 +238,22 @@ function shownOf(day: SheetDay, ops: readonly OutboxOp[], saved: readonly SavedE
   let eggs = day.eggsTotal;
   let note = day.note;
   let gas = day.gas;
+  let kerosene = day.kerosene;
   let dayVersion = day.dayVersion;
   let gasVersion = day.gasVersion;
+  let keroseneVersion = day.keroseneVersion;
   for (const edit of saved.filter((entry) => entry.on === day.on).sort((a, b) => a.version - b.version)) {
     if (edit.kind === 'gas') {
       if (edit.version > (gasVersion ?? 0)) {
         gas = edit.cylinders;
         gasVersion = edit.version;
+      }
+      continue;
+    }
+    if (edit.kind === 'kerosene') {
+      if (edit.version > (keroseneVersion ?? 0)) {
+        kerosene = edit.liters;
+        keroseneVersion = edit.version;
       }
       continue;
     }
@@ -229,10 +270,14 @@ function shownOf(day: SheetDay, ops: readonly OutboxOp[], saved: readonly SavedE
   const gasNow = gasSoFar(gas, own);
   gas = gasNow.cylinders;
   if (gasNow.pending) pending.add('gas');
-  const totals = own.filter((op) => op.fn !== 'set_flock_gas' && op.fn !== 'add_flock_gas');
+  const totals = own.filter((op) => op.fn !== 'set_flock_gas' && op.fn !== 'add_flock_gas' && op.fn !== 'set_flock_kerosene');
   for (const op of own) {
     if (op.fn === 'set_flock_gas' || op.fn === 'add_flock_gas') {
       continue;
+    } else if (op.fn === 'set_flock_kerosene') {
+      // كاز اليوم (0037): التصحيح يحلّ محلّ المحفوظ، كتصحيح الغاز.
+      kerosene = op.payload.liters;
+      pending.add('kerosene');
     } else if (op.fn === 'set_flock_dead') {
       // هلاكات اليوم مرّة من الجولة (0036): خانة الهلاكات وحدها تنتظر، ومجموعها من soFar.
       pending.add('dead');
@@ -250,7 +295,19 @@ function shownOf(day: SheetDay, ops: readonly OutboxOp[], saved: readonly SavedE
     }
   }
   const total = soFar({ dead: deadOnly + culled, culled: 0, feedKg: null, eggsTotal: eggs, eggsBroken: day.eggsBroken }, totals);
-  return { dead: total.dead + total.culled, culled, eggs: total.eggsTotal, note, gas, dayVersion, gasVersion, recorded: dayVersion !== null || pending.has('dead'), pending };
+  return {
+    dead: total.dead + total.culled,
+    culled,
+    eggs: total.eggsTotal,
+    note,
+    gas,
+    kerosene,
+    dayVersion,
+    gasVersion,
+    keroseneVersion,
+    recorded: dayVersion !== null || pending.has('dead'),
+    pending,
+  };
 }
 
 /** نتيجة رفع خانة بجملة (أو «على الجهاز» حين لم تُرفع). */
@@ -268,6 +325,7 @@ function resultToast(result: SendResult | null, online: boolean) {
       return;
     case 'stale_day':
     case 'stale_gas':
+    case 'stale_kerosene':
     case 'stale_visit':
       toast({ tone: 'warning', title: t('sheet.stale', 'تغيّر هذا اليوم من جهاز آخر قبل أن يصل تعديلك، فلم يُكتب فوقه.'), detail: t('sheet.on_shelf', 'بقي على هذا الجهاز في «جولات تحتاج مراجعة».') });
       return;
@@ -284,12 +342,20 @@ function resultToast(result: SendResult | null, online: boolean) {
 const MAX_BIRDS = 10_000_000;
 const MAX_CYLINDERS = 1000;
 
+/** لترات الكاز بالفصحى: «400 لتر»، «لتران»، «5 لترات»، «20 لتراً». */
+const litersText = (liters: number): string => fmtQty(BigInt(liters) * 1000n, 'L').main;
+/** عدد البراميل بالفصحى: «برميل واحد»، «برميلان»، «3 براميل»، «11 برميلاً». */
+const barrelsText = (n: number): string =>
+  fmtCounted(BigInt(n) * 1000n, t('unit.barrel', 'برميل'), { one: t('unit.barrel.one', 'برميل واحد'), two: t('unit.barrel.two', 'برميلان'), few: t('unit.barrel.few', 'براميل'), many: t('unit.barrel.many', 'برميلاً') });
+
 function fieldLabel(field: CellField): string {
   switch (field) {
     case 'dead':
       return t('sheet.col.dead', 'الهلاكات');
     case 'gas':
       return t('sheet.col.gas', 'الغاز');
+    case 'kerosene':
+      return t('sheet.col.kerosene', 'الكاز (لتر)');
     case 'eggs':
       return t('sheet.col.eggs', 'البيض');
     case 'note':
@@ -317,10 +383,18 @@ function cellWrite(sheet: HallSheet, day: SheetDay, field: CellField, shown: Sho
     if (shown.gas === null) return { kind: 'same' };
     return { kind: 'input', input: { fn: 'set_flock_gas', ...base, payload: { cylinders: null }, baseVersion: shown.gasVersion } };
   }
+  if (field === 'kerosene' && value === null) {
+    if (shown.kerosene === null) return { kind: 'same' };
+    return { kind: 'input', input: { fn: 'set_flock_kerosene', ...base, payload: { liters: null }, baseVersion: shown.keroseneVersion } };
+  }
   const n = typeof value === 'number' ? value : 0;
   if (field === 'gas') {
     if (n > MAX_CYLINDERS) return { kind: 'error', error: t('sheet.gas.max', 'عدد القناني من 0 إلى 1,000.') };
     return { kind: 'input', input: { fn: 'set_flock_gas', ...base, payload: { cylinders: n }, baseVersion: shown.gasVersion } };
+  }
+  if (field === 'kerosene') {
+    if (n > MAX_KEROSENE_LITERS) return { kind: 'error', error: t('sheet.kerosene.max', 'الكاز من 0 إلى 20,000 لتر في اليوم (100 برميل).') };
+    return { kind: 'input', input: { fn: 'set_flock_kerosene', ...base, payload: { liters: n }, baseVersion: shown.keroseneVersion } };
   }
   if (field === 'dead') {
     // الحيّ الذي يقبله الخادم لهلاكات هذا اليوم: الحيّ الآن مع هلاكات اليوم نفسه.
@@ -340,15 +414,18 @@ function cellWrite(sheet: HallSheet, day: SheetDay, field: CellField, shown: Sho
 function CellSheet({ day, field, shown, submit, onClose, onSaved }: { day: SheetDay; field: CellField; shown: Shown; submit: SheetSubmit; onClose: () => void; onSaved: () => void }) {
   const id = useId();
   const online = useStore(onlineStore);
-  const current = field === 'dead' ? (shown.recorded ? shown.dead : null) : field === 'gas' ? shown.gas : field === 'eggs' ? shown.eggs : null;
+  const current = field === 'dead' ? (shown.recorded ? shown.dead : null) : field === 'gas' ? shown.gas : field === 'kerosene' ? shown.kerosene : field === 'eggs' ? shown.eggs : null;
   const [value, setValue] = useState('');
+  // الكاز باللتر أو بالبرميل (جواب المالك 2026-11-26): ما يُكتب بالبرميل يُحفظ لتراً (× 200).
+  const [barrels, setBarrels] = useState(false);
+  const typedCount = /^[0-9]{1,8}$/u.test(value) ? Number(value) : null; // number-ok: عدد من أرقام لوحة التطبيق وحدها
   const [note, setNote] = useState(shown.note ?? '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isNote = field === 'note';
   const typed = isNote ? note !== (shown.note ?? '') : value !== '';
-  // الغاز المسجّل يُمسح («امسح الغاز»: قنانٍ null، والخادم يُبقي صفّه بنسخة أكبر).
-  const clearable = field === 'gas' && shown.gas !== null;
+  // الغاز والكاز المسجّلان يُمسحان («امسح الغاز» و«امسح الكاز»: null، والخادم يُبقي صفّه بنسخة أكبر).
+  const clearable = (field === 'gas' && shown.gas !== null) || (field === 'kerosene' && shown.kerosene !== null);
 
   const save = async (clear = false) => {
     if (busy) return;
@@ -359,9 +436,8 @@ function CellSheet({ day, field, shown, submit, onClose, onSaved }: { day: Sheet
     } else if (isNote) {
       written = note;
     } else {
-      const n = /^[0-9]{1,8}$/u.test(value) ? Number(value) : null; // number-ok: عدد طيور أو قناني أو بيض من أرقام اللوحة وحدها
-      if (n === null) return;
-      written = n;
+      if (typedCount === null) return;
+      written = field === 'kerosene' && barrels ? typedCount * BARREL_LITERS : typedCount;
     }
     setBusy(true);
     setError(null);
@@ -377,7 +453,16 @@ function CellSheet({ day, field, shown, submit, onClose, onSaved }: { day: Sheet
     onSaved();
   };
 
-  const unit = field === 'gas' ? t('sheet.unit.gas', 'قنينة') : field === 'eggs' ? t('sheet.unit.eggs', 'بيضة') : t('sheet.unit.dead', 'طير');
+  const unit =
+    field === 'gas'
+      ? t('sheet.unit.gas', 'قنينة')
+      : field === 'kerosene'
+        ? barrels
+          ? t('sheet.unit.barrel', 'برميل')
+          : t('sheet.unit.liter', 'لتر')
+        : field === 'eggs'
+          ? t('sheet.unit.eggs', 'بيضة')
+          : t('sheet.unit.dead', 'طير');
   return (
     <Dialog
       open
@@ -392,7 +477,7 @@ function CellSheet({ day, field, shown, submit, onClose, onSaved }: { day: Sheet
               {t('sheet.done', 'تم')}
             </Button>
             <Button size="lg" variant="secondary" className="w-full" onClick={() => void save(true)} disabled={busy} data-action="cell-clear">
-              {t('sheet.gas.clear', 'امسح الغاز')}
+              {field === 'kerosene' ? t('sheet.kerosene.clear', 'امسح الكاز') : t('sheet.gas.clear', 'امسح الغاز')}
             </Button>
           </div>
         ) : (
@@ -410,9 +495,33 @@ function CellSheet({ day, field, shown, submit, onClose, onSaved }: { day: Sheet
         ) : (
           <>
             <p className="text-sm text-ink-muted" data-action="cell-current">
-              {current === null ? t('sheet.cell.empty', 'لم يُسجَّل شيء لهذا اليوم بعد.') : t('sheet.cell.current', 'المسجّل الآن: {n}', { n: fmtInt(current) })}
+              {current === null
+                ? t('sheet.cell.empty', 'لم يُسجَّل شيء لهذا اليوم بعد.')
+                : field === 'kerosene'
+                  ? t('sheet.cell.current_amount', 'المسجّل الآن: {amount}', { amount: litersText(current) })
+                  : t('sheet.cell.current', 'المسجّل الآن: {n}', { n: fmtInt(current) })}
               {field === 'dead' && shown.culled > 0 ? ` ${t('sheet.cell.culled', '(منها {n} مستبعد قديم يُحسب معها)', { n: fmtInt(shown.culled) })}` : ''}
             </p>
+            {field === 'kerosene' ? (
+              <>
+                <Segmented<'liters' | 'barrels'>
+                  label={t('sheet.kerosene.unit', 'وحدة الكاز')}
+                  options={[
+                    { value: 'liters', label: t('sheet.unit.liters', 'لتر') },
+                    { value: 'barrels', label: t('sheet.unit.barrels', 'برميل') },
+                  ]}
+                  value={barrels ? 'barrels' : 'liters'}
+                  onChange={(next) => setBarrels(next === 'barrels')}
+                />
+                {barrels ? (
+                  <p className="text-sm text-ink-muted" data-action="cell-barrels">
+                    {typedCount === null
+                      ? t('sheet.kerosene.barrel_hint', 'البرميل {liters}.', { liters: litersText(BARREL_LITERS) })
+                      : t('sheet.kerosene.barrels_are', '{barrels} = {liters}', { barrels: barrelsText(typedCount), liters: litersText(typedCount * BARREL_LITERS) })}
+                  </p>
+                ) : null}
+              </>
+            ) : null}
             <WeightPad value={value} onChange={setValue} unitLabel={unit} maxDecimals={0} onEnter={() => void save()} />
             {error ? (
               <p role="alert" className="text-sm text-danger-700 dark:text-danger-300">
@@ -738,6 +847,9 @@ function rejectWhat(payload: Record<string, unknown>): string {
   // قناني أُرسلت من الجولة (add_flock_gas، 0036): تُضاف إلى غاز اليوم، لا تحلّ محلّه.
   const gasAdd = num('gas_add');
   if (gasAdd !== null) parts.push(t('sheet.reject.gas_add', 'إضافة غاز {n}', { n: fmtInt(gasAdd) }));
+  // كاز اليوم من الورقة (0037).
+  const kerosene = num('kerosene');
+  if (kerosene !== null) parts.push(t('sheet.reject.kerosene', 'الكاز {amount}', { amount: litersText(kerosene) }));
   const feed = typeof payload.feed_kg === 'string' ? parseDecimal(payload.feed_kg, 3) : null;
   if (feed) parts.push(t('sheet.reject.feed', 'العلف {kg} كغم', { kg: kgOf(toScale(feed, 3)) }));
   const eggs = num('eggs_total');
@@ -766,8 +878,9 @@ export function sameParked(reject: SheetReject, entry: ReviewEntry): boolean {
   const saved = reject.payload;
   const op = entry.op;
   if (op.fn === 'set_flock_gas') return 'gas' in saved && sameValue(saved.gas, op.payload.cylinders);
+  if (op.fn === 'set_flock_kerosene') return 'kerosene' in saved && sameValue(saved.kerosene, op.payload.liters);
   if (op.fn === 'save_flock_visit') return saved.visit === op.payload.visitId;
-  if ('gas' in saved || 'visit' in saved) return false;
+  if ('gas' in saved || 'kerosene' in saved || 'visit' in saved) return false;
   const p = op.payload;
   return (
     sameValue(saved.dead, p.dead) &&
@@ -952,7 +1065,7 @@ function Cell({ children, pending, action }: { children: ReactNode; pending: boo
 const countNode = (value: CellValue): ReactNode => (typeof value === 'number' ? <Num>{fmtInt(value)}</Num> : '');
 
 /** أعمدة الورقة بترتيبها (مفاتيح أعمدة SheetTable نفسها): الجدول كإكسل يتنقّل بها. */
-const sheetFields = (layer: boolean): GridField[] => (layer ? ['age', 'date', 'dead', 'gas', 'feed', 'eggs', 'note'] : ['age', 'date', 'dead', 'gas', 'feed', 'note']);
+const sheetFields = (layer: boolean): GridField[] => (layer ? ['age', 'date', 'dead', 'gas', 'kerosene', 'feed', 'eggs', 'note'] : ['age', 'date', 'dead', 'gas', 'kerosene', 'feed', 'note']);
 
 function SheetTable({ sheet, ops, saved, view }: { sheet: HallSheet; ops: readonly OutboxOp[]; saved: readonly SavedEdit[]; view: SheetGridView }) {
   const layer = sheet.flock.kind === 'layer';
@@ -1015,6 +1128,20 @@ function SheetTable({ sheet, ops, saved, view }: { sheet: HallSheet; ops: readon
         ));
       },
       total: <Num>{fmtInt(sheet.totals.gas)}</Num>,
+    },
+    {
+      key: 'kerosene',
+      header: t('sheet.col.kerosene', 'الكاز (لتر)'),
+      kind: 'number',
+      cell: (day, row) => {
+        const shown = shownOf(day, ops, saved);
+        return view.content(day, row, 'kerosene', (fresh) => (
+          <Cell pending={fresh ? fresh.pending : shown.pending.has('kerosene')} action="cell-kerosene">
+            {fresh ? countNode(fresh.value) : shown.kerosene === null ? '' : <Num>{fmtInt(shown.kerosene)}</Num>}
+          </Cell>
+        ));
+      },
+      total: <Num>{fmtInt(sheet.totals.kerosene)}</Num>,
     },
     {
       key: 'feed',
@@ -1104,6 +1231,7 @@ function refusalText(result: SendResult): string {
       return t('sheet.parked', 'لم يُحفظ: {why}.', { why: parkText(result.reason ?? null) });
     case 'stale_day':
     case 'stale_gas':
+    case 'stale_kerosene':
     case 'stale_visit':
       return t('sheet.stale', 'تغيّر هذا اليوم من جهاز آخر قبل أن يصل تعديلك، فلم يُكتب فوقه.');
     case 'rejected':
@@ -1147,6 +1275,8 @@ function useSheetCells(sheet: HallSheet | null, flockId: string, ops: readonly O
           return count(shown.recorded ? shown.dead : null, writable ? 'write' : 'read');
         case 'gas':
           return count(shown.gas, writable ? 'write' : 'read');
+        case 'kerosene':
+          return count(shown.kerosene, writable ? 'write' : 'read');
         case 'eggs':
           return count(shown.eggs, writable ? 'write' : 'read');
         case 'feed': {
@@ -1260,6 +1390,7 @@ function useSheetCells(sheet: HallSheet | null, flockId: string, ops: readonly O
 function sameShown(change: CellChange, shown: Shown): boolean {
   if (change.field === 'dead') return shown.recorded && change.value === shown.dead;
   if (change.field === 'gas') return change.value === shown.gas;
+  if (change.field === 'kerosene') return change.value === shown.kerosene;
   if (change.field === 'eggs') return change.value === shown.eggs;
   return false;
 }

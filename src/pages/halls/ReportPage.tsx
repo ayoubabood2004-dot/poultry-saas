@@ -64,6 +64,8 @@ export function summaryRows(sheet: HallSheet): SummaryRow[] {
     ...(s.feedBackKg !== null && s.feedBackKg > 0n ? [{ key: 'feed_back', label: t('batch.sum.feed_back', 'المرتجع والمنقول (كغم)'), value: kg(s.feedBackKg) }] : []),
     { key: 'feed_net', label: t('batch.sum.feed_net', 'صافي العلف (كغم)'), value: kg(s.feedNetKg) },
     { key: 'gas', label: t('batch.sum.gas', 'الغاز (قناني)'), value: fmtInt(s.gas) },
+    // الكاز (0037، رسالة الزبون 2026-11-26) حين سُجّل.
+    ...(s.kerosene > 0 ? [{ key: 'kerosene', label: t('batch.sum.kerosene', 'الكاز (لتر)'), value: fmtInt(s.kerosene) }] : []),
     { key: 'sold', label: t('batch.sum.sold', 'المباع (طير)'), value: fmtInt(s.soldBirds) },
     { key: 'sold_kg', label: t('batch.sum.sold_kg', 'صافي وزن المباع (كغم)'), value: kg(s.soldNetKg) },
     { key: 'avg', label: t('batch.sum.avg', 'معدّل وزن الطير (كغم)'), value: s.avgWeightKg === null ? dash() : fmtScaledCell(s.avgWeightKg, 3, 3) },
@@ -87,6 +89,8 @@ function BatchBody({ sheet }: { sheet: HallSheet }) {
   const feedDecimals = columnDecimals([sheet.totals.feedKg, ...rows.flatMap((row) => (row.day.feedKg === null ? [] : [row.day.feedKg]))], 3) as 0 | 1 | 2 | 3;
   const soldDecimals = columnDecimals(rows.flatMap((row) => (row.day.soldNetKg === null ? [] : [row.day.soldNetKg])), 3) as 0 | 1 | 2 | 3;
   const sold = sheet.totals.soldBirds > 0;
+  // عمود الكاز حين سُجّل في الوجبة (يوماً ما، ولو مُسح بعدها إلى صفر): الوجبة بلا كاز بلا عموده.
+  const kerosene = sheet.totals.kerosene > 0 || rows.some((row) => row.day.kerosene !== null);
   const columns: Column<ReportDay>[] = [
     { key: 'age', header: t('sheet.col.age', 'العمر'), kind: 'number', cell: (row) => <Num>{fmtInt(row.day.age)}</Num> },
     { key: 'date', header: t('sheet.col.date', 'التاريخ'), cell: (row) => <Num>{fmtDay(row.day.on)}</Num> },
@@ -98,6 +102,17 @@ function BatchBody({ sheet }: { sheet: HallSheet }) {
       total: <Num>{fmtInt(sheet.totals.dead)}</Num>,
     },
     { key: 'gas', header: t('sheet.col.gas', 'الغاز'), kind: 'number', cell: (row) => (row.day.gas === null ? '' : <Num>{fmtInt(row.day.gas)}</Num>), total: <Num>{fmtInt(sheet.totals.gas)}</Num> },
+    ...(kerosene
+      ? [
+          {
+            key: 'kerosene',
+            header: t('sheet.col.kerosene', 'الكاز (لتر)'),
+            kind: 'number' as const,
+            cell: (row: ReportDay) => (row.day.kerosene === null ? '' : <Num>{fmtInt(row.day.kerosene)}</Num>),
+            total: <Num>{fmtInt(sheet.totals.kerosene)}</Num>,
+          },
+        ]
+      : []),
     { key: 'feed', header: t('sheet.col.feed', 'العلف (كغم)'), kind: 'number', cell: (row) => kgCell(row.day.feedKg, feedDecimals), total: <Num>{fmtQtyCell(sheet.totals.feedKg, feedDecimals)}</Num> },
     ...(layer
       ? [

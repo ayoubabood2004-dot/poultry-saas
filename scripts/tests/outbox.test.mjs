@@ -307,13 +307,13 @@ export default async function (t) {
     t.same(server.calls, [op.id, edit.id], 'المسك الميّت انحسم بمرجعه بلا إعادة إرسال');
   }
 
-  // ١١) نسخة أحدث تفتح نفس القاعدة بنسخة 5 والطابور (نسخة 4) مفتوح هنا: اتصالنا يتسكّر لحاله وما يسدّها.
+  // ١١) نسخة أحدث تفتح نفس القاعدة بنسخة 6 والطابور (نسخة 5 منذ 0037) مفتوح هنا: اتصالنا يتسكّر لحاله وما يسدّها.
   {
     const name = nextName();
     const db = await q.openOutbox(name);
     const newer = await within(
       new Promise((resolve) => {
-        const request = globalThis.indexedDB.open(name, 5);
+        const request = globalThis.indexedDB.open(name, 6);
         request.onsuccess = () => {
           request.result.close();
           resolve('opened');
@@ -352,13 +352,13 @@ export default async function (t) {
     t.eq(outcome, 'opened', 'الفتح المسدود انتظر وانفتح بعد ما تسكّر التبويب القديم');
   }
 
-  // ١٣) ترقية النسخة الجاية (5) على قاعدة هاي النسخة: ما تعيد بناء المخازن الموجودة، والعمليات تبقى.
+  // ١٣) ترقية النسخة الجاية (6) على قاعدة هاي النسخة: ما تعيد بناء المخازن الموجودة، والعمليات تبقى.
   {
     const name = nextName();
-    const v4 = await q.openOutbox(name);
-    await q.saveRound(v4, ALI, day('f8', '2026-10-15', { dead: 1 }));
-    v4.close();
-    const upgraded = await idb.openDatabase(name, 5, queue.upgradeOutbox).then(
+    const v5 = await q.openOutbox(name);
+    await q.saveRound(v5, ALI, day('f8', '2026-10-15', { dead: 1 }));
+    v5.close();
+    const upgraded = await idb.openDatabase(name, 6, queue.upgradeOutbox).then(
       async (db) => {
         const stores = Array.from(db.objectStoreNames).sort();
         const mine = (await q.summarize(db, ALI)).mine;
@@ -367,7 +367,7 @@ export default async function (t) {
       },
       (error) => `rejected:${error?.name ?? error?.message}`,
     );
-    t.same(upgraded, { stores: ['ops', 'review'], mine: 1 }, 'الترقية لنسخة 5 نجحت والجولة باقية');
+    t.same(upgraded, { stores: ['ops', 'review'], mine: 1 }, 'الترقية لنسخة 6 نجحت والجولة باقية');
   }
 
   // ١٣ب) M1 (مراجعة 0032): الطابور بنسخة 2، فنافذة بحزمة قبل 0032 (تفتحه بنسخة 1 وتعدّ كلّ عملية مجموع يوم: ترفع الزيارة بـsave_flock_day، وتدمج
@@ -379,7 +379,7 @@ export default async function (t) {
     const kept = await q.saveRound(old, ALI, day('f30', '2026-11-16', { dead: 2 }));
     await putOp(old, { ...kept, id: 'old-visit-op', fn: 'save_flock_visit', payload: { visitId: 'v-old', recordedAt: '2026-11-16T09:40:00.000Z', dead: 1, culled: 0, feed_kg: null, eggs_total: null, eggs_cracked: null, eggs_broken: null, note: null, void: false }, createdAt: kept.createdAt + 1 });
     const current = await within(q.openOutbox(name), 1000, 'blocked');
-    t.eq(current === 'blocked' ? 'blocked' : current.version, 4, 'M1 الطابور ينفتح بنسخته (4) والنافذة القديمة مفتوحة (لا انسداد)');
+    t.eq(current === 'blocked' ? 'blocked' : current.version, 5, 'M1 الطابور ينفتح بنسخته (5) والنافذة القديمة مفتوحة (لا انسداد)');
     let oldClosed = false;
     try {
       old.transaction('ops', 'readonly');
@@ -391,7 +391,7 @@ export default async function (t) {
     t.eq(reopen, 'rejected:VersionError', 'M1 فتح الحزمة القديمة بنسخة 1 بعد الترقية يرفض بصوت (لا ترفع ولا تدمج الزيارات)');
     if (current !== 'blocked') {
       const ops = await readOps(current);
-      t.same([Array.from(current.objectStoreNames).sort(), ops.map((op) => [op.fn, op.payload.visitId ?? op.payload.dead]).sort()], [['ops', 'review'], [['save_flock_day', 2], ['save_flock_visit', 'v-old']]], 'M1 الترقية من 1 إلى 4 تُبقي المخزنين وكلّ العمليات كما هي');
+      t.same([Array.from(current.objectStoreNames).sort(), ops.map((op) => [op.fn, op.payload.visitId ?? op.payload.dead]).sort()], [['ops', 'review'], [['save_flock_day', 2], ['save_flock_visit', 'v-old']]], 'M1 الترقية من 1 إلى 5 تُبقي المخزنين وكلّ العمليات كما هي');
       current.close();
     }
   }
@@ -403,7 +403,7 @@ export default async function (t) {
     const old = await idb.openDatabase(name, 2, queue.upgradeOutbox);
     await q.saveRound(old, ALI, day('f31', '2026-11-20', { dead: 4 }));
     const current = await within(q.openOutbox(name), 1000, 'blocked');
-    t.eq(current === 'blocked' ? 'blocked' : current.version, 4, 'S2 الطابور ينفتح بنسخة 4 والنافذة بنسخة 2 مفتوحة');
+    t.eq(current === 'blocked' ? 'blocked' : current.version, 5, 'S2 الطابور ينفتح بنسخة 5 والنافذة بنسخة 2 مفتوحة');
     let oldClosed = false;
     try {
       old.transaction('ops', 'readonly');
@@ -414,7 +414,7 @@ export default async function (t) {
     const reopen = await within(idb.openDatabase(name, 2, queue.upgradeOutbox).then((db) => { db.close(); return 'opened'; }, (error) => `rejected:${error?.name}`), 1000, 'hung');
     t.eq(reopen, 'rejected:VersionError', 'S2 فتح حزمة قبل 0035 بنسخة 2 بعد الترقية يرفض بصوت (لا ترسل الغاز بغير دالّته)');
     if (current !== 'blocked') {
-      t.same((await readOps(current)).map((op) => [op.fn, op.payload.dead]), [['save_flock_day', 4]], 'S2 الترقية من 2 إلى 4 تُبقي العمليات');
+      t.same((await readOps(current)).map((op) => [op.fn, op.payload.dead]), [['save_flock_day', 4]], 'S2 الترقية من 2 إلى 5 تُبقي العمليات');
       current.close();
     }
   }
@@ -484,7 +484,7 @@ export default async function (t) {
   // ١٦) زيارتان لنفس (الفوج، اليوم) عمليتان منفصلتان (تُجمعان بالخادم)، وتعديل زيارة لم تُرفع يحلّ محلّ محتواها كاملاً، وإلغاؤها يحذف عمليتها.
   {
     const db = await open();
-    t.eq(db.version, 4, 'V16 قاعدة الطابور بنسختها (4 منذ 0036)، والحقول داخل payload بلا مخزن جديد');
+    t.eq(db.version, 5, 'V16 قاعدة الطابور بنسختها (5 منذ 0037)، والحقول داخل payload بلا مخزن جديد');
     const a = await q.saveRound(db, ALI, visit('f20', '2026-11-17', visitContent('va', { dead: 3, feed_kg: '50.000' })));
     const b = await q.saveRound(db, ALI, visit('f20', '2026-11-17', visitContent('vb', { dead: 2 })));
     t.same([a.fn, b.fn, a.id !== b.id, (await readOps(db)).length], ['save_flock_visit', 'save_flock_visit', true, 2], 'V16 زيارتان مختلفتان لليوم نفسه: عمليتان (لا دمج بين زيارتين)');
@@ -847,7 +847,7 @@ export default async function (t) {
     const old = await idb.openDatabase(name, 3, queue.upgradeOutbox);
     await q.saveRound(old, ALI, day('s3', '2026-11-24', { dead: 4 }));
     const current = await within(q.openOutbox(name), 1000, 'blocked');
-    t.eq(current === 'blocked' ? 'blocked' : current.version, 4, 'S3 الطابور ينفتح بنسخة 4 والنافذة بنسخة 3 مفتوحة');
+    t.eq(current === 'blocked' ? 'blocked' : current.version, 5, 'S3 الطابور ينفتح بنسخة 5 والنافذة بنسخة 3 مفتوحة');
     let oldClosed = false;
     try {
       old.transaction('ops', 'readonly');
@@ -858,8 +858,119 @@ export default async function (t) {
     const reopen = await within(idb.openDatabase(name, 3, queue.upgradeOutbox).then((db) => { db.close(); return 'opened'; }, (error) => `rejected:${error?.name}`), 1000, 'hung');
     t.eq(reopen, 'rejected:VersionError', 'S3 فتح حزمة 0035 بنسخة 3 بعد الترقية يرفض بصوت (لا ترسل الهلاكات ولا الغاز بغير دالّتيهما)');
     if (current !== 'blocked') {
-      t.same((await readOps(current)).map((op) => [op.fn, op.payload.dead]), [['save_flock_day', 4]], 'S3 الترقية من 3 إلى 4 تُبقي العمليات');
+      t.same((await readOps(current)).map((op) => [op.fn, op.payload.dead]), [['save_flock_day', 4]], 'S3 الترقية من 3 إلى 5 تُبقي العمليات');
       current.close();
     }
+  }
+
+  // ١٣هـ) S4 (0037): الطابور بنسخة 5، فنافذة بحزمة 0036 (نسخة 4: كانت ترسل set_flock_kerosene بـsave_flock_day بلا خانات فيضيع الكاز، وتدمجه في مجموع
+  // اليوم) لا تشاركه: اتصالها يتسكّر، وفتحها بعده بنسخة 4 يرفض بصوت؛ والعمليات تبقى.
+  {
+    const name = nextName();
+    const old = await idb.openDatabase(name, 4, queue.upgradeOutbox);
+    await q.saveRound(old, ALI, day('s4', '2026-11-26', { dead: 2 }));
+    const current = await within(q.openOutbox(name), 1000, 'blocked');
+    t.eq(current === 'blocked' ? 'blocked' : current.version, 5, 'S4 الطابور ينفتح بنسخة 5 والنافذة بنسخة 4 مفتوحة');
+    let oldClosed = false;
+    try {
+      old.transaction('ops', 'readonly');
+    } catch (error) {
+      oldClosed = error?.name === 'InvalidStateError';
+    }
+    t.ok(oldClosed, 'S4 اتصال النسخة 4 يصله versionchange فيتسكّر');
+    const reopen = await within(idb.openDatabase(name, 4, queue.upgradeOutbox).then((db) => { db.close(); return 'opened'; }, (error) => `rejected:${error?.name}`), 1000, 'hung');
+    t.eq(reopen, 'rejected:VersionError', 'S4 فتح حزمة 0036 بنسخة 4 بعد الترقية يرفض بصوت (لا ترسل الكاز بغير دالّته)');
+    if (current !== 'blocked') {
+      t.same((await readOps(current)).map((op) => [op.fn, op.payload.dead]), [['save_flock_day', 2]], 'S4 الترقية من 4 إلى 5 تُبقي العمليات');
+      current.close();
+    }
+  }
+
+  // ─── 0037: كاز اليوم (set_flock_kerosene) ────────────────────────────────────────────────────────────────────────────────
+  const kerosene = (flockId, onDate, liters, baseVersion = null) => ({ fn: 'set_flock_kerosene', flockId, day: onDate, payload: { liters }, baseVersion });
+  /** خادم كاز كخادم الغاز: صفّ لكلّ (فوج، يوم) بنسخته، والنسخة المختلفة stale_kerosene بقيمته، والمرجع يعيد أوّل جواب. */
+  const keroseneServer = () => {
+    const rows = new Map();
+    const refs = new Map();
+    const sent = [];
+    return {
+      rows,
+      sent,
+      apply(op) {
+        sent.push(op);
+        if (refs.has(op.id)) return refs.get(op.id);
+        const key = `${op.flockId}|${op.day}`;
+        const row = rows.get(key) ?? null;
+        let result;
+        if ((row?.version ?? null) !== op.baseVersion) result = { kind: 'stale_kerosene', server: { on: op.day, liters: row?.liters ?? null, version: row?.version ?? 1 } };
+        else {
+          const version = (row?.version ?? 0) + 1;
+          rows.set(key, { version, liters: op.payload.liters });
+          result = { kind: 'saved', version, kerosene: { on: op.day, liters: op.payload.liters, version } };
+        }
+        refs.set(op.id, result);
+        return result;
+      },
+    };
+  };
+
+  // K1) كازان لليوم نفسه قبل الرفع يندمجان بأحدثهما (القيمة الأحدث والنسخة الأولى)، ولا يندمجان بالغاز ولا بمجموع اليوم ولا يقطعان دمجهما؛ والمسح null؛
+  // وحدّ الخادم 20,000 لتر، والعدد صحيح غير سالب.
+  {
+    const db = await open();
+    const d1 = await q.saveRound(db, ALI, day('k1', '2026-11-26', { dead: 3 }, 2));
+    const g1 = await q.saveRound(db, ALI, gas('k1', '2026-11-26', 4, 1));
+    const k1 = await q.saveRound(db, ALI, kerosene('k1', '2026-11-26', 200, 1));
+    const g2 = await q.saveRound(db, ALI, gas('k1', '2026-11-26', 5, 7));
+    const k2 = await q.saveRound(db, ALI, kerosene('k1', '2026-11-26', 400, 9));
+    const d2 = await q.saveRound(db, ALI, day('k1', '2026-11-26', { note: 'تهوية' }, 9));
+    const ops = await readOps(db);
+    const kop = ops.find((op) => op.fn === 'set_flock_kerosene');
+    t.same(
+      [k2.id === k1.id, g2.id === g1.id, d2.id === d1.id, ops.length, kop?.payload, kop?.baseVersion, ops.find((op) => op.fn === 'set_flock_gas')?.payload.cylinders, ops.find((op) => op.fn === 'save_flock_day')?.payload],
+      [true, true, true, 3, { liters: 400 }, 1, 5, { dead: 3, note: 'تهوية' }],
+      'K1 الكاز يندمج بأحدث كاز منتظر لليوم (400 بنسخة 1)، والغاز بغازه، ومجموع اليوم بمجموعه رغم الكاز بينهما',
+    );
+    await q.saveRound(db, ALI, kerosene('k1', '2026-11-26', null, 1));
+    t.eq((await readOps(db)).find((op) => op.fn === 'set_flock_kerosene')?.payload.liters, null, 'K1 مسح الكاز (null) يحلّ محلّ القيمة');
+    const refused = [];
+    for (const liters of [20001, -1, 2.5]) await q.saveRound(db, ALI, kerosene('k1', '2026-11-27', liters, null)).then(() => refused.push('queued'), (error) => refused.push(error?.code));
+    await q.saveRound(db, ALI, kerosene('k1', '2026-11-27', 20000, null));
+    t.same([refused, (await readOps(db)).filter((op) => op.day === '2026-11-27').map((op) => op.payload.liters)], [['not_queueable', 'not_queueable', 'not_queueable'], [20000]], 'K1 فوق 20,000 لتر أو سالب أو كسر لا يدخل الطابور، و20,000 يدخل');
+  }
+
+  // K2) الرفع: الكاز بدالّته ونسخته، ونسخته المحفوظة ترتفع لكاز بعده لليوم نفسه وحده (لا للغاز ولا لمجموع اليوم)، وstale_kerosene لرفّ المراجعة بقيمة
+  // الخادم، والمركون يبقى في الرفّ بسببه.
+  {
+    const db = await open();
+    const server = keroseneServer();
+    const first = await q.saveRound(db, ALI, kerosene('k2', '2026-11-26', 200, null));
+    await putOp(db, { ...first, state: 'unknown' });
+    const second = await q.saveRound(db, ALI, kerosene('k2', '2026-11-26', 600, null));
+    const gasOp = await q.saveRound(db, ALI, gas('k2', '2026-11-26', 3, null));
+    t.ok(second.id !== first.id && gasOp.fn === 'set_flock_gas', 'K2 ضابط: كاز ثانٍ بعد عملية في الطريق عملية مستقلّة');
+    const gasSent = [];
+    const report = await q.flush(db, ALI, {
+      currentUserId: async () => ALI.userId,
+      send: async (op) => {
+        if (op.fn === 'set_flock_kerosene') return server.apply(op);
+        gasSent.push([op.fn, op.baseVersion]);
+        return { kind: 'saved', version: 1 };
+      },
+      lookup: async () => null,
+    });
+    t.same(
+      [report.saved, report.review, server.sent.map((op) => [op.payload.liters, op.baseVersion]), server.rows.get('k2|2026-11-26'), gasSent],
+      [3, 0, [[200, null], [600, 1]], { version: 2, liters: 600 }, [['set_flock_gas', null]]],
+      'K2 الكاز الثاني ارتفع بنسخة الأوّل (1)، والغاز بعده بنسخته هو (null) لا بنسخة الكاز',
+    );
+    await q.saveRound(db, ALI, kerosene('k2', '2026-11-26', 800, 1));
+    const stale = await q.flush(db, ALI, { currentUserId: async () => ALI.userId, send: async (op) => server.apply(op), lookup: async () => null });
+    const shelf = await q.reviewEntries(db, ALI);
+    t.same([stale.review, shelf[0]?.reason, shelf[0]?.op.fn, shelf[0]?.op.payload.liters, shelf[0]?.server?.liters], [1, 'stale_kerosene', 'set_flock_kerosene', 800, 600], 'K2 نسخة قديمة: stale_kerosene في رفّ المراجعة بقيمتك وقيمة الخادم');
+    await q.saveRound(db, ALI, kerosene('k2', '2026-11-01', 400, null));
+    const parked = await q.flush(db, ALI, { currentUserId: async () => ALI.userId, send: async () => ({ kind: 'parked', reason: 'period_locked' }), lookup: async () => null });
+    const after = (await q.reviewEntries(db, ALI)).find((entry) => entry.op.day === '2026-11-01');
+    t.same([parked.parked, after?.reason, after?.hint, after?.op.payload.liters, (await q.summarize(db, ALI)).mine], [1, 'parked', 'period_locked', 400, 0], 'K2 المركون خرج من الطابور إلى الرفّ بسببه، ولا شيء ضاع');
   }
 }

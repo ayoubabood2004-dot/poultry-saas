@@ -239,6 +239,24 @@ export default async function (t) {
         ['throw:FlockShapeError', 'throw:FlockShapeError', 'throw:FlockShapeError'],
         'T2: add_flock_gas بشكل غريب يرمي (لا قناني بعد إضافة، أو فوق 1,000، أو حالة غير حالتيه)',
       );
+      // 0037: كاز اليوم من ورقة القاعة يُرسل بدالّته ونسخة صفّه، والجواب بعقده (D3).
+      const keroOp = { ...op, id: 'op-k', fn: 'set_flock_kerosene', payload: { liters: 400 }, baseVersion: 1 };
+      const keroSaved = { status: 'saved', kerosene: { on: '2026-10-31', liters: 400, version: 2 } };
+      t.same(await outcome({ json: keroSaved }, keroOp), { kind: 'saved', version: 2, kerosene: keroSaved.kerosene }, 'T3: set_flock_kerosene saved بنسخة صفّ الكاز والكاز كما حُفظ');
+      t.same(
+        [server.bodies.at(-1).url.endsWith('/rpc/set_flock_kerosene'), server.bodies.at(-1).body],
+        [true, { p_flock: 'f-1', p_on: '2026-10-31', p_liters: 400, p_expected_version: 1, p_client_ref: 'op-k', p_queued: true }],
+        'T3: set_flock_kerosene بمعاملات العقد (اللترات ونسخة الصفّ والمرجع وqueued)',
+      );
+      t.same(
+        [
+          await outcome({ json: { status: 'stale_kerosene', server: { on: '2026-10-31', liters: 200, version: 3 } } }, keroOp),
+          await outcome({ json: { status: 'parked', reason: 'flock_closed' } }, keroOp),
+          await outcome({ json: { status: 'stale_gas', server: { on: '2026-10-31', cylinders: 2, version: 2 } } }, keroOp),
+        ],
+        [{ kind: 'stale_kerosene', server: { on: '2026-10-31', liters: 200, version: 3 } }, { kind: 'parked', reason: 'flock_closed' }, 'throw:FlockShapeError'],
+        'T3: stale_kerosene بقيمة الخادم، وparked بسببه، وحالة غير حالاته ترمي (تبقى بالطابور)',
+      );
       t.eq(await tr.flockDayTransport.currentUserId(), 'u-1', 'T1: مستخدم الجلسة');
     } catch (error) {
       t.ok(false, `T1/T2: رمى ${error?.stack ?? error}`);
@@ -973,6 +991,23 @@ export default async function (t) {
       t.same([sent.map((op) => [op.fn, op.baseVersion, op.payload.dead]), review[0]?.reason], [[['save_flock_day', 4, 7]], 'stale_day'], 'R3b: العملية القديمة ارتفعت بنسختها وحمولتها، وstale_day لرفّها');
       const heads = all().filter((n) => n.localName === 'th').map((n) => n.textContent);
       t.ok(text().includes('حُفظ هذا اليوم من جهاز آخر قبل أن تصل جولتك') && heads.includes('جولتك') && heads.includes('المحفوظ في الخادم'), 'R3b: الرفّ بنصّ مجموع اليوم القديم');
+    });
+
+    // ── R3k: كاز من ورقة القاعة رُدّ بنسخة أقدم (0037): رفّ المراجعة يسمّيه بقيمتك وقيمة الخادم ───────────────────────────────────
+    await step('R3k', async () => {
+      m.onlineStore.set(false);
+      await m.saveRound(await m.openOutbox(), { userId: 'u-3k', orgId: 'org-1', displayName: 'علي' }, { fn: 'set_flock_kerosene', flockId: 'f-a', day: TODAY, payload: { liters: 600 }, baseVersion: 1 });
+      m.onlineStore.set(true);
+      const server = makeServer();
+      const { sent } = fresh(owner('u-3k'), { loadOverviewJson: () => server.overview() }, async () => ({ kind: 'stale_kerosene', server: { on: TODAY, liters: 200, version: 2 } }));
+      await mount('/broiler/round');
+      await settle(80);
+      const { review } = await queueOf('u-3k');
+      t.same([sent.map((op) => [op.fn, op.baseVersion, op.payload.liters]), review[0]?.reason], [[['set_flock_kerosene', 1, 600]], 'stale_kerosene'], 'R3k: الكاز ارتفع بنسخته، وstale_kerosene لرفّه');
+      const shelf = all().find((n) => n.getAttribute('data-review') !== null);
+      const cells = shelf ? descendants(shelf).filter((n) => n.localName === 'td').map((n) => n.textContent) : [];
+      t.ok(Boolean(shelf?.textContent.includes('تغيّر كاز هذا اليوم من جهاز آخر قبل أن يصل تعديلك') && shelf.textContent.includes('كاز اليوم')), `R3k: الرفّ بسببه ونوعه (${shelf?.textContent})`);
+      t.same(cells, ['الكاز (لتر)', '600', '200'], 'R3k: صفّ الرفّ «الكاز (لتر)» بقيمتك (600) وقيمة الخادم (200)');
     });
 
     // ── R4: parked ← رفّ المراجعة بسببها، و«احذفه» بتأكيد يحذفها ─────────────────────────────────────────────────────────────────

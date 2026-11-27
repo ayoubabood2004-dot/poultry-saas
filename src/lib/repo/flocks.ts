@@ -624,7 +624,7 @@ export function visitAnswer(value: unknown): SendResult {
   throw new FlockShapeError('status');
 }
 
-// ─── ناقل الطابور: save_flock_day وsave_flock_visit وset_flock_gas، وset_flock_dead وadd_flock_gas (0036) بمرجع العملية ─────────────────────
+// ─── ناقل الطابور: save_flock_day وsave_flock_visit وset_flock_gas، وset_flock_dead وadd_flock_gas (0036)، وset_flock_kerosene (0037) بمرجع العملية ──
 
 /** سبب الركن من جواب parked (flock_closed وout_of_scope وperiod_locked، وdate_too_old من خادم قبل 0035)، أو null بلا سبب. */
 const parkReason = (answer: Row): string | null => (typeof answer.reason === 'string' && answer.reason !== '' ? answer.reason : null);
@@ -657,6 +657,30 @@ export function gasAnswer(value: unknown): SendResult {
   if (answer.status === 'stale_gas') {
     parseGas(answer.server);
     return { kind: 'stale_gas', server: answer.server };
+  }
+  if (answer.status === 'parked') return { kind: 'parked', reason: parkReason(answer) };
+  throw new FlockShapeError('status');
+}
+
+/** كاز اليوم كما في جواب set_flock_kerosene (0037): {on, liters, version}؛ شكل غريب يرمي. */
+export function parseKerosene(value: unknown): { on: Day; liters: number | null; version: number } {
+  const row = record(value, 'kerosene');
+  const on = str(row, 'on');
+  if (!/^\d{4}-\d{2}-\d{2}$/u.test(on)) throw new FlockShapeError('on');
+  const liters = optInt(row, 'liters');
+  if (liters !== null && (liters < 0 || liters > 20000)) throw new FlockShapeError('liters');
+  const version = int(row, 'version');
+  if (version < 1) throw new FlockShapeError('version');
+  return { on, liters, version };
+}
+
+/** جواب set_flock_kerosene (0037) ← نتيجة الطابور: saved بنسخة صفّ الكاز (ومعه الكاز كما حُفظ)، وstale_kerosene بقيمة الخادم، وparked بسببه؛ شكل غريب يرمي. */
+export function keroseneAnswer(value: unknown): SendResult {
+  const answer = record(value, 'set_flock_kerosene');
+  if (answer.status === 'saved') return { kind: 'saved', version: parseKerosene(answer.kerosene).version, kerosene: answer.kerosene };
+  if (answer.status === 'stale_kerosene') {
+    parseKerosene(answer.server);
+    return { kind: 'stale_kerosene', server: answer.server };
   }
   if (answer.status === 'parked') return { kind: 'parked', reason: parkReason(answer) };
   throw new FlockShapeError('status');
@@ -705,6 +729,16 @@ export async function sendFlockDay(op: OutboxOp): Promise<SendResult> {
         p_flock: op.flockId,
         p_on: op.day,
         p_cylinders: op.payload.cylinders,
+        p_expected_version: op.baseVersion,
+        p_client_ref: op.id,
+        p_queued: true,
+      });
+    } else if (op.fn === 'set_flock_kerosene') {
+      // كاز اليوم باللتر (0037) بنسخة صفّه كالغاز.
+      answer = await call<unknown>('set_flock_kerosene', {
+        p_flock: op.flockId,
+        p_on: op.day,
+        p_liters: op.payload.liters,
         p_expected_version: op.baseVersion,
         p_client_ref: op.id,
         p_queued: true,
@@ -763,6 +797,8 @@ export async function sendFlockDay(op: OutboxOp): Promise<SendResult> {
   switch (op.fn) {
     case 'set_flock_gas':
       return gasAnswer(answer);
+    case 'set_flock_kerosene':
+      return keroseneAnswer(answer);
     case 'set_flock_dead':
       return deadAnswer(answer);
     case 'add_flock_gas':

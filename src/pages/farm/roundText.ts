@@ -41,7 +41,7 @@ const addMilli = (sum: bigint | null, more: bigint | null): bigint | null => (mo
  * في الطريق (sending) أو المجهولة (unknown) ربّما صارت في المحفوظ بقراءة بعدها، فلا تُضاف: عدّها مرّتين يرفض بالفحص قبل الحفظ رقماً صحيحاً؛
  * والمنتظرة والمعلّقة بالهويّة أو الاشتراك لم تصل الخادم يقيناً.
  * وهلاكات اليوم مرّة (set_flock_dead، 0036) تُضاف إلى نافق يوم لم تُسجَّل هلاكاته وحده، كما يفعل الخادم (يوم سُجّلت هلاكاته لا يُكتب فيه شيء): فلا تُعدّ
- * مرّتين ولو كانت في المحفوظ بقراءة بعدها؛ والغاز بنوعيه خارج مجموع اليوم.
+ * مرّتين ولو كانت في المحفوظ بقراءة بعدها؛ والغاز بنوعيه والكاز خارج مجموع اليوم.
  */
 export function soFar(saved: (Pick<DayValues, 'dead' | 'culled' | 'feedKg' | 'eggsTotal' | 'eggsBroken'> & { deadEntered?: boolean | null }) | null, ops: readonly OutboxOp[]): SoFar {
   const total: SoFar = {
@@ -58,7 +58,8 @@ export function soFar(saved: (Pick<DayValues, 'dead' | 'culled' | 'feedKg' | 'eg
     total.deadPending = true;
   };
   for (const op of [...ops].sort((a, b) => a.createdAt - b.createdAt)) {
-    if (op.fn === 'set_flock_gas' || op.fn === 'add_flock_gas') continue;
+    // الغاز بنوعيه والكاز (0037) خارج مجموع اليوم.
+    if (op.fn === 'set_flock_gas' || op.fn === 'add_flock_gas' || op.fn === 'set_flock_kerosene') continue;
     if (op.fn === 'set_flock_dead') {
       if (!total.deadEntered) total.dead += op.payload.dead;
       enter();

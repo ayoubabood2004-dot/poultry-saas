@@ -116,6 +116,9 @@ export interface SheetDay {
   note: string | null;
   gas: number | null;
   gasVersion: number | null;
+  /** الكاز باللتر (0037، رقم فقط مثل الغاز)، أو null: لم يُسجَّل؛ ونسخة صفّه (الممسوح نسخة بلا لترات). قارئ قبل 0037 بلا المفتاحين: null. */
+  kerosene: number | null;
+  keroseneVersion: number | null;
   /** العلف المرسل لهذا اليوم بالكيلو (بالآلاف)، أو null: لا علف. ويوم التسكين يشمل المنقول من الوجبة السابقة (carryInKg). */
   feedKg: Milli | null;
   /** المنقول من الوجبة السابقة إلى هذه القاعة (يوم التسكين وحده)، داخل feedKg؛ أو null. */
@@ -134,6 +137,8 @@ export interface SheetDay {
 export interface SheetTotals {
   dead: number;
   gas: number;
+  /** لترات الكاز (0037)؛ 0 من قارئ قبله. */
+  kerosene: number;
   feedKg: Milli;
   /** المرتجع والمنقول يوم الإغلاق؛ null من قارئ قبل مراجعة 0035 أو بلا شيء. */
   feedBackKg: Milli | null;
@@ -156,6 +161,8 @@ export interface SheetSummary {
   /** صافي العلف = المرسل − المرتجع والمنقول. */
   feedNetKg: Milli;
   gas: number;
+  /** لترات الكاز (0037)؛ 0 من قارئ قبله. */
+  kerosene: number;
   soldBirds: number;
   soldNetKg: Milli | null;
   /** كيلو بالآلاف. */
@@ -257,6 +264,8 @@ function dayOf(row: Row, kind: FlockKind): SheetDay {
     note: optStr(row, 'note'),
     gas: optCount(row, 'gas'),
     gasVersion: optCount(row, 'gas_version'),
+    kerosene: added(row, 'kerosene', optCount),
+    keroseneVersion: added(row, 'kerosene_version', optCount),
     feedKg: optScaled(row, 'feed_kg', 3),
     carryInKg: addedKg(row, 'carry_in_kg'),
     feedBackKg: addedKg(row, 'feed_back_kg'),
@@ -273,6 +282,8 @@ function dayOf(row: Row, kind: FlockKind): SheetDay {
   if (parsed.carryInKg !== null && (parsed.feedKg === null || parsed.carryInKg > parsed.feedKg)) throw new HallSheetShapeError('carry_in_kg');
   // الغاز الممسوح يبقى صفّه بنسخة أكبر وعدد null (لا حذف، درس ABA 2026-11-16)، فالنسخة بلا عدد صالحة؛ والعدد بلا نسخة لا.
   if (parsed.gas !== null && parsed.gasVersion === null) throw new HallSheetShapeError('gas_version');
+  // والكاز كذلك (0037)، وحدّه حدّ الخادم.
+  if (parsed.kerosene !== null && (parsed.keroseneVersion === null || parsed.kerosene > 20000)) throw new HallSheetShapeError('kerosene');
   if (kind === 'broiler' && (parsed.eggsTotal !== null || parsed.eggsCracked !== null || parsed.eggsBroken !== null)) throw new HallSheetShapeError('eggs_total');
   return parsed;
 }
@@ -318,6 +329,7 @@ export function parseHallSheet(value: unknown): HallSheet {
     totals: {
       dead: count(totalsRow, 'dead'),
       gas: count(totalsRow, 'gas'),
+      kerosene: added(totalsRow, 'kerosene', count) ?? 0,
       feedKg: scaled(totalsRow, 'feed_kg', 3),
       feedBackKg: addedKg(totalsRow, 'feed_back_kg'),
       soldBirds: count(totalsRow, 'sold_birds'),
@@ -334,6 +346,7 @@ export function parseHallSheet(value: unknown): HallSheet {
       feedBackKg: addedKg(summaryRow, 'feed_back_kg'),
       feedNetKg: summaryRow.feed_net_kg === undefined ? scaled(summaryRow, 'feed_kg', 3) - (addedKg(summaryRow, 'feed_back_kg') ?? 0n) : scaled(summaryRow, 'feed_net_kg', 3),
       gas: count(summaryRow, 'gas'),
+      kerosene: added(summaryRow, 'kerosene', count) ?? 0,
       soldBirds: count(summaryRow, 'sold_birds'),
       soldNetKg: optScaled(summaryRow, 'sold_net_kg', 3),
       avgWeightKg: optScaled(summaryRow, 'avg_weight_kg', 3),

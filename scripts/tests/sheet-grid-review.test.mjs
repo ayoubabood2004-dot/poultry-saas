@@ -565,7 +565,8 @@ export default async function (t) {
       await press('3');
       await press('Enter', {}, 160);
       await press('Home', { ctrl: true });
-      await moveTo(0, 5);
+      // الملاحظة 6 بعد عمود الكاز (0037).
+      await moveTo(0, 6);
       await press('ت');
       await typeIn('تهوية');
       read.land();
@@ -657,7 +658,7 @@ export default async function (t) {
       await wait(5);
       await settle(60);
       const pending = td(20, 2)?.textContent ?? null;
-      await moveTo(20, 5);
+      await moveTo(20, 6);
       await press('ت');
       await typeIn('تهوية');
       await press('Enter', {}, 200);
@@ -922,7 +923,7 @@ export default async function (t) {
       try {
         await open();
         await pencil();
-        fire(td(19, 5), 'dblclick', { button: 0, detail: 2 });
+        fire(td(19, 6), 'dblclick', { button: 0, detail: 2 });
         await settle(20);
         t.eq(input(), null, 'M32 شاشة لمس (pointer: coarse): النقرتان لا تفتحان المحرّر في الخانة (اللمسة تفتح ورقتها)');
       } finally {
