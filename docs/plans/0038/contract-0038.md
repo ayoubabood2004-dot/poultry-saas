@@ -40,7 +40,7 @@ Build every changed function on its **latest body** (after 0037). `rollback_0038
 
 ### D4. Readers (additive keys only; everything else word for word)
 - `private.flock_day_json(d)`: `'dead_parts'` (null or the array).
-- `private.flock_summary(f)` (latest 0036): `'section_counts'` (null or the array). `public.flocks_overview()` (latest 0036): each hall `'sections'`.
+- `private.flock_summary(f)` (latest 0036): `'section_counts'` (null or the array) and `'section_dead'` (null, or each section's deaths over all days: the round shows and checks each section's remaining birds). `public.flocks_overview()` (latest 0036): each hall `'sections'`.
 - `public.hall_sheet(p_flock)` (latest 0037): each day `'dead_parts'`; `totals.dead_parts` (null for a batch not split, else the element-wise sum over the days); top level `'sections'`: null for a batch not split, else `[{"no":1,"placed":13525,"dead":21,"mortality_pct":"0.16","remaining":13504}, …]` (`mortality_pct` like `summary.mortality_pct`, `remaining = placed − dead`).
 
 ### D5. `public.verify_hall_sections() returns table (check_name text, violations bigint)`
