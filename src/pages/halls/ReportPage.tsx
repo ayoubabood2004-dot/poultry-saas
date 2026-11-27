@@ -51,6 +51,12 @@ const kg = (value: Milli | null): string => (value === null ? dash() : fmtQtyCel
 const kgCell = (value: Milli | null, decimals: 0 | 1 | 2 | 3) => (value === null ? '' : <Num>{fmtQtyCell(value, decimals)}</Num>);
 
 /** خلاصة الوجبة بصفوف «البند | القيمة» من summary الخادم، والغائب «—». */
+/**
+ * الكاز (0037، رسالة الزبون 2026-11-26) في التقرير حين سُجّل يوماً ما في الوجبة ولو صفراً: عموده في جدول الأيّام وسطره في الخلاصة بشرط واحد (مراجعة
+ * 2026-11-27: صفر لترٍ أظهر العمود دون السطر). واليوم الممسوح فارغ لا يُعدّ، فوجبة مُسح كازها كلّه بلا كاز.
+ */
+export const keroseneShown = (sheet: HallSheet): boolean => sheet.totals.kerosene > 0 || sheet.days.some((day) => day.kerosene !== null);
+
 export function summaryRows(sheet: HallSheet): SummaryRow[] {
   const s = sheet.summary;
   return [
@@ -64,8 +70,7 @@ export function summaryRows(sheet: HallSheet): SummaryRow[] {
     ...(s.feedBackKg !== null && s.feedBackKg > 0n ? [{ key: 'feed_back', label: t('batch.sum.feed_back', 'المرتجع والمنقول (كغم)'), value: kg(s.feedBackKg) }] : []),
     { key: 'feed_net', label: t('batch.sum.feed_net', 'صافي العلف (كغم)'), value: kg(s.feedNetKg) },
     { key: 'gas', label: t('batch.sum.gas', 'الغاز (قناني)'), value: fmtInt(s.gas) },
-    // الكاز (0037، رسالة الزبون 2026-11-26) حين سُجّل.
-    ...(s.kerosene > 0 ? [{ key: 'kerosene', label: t('batch.sum.kerosene', 'الكاز (لتر)'), value: fmtInt(s.kerosene) }] : []),
+    ...(keroseneShown(sheet) ? [{ key: 'kerosene', label: t('batch.sum.kerosene', 'الكاز (لتر)'), value: fmtInt(s.kerosene) }] : []),
     { key: 'sold', label: t('batch.sum.sold', 'المباع (طير)'), value: fmtInt(s.soldBirds) },
     { key: 'sold_kg', label: t('batch.sum.sold_kg', 'صافي وزن المباع (كغم)'), value: kg(s.soldNetKg) },
     { key: 'avg', label: t('batch.sum.avg', 'معدّل وزن الطير (كغم)'), value: s.avgWeightKg === null ? dash() : fmtScaledCell(s.avgWeightKg, 3, 3) },
@@ -89,8 +94,7 @@ function BatchBody({ sheet }: { sheet: HallSheet }) {
   const feedDecimals = columnDecimals([sheet.totals.feedKg, ...rows.flatMap((row) => (row.day.feedKg === null ? [] : [row.day.feedKg]))], 3) as 0 | 1 | 2 | 3;
   const soldDecimals = columnDecimals(rows.flatMap((row) => (row.day.soldNetKg === null ? [] : [row.day.soldNetKg])), 3) as 0 | 1 | 2 | 3;
   const sold = sheet.totals.soldBirds > 0;
-  // عمود الكاز حين سُجّل في الوجبة (يوماً ما، ولو مُسح بعدها إلى صفر): الوجبة بلا كاز بلا عموده.
-  const kerosene = sheet.totals.kerosene > 0 || rows.some((row) => row.day.kerosene !== null);
+  const kerosene = keroseneShown(sheet);
   const columns: Column<ReportDay>[] = [
     { key: 'age', header: t('sheet.col.age', 'العمر'), kind: 'number', cell: (row) => <Num>{fmtInt(row.day.age)}</Num> },
     { key: 'date', header: t('sheet.col.date', 'التاريخ'), cell: (row) => <Num>{fmtDay(row.day.on)}</Num> },

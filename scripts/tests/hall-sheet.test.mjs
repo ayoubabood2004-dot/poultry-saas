@@ -24,6 +24,8 @@ const FIX = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixture
 // قاعة مقسومة قسمين (0038، عقد Part S): الورقة نفسها بأقسامها، مكتوبة باليد قبل الهجرة.
 const SPLIT = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sections.hand.json'), 'utf8')).hall_sheet;
 const REAL = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sheet-0035.json'), 'utf8'));
+// عيّنات الكاز الحقيقية (supabase/tests/kerosene.test.mjs بـKEROSENE_SAMPLES_OUT=1، اليوم المثبَّت 2026-11-26).
+const KERO = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'kerosene-0037.json'), 'utf8'));
 const REAL_FLOCKS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'flocks.ts'));
 const REAL_SHEET = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'hallSheet.ts'));
 const STUBS = {
@@ -185,6 +187,20 @@ export default async function (t) {
       t.same(m.parseHallSheet(clone(REAL.hall_sheet_closed)).rejects.length > 0, true, 'I الوجبة المغلقة: المردود يظهر');
       t.same(m.parseFeedSent(clone(REAL.send_flock_feed)).issue.forDay ?? null, REAL.send_flock_feed.issue.for_day, 'I send_flock_feed الحقيقي');
       t.same([m.gasAnswer(clone(REAL.set_flock_gas_saved)).kind, m.gasAnswer(clone(REAL.set_flock_gas_stale)).kind], ['saved', 'stale_gas'], 'I set_flock_gas الحقيقي: saved وstale_gas');
+    }
+    // ── I0037: عيّنات الكاز الحقيقية (kerosene.test بـKEROSENE_SAMPLES_OUT=1، يومها المثبَّت 2026-11-26) بالمحلّلات الحقيقية ──────────────────
+    {
+      const raw = KERO.hall_sheet;
+      const sheet = m.parseHallSheet(clone(raw));
+      const keroDays = (days, liters, version) => days.filter((day) => day[liters] !== null || day[version] !== null).map((day) => [day.on, day[liters], day[version]]);
+      t.same(keroDays(sheet.days, 'kerosene', 'keroseneVersion'), keroDays(raw.days, 'kerosene', 'kerosene_version'), 'I0037 الكاز ونسخته لكلّ يوم كما أرسلهما الخادم (اليوم الممسوح لتراته فارغة بنسخته)');
+      t.same(keroDays(sheet.days, 'kerosene', 'keroseneVersion').length, 3, 'I0037 العيّنة فيها يوما كاز ويوم ممسوح');
+      t.same([sheet.totals.kerosene, sheet.summary.kerosene], [raw.totals.kerosene, raw.summary.kerosene], 'I0037 مجموع الكاز في الورقة وخلاصتها كما أرسلهما الخادم');
+      t.same(
+        [KERO.set_flock_kerosene_saved, KERO.set_flock_kerosene_stale, KERO.set_flock_kerosene_parked].map((answer) => m.keroseneAnswer(clone(answer)).kind),
+        ['saved', 'stale_kerosene', 'parked'],
+        'I0037 set_flock_kerosene الحقيقي: saved وstale_kerosene وparked',
+      );
     }
     // ── P: المحلّل ──────────────────────────────────────────────────────────────────────────────────────────────────
     {

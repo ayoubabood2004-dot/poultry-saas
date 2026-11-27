@@ -246,7 +246,7 @@ function ReviewShelf({ entries, names, halls, kind, onRemove }: { entries: reado
   return (
     <section className="flex flex-col gap-3">
       <h2 className="font-semibold">{t('round.review.title', 'جولات تحتاج مراجعة')}</h2>
-      <p className="text-sm text-ink-muted">{t('round.review.hint', 'لم يقبلها الخادم كما هي. تبقى هنا على هذا الجهاز ولا تُحذف؛ أعد إدخال ما تراه صحيحاً في الجولة، والهلاكات المسجّلة من صفحة القاعة.')}</p>
+      <p className="text-sm text-ink-muted">{t('round.review.hint', 'لم يقبلها الخادم كما هي. تبقى هنا على هذا الجهاز ولا تُحذف؛ أعد إدخال ما تراه صحيحاً في الجولة، وما يُكتب في ورقة القاعة (الهلاكات المسجّلة والغاز والكاز) من صفحة القاعة.')}</p>
       {entries.map((entry) => {
         const server = entry.server && typeof entry.server === 'object' ? (entry.server as Record<string, unknown>) : null;
         const op = entry.op;
@@ -307,6 +307,10 @@ function ReviewShelf({ entries, names, halls, kind, onRemove }: { entries: reado
             <p className="text-sm">{reason}</p>
             {/* الهلاكات المسجّلة مقفولة في الجولة: تصحيحها من صفحة القاعة بالقلم (مراجعة 0036 R9). */}
             {entry.reason === 'dead_recorded' && halls.has(op.flockId) ? <DeadFix to={hallPath(kind, halls.get(op.flockId) ?? '')} action="review-dead-fix" /> : null}
+            {/* غاز الورقة وكازها (0035 و0037) لا خانة لهما في الجولة: تصحيحهما من صفحة القاعة (مراجعة 2026-11-27). */}
+            {(op.fn === 'set_flock_gas' || op.fn === 'set_flock_kerosene') && halls.has(op.flockId) ? (
+              <DeadFix to={hallPath(kind, halls.get(op.flockId) ?? '')} action="review-sheet-fix" />
+            ) : null}
             <DataTable
               caption={visit ? t('round.review.visit_table', 'زيارتك والمحفوظة') : t('round.review.table', 'جولتك والمحفوظ في الخادم')}
               columns={[

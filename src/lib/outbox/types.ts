@@ -159,9 +159,10 @@ export type SendResult =
    * version: نسخة صفّ اليوم (save_flock_day وset_flock_dead) أو نسخة الزيارة (save_flock_visit) أو نسخة صفّ الغاز (set_flock_gas وadd_flock_gas).
    * والزيارة ترجع معها الزيارة كما حُفظت (visit_json خاماً بعد فحص محلّله) وصفّ اليوم بعدها (flock_day_json، أو null حين لا تبقى زيارة حيّة)؛
    * وset_flock_dead صفّ اليوم بعدها (day)، وadd_flock_gas غاز اليوم بعد الإضافة (gas: {on, cylinders, version})، وset_flock_kerosene كاز اليوم بعدها
-   * (kerosene: {on, liters, version}) ونسختها نسخة صفّه.
+   * (kerosene: {on, liters, version}) ونسختها نسخة صفّه. وnull وحدها لمسح غازٍ أو كازٍ لا صفّ له في الخادم (حُفظ بلا كتابة: لا صفّ ولا نسخة؛ مراجعة
+   * 2026-11-27): لا نسخة تنتقل إلى ما بعدها ولا يُعرض شيء.
    */
-  | { kind: 'saved'; version: number; visit?: unknown; day?: unknown; gas?: unknown; kerosene?: unknown }
+  | { kind: 'saved'; version: number | null; visit?: unknown; day?: unknown; gas?: unknown; kerosene?: unknown }
   /**
    * set_flock_dead (0036) ليوم سُجّلت هلاكاته قبلها برقم آخر: لم يُكتب شيء ولا يُضاف إلى ما سُجّل، والجهاز يبقيها في رفّ المراجعة بالرقمين (server =
    * صفّ اليوم كما هو، flock_day_json).

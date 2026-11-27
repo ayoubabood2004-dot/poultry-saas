@@ -637,14 +637,15 @@ export function dayAnswer(value: unknown): SendResult {
 }
 
 /** غاز اليوم كما في جواب set_flock_gas: {on, cylinders, version}؛ شكل غريب يرمي. */
-export function parseGas(value: unknown): { on: Day; cylinders: number | null; version: number } {
+export function parseGas(value: unknown): { on: Day; cylinders: number | null; version: number | null } {
   const row = record(value, 'gas');
   const on = str(row, 'on');
   if (!/^\d{4}-\d{2}-\d{2}$/u.test(on)) throw new FlockShapeError('on');
   const cylinders = optInt(row, 'cylinders');
   if (cylinders !== null && (cylinders < 0 || cylinders > 1000)) throw new FlockShapeError('cylinders');
-  const version = int(row, 'version');
-  if (version < 1) throw new FlockShapeError('version');
+  // بلا صفّ (مسحٌ لما لم يُكتب، flock_gas_json): القناني والنسخة فارغتان معاً؛ وصفٌّ نسخته 1 فأكثر (مراجعة 2026-11-27: كان يرمي فيعلق الطابور كلّه).
+  const version = optInt(row, 'version');
+  if (version === null ? cylinders !== null : version < 1) throw new FlockShapeError('version');
   return { on, cylinders, version };
 }
 
@@ -661,14 +662,15 @@ export function gasAnswer(value: unknown): SendResult {
 }
 
 /** كاز اليوم كما في جواب set_flock_kerosene (0037): {on, liters, version}؛ شكل غريب يرمي. */
-export function parseKerosene(value: unknown): { on: Day; liters: number | null; version: number } {
+export function parseKerosene(value: unknown): { on: Day; liters: number | null; version: number | null } {
   const row = record(value, 'kerosene');
   const on = str(row, 'on');
   if (!/^\d{4}-\d{2}-\d{2}$/u.test(on)) throw new FlockShapeError('on');
   const liters = optInt(row, 'liters');
   if (liters !== null && (liters < 0 || liters > 20000)) throw new FlockShapeError('liters');
-  const version = int(row, 'version');
-  if (version < 1) throw new FlockShapeError('version');
+  // بلا صفّ (مسحٌ لما لم يُكتب، flock_kerosene_json): اللترات والنسخة فارغتان معاً؛ وصفٌّ نسخته 1 فأكثر.
+  const version = optInt(row, 'version');
+  if (version === null ? liters !== null : version < 1) throw new FlockShapeError('version');
   return { on, liters, version };
 }
 

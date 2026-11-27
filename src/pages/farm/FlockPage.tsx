@@ -118,6 +118,8 @@ export function savedEdits(runs: readonly RoundRun[], key: string, flockId: stri
     for (const entry of run.results) {
       if (entry.flockId !== flockId || entry.result.kind !== 'saved') continue;
       const { version } = entry.result;
+      // «حُفظ» بلا نسخة: مسحٌ لما لا صفّ له في الخادم، لم يُكتب شيء ولا يتغيّر ما يُعرض.
+      if (version === null) continue;
       if (entry.fn === 'set_flock_gas') {
         edits.push({ kind: 'gas', on: entry.day, version, cylinders: (entry.payload as FlockGasPayload).cylinders });
       } else if (entry.fn === 'set_flock_kerosene') {
@@ -133,7 +135,7 @@ export function savedEdits(runs: readonly RoundRun[], key: string, flockId: stri
         // قناني أُرسلت من الجولة (0036): غاز اليوم بعد الإضافة كما أرجعه الخادم (فحصه المحلّل قبل أن تُعدّ محفوظة)، لا الإضافة وحدها.
         try {
           const gas = parseGas(entry.result.gas);
-          edits.push({ kind: 'gas', on: entry.day, version: gas.version, cylinders: gas.cylinders });
+          if (gas.version !== null) edits.push({ kind: 'gas', on: entry.day, version: gas.version, cylinders: gas.cylinders });
         } catch { // swallow-ok: جواب بشكل غريب لا يُعرض؛ القراءة من جديد بعد الرفع تعرضه من الخادم
           continue;
         }
@@ -893,12 +895,15 @@ function rejectWhat(payload: Record<string, unknown>): string {
   if (dead !== null || culled !== null) parts.push(t('sheet.reject.dead', 'الهلاكات {n}', { n: fmtInt((dead ?? 0) + (culled ?? 0)) }));
   const gas = num('gas');
   if (gas !== null) parts.push(t('sheet.reject.gas', 'الغاز {n}', { n: fmtInt(gas) }));
+  // مسحٌ مركون: المفتاح موجود بلا رقم (مراجعة 2026-11-27: كان يُقرأ «تعديل»).
+  else if ('gas' in payload && payload.gas === null) parts.push(t('sheet.reject.gas_clear', 'مسح الغاز'));
   // قناني أُرسلت من الجولة (add_flock_gas، 0036): تُضاف إلى غاز اليوم، لا تحلّ محلّه.
   const gasAdd = num('gas_add');
   if (gasAdd !== null) parts.push(t('sheet.reject.gas_add', 'إضافة غاز {n}', { n: fmtInt(gasAdd) }));
   // كاز اليوم من الورقة (0037).
   const kerosene = num('kerosene');
   if (kerosene !== null) parts.push(t('sheet.reject.kerosene', 'الكاز {amount}', { amount: litersText(kerosene) }));
+  else if ('kerosene' in payload && payload.kerosene === null) parts.push(t('sheet.reject.kerosene_clear', 'مسح الكاز'));
   const feed = typeof payload.feed_kg === 'string' ? parseDecimal(payload.feed_kg, 3) : null;
   if (feed) parts.push(t('sheet.reject.feed', 'العلف {kg} كغم', { kg: kgOf(toScale(feed, 3)) }));
   const eggs = num('eggs_total');
@@ -1454,7 +1459,8 @@ function useSheetCells(sheet: HallSheet | null, flockId: string, ops: readonly O
         let told = false;
         for (const { op, at } of queued) {
           const result = op ? (uploaded.find((entry) => entry.opId === op.id)?.result ?? null) : null;
-          const mapped: ChangeResult = result === null ? { kind: 'device' } : result.kind === 'saved' ? { kind: 'saved' } : { kind: 'failed', message: refusalText(result), refused: true };
+          // بلا عملية: مسحٌ لقيمة لم تُرسل قطّ حذف عمليتها (الطابور)، فلا شيء يُرسل والخانة كالخادم.
+          const mapped: ChangeResult = op === null ? { kind: 'saved' } : result === null ? { kind: 'device' } : result.kind === 'saved' ? { kind: 'saved' } : { kind: 'failed', message: refusalText(result), refused: true };
           for (const index of at) results[index] = mapped;
           // ما رُدّ يُقال بتنبيه كورقة الخانة (أوّله وحده: لصق كثير لا يغرق الشاشة بالتنبيهات، والباقي في خاناته).
           if (result !== null && result.kind !== 'saved' && !told) {

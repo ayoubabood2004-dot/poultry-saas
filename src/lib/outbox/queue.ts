@@ -212,16 +212,26 @@ async function write(store: IDBObjectStore, stamp: Stamp, input: EnqueueInput, n
     }
   } else if (input.fn === 'set_flock_gas') {
     // أحدث عملية غاز لليوم وحدها، وبس إذا بعدها منتظرة: القيمة الأحدث تحلّ محلّ القديمة، ونسختها كما هي.
-    const open = newestOf(existing.filter((op) => op.fn === 'set_flock_gas'));
+    const own = existing.filter((op) => op.fn === 'set_flock_gas');
+    const open = newestOf(own);
     if (open?.fn === 'set_flock_gas' && open.state === 'pending') {
+      if (input.payload.cylinders === null && unsentAlone(open, own)) {
+        await requestResult(store.delete(open.id));
+        return null;
+      }
       const merged: GasOp = { ...open, payload: { cylinders: input.payload.cylinders }, updatedAt: now };
       await requestResult(store.put(merged));
       return merged;
     }
   } else if (input.fn === 'set_flock_kerosene') {
     // أحدث عملية كاز لليوم وحدها (0037، كالغاز)، وبس إذا بعدها منتظرة: القيمة الأحدث تحلّ محلّ القديمة، ونسختها كما هي.
-    const open = newestOf(existing.filter((op) => op.fn === 'set_flock_kerosene'));
+    const own = existing.filter((op) => op.fn === 'set_flock_kerosene');
+    const open = newestOf(own);
     if (open?.fn === 'set_flock_kerosene' && open.state === 'pending') {
+      if (input.payload.liters === null && unsentAlone(open, own)) {
+        await requestResult(store.delete(open.id));
+        return null;
+      }
       const merged: KeroseneOp = { ...open, payload: { liters: input.payload.liters }, updatedAt: now };
       await requestResult(store.put(merged));
       return merged;
@@ -348,6 +358,15 @@ export function visitDayVersion(day: unknown): number | null {
 }
 
 /** النسخة التي ترفعها عملية حُفظت لعملية بعدها لنفس (الفوج، اليوم)، أو null: لا علاقة بين نسختيهما. */
+/**
+ * مسح غازٍ أو كازٍ لم يُرسل قطّ (مراجعة 2026-11-27): العملية المنتظرة وحدها لنوعها في اليوم وبلا نسخة لم ترَ صفّاً في الخادم، فمسحها لا يبقي شيئاً يُرسل
+ * فتُحذف (كإلغاء زيارة لم تُرسل). كانت تصير {فارغ} بلا نسخة، والخادم يجيبها «حُفظ» بلا صفّ ولا نسخة. وعمليةٌ أقدم من نوعها لليوم في الطريق (تُرسل أو
+ * نتيجتها مجهولة) تُبقي الدمج: نسختها تأتي من جواب تلك (removeSaved)، ولو حُذفت المنتظرة لبقيت قيمة تلك في الخادم والمطلوب مسحها.
+ */
+function unsentAlone(open: OutboxOp, own: readonly OutboxOp[]): boolean {
+  return open.baseVersion === null && own.length === 1;
+}
+
 function versionFor(op: OutboxOp, saved: Extract<SendResult, { kind: 'saved' }>, next: OutboxOp): number | null {
   switch (op.fn) {
     case 'set_flock_gas':
