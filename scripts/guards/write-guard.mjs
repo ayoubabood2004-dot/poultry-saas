@@ -203,7 +203,7 @@ function resolveSpecifier(file, specifier) {
  * (حزمة القاعات)، وبطاقة الفوج تصل صفحة الفوج المحفوظة باستيراد كسول لحزمة القاعات (farm/shared)، لا استيراداً ثابتاً.
  * و«القاعة كالورقة» (0035): قارئ الورقة وإرسال العلف من «رصيد العلف» وإلغاؤه والقرار على المركون (hallSheet) تستوردها صفحات القاعات وحدها (حزمة القاعات).
  */
-export const PAGE_MODULES = new Set(['inventory', 'scopes', 'members', 'home', 'parties', 'cash', 'signin', 'uses', 'counts', 'purchasing', 'flocks', 'mill', 'purchases', 'flockIssues', 'dayBalance', 'millReport', 'money', 'debts', 'statement', 'halls', 'hallReports', 'weighTickets', 'flockClose', 'birdSales', 'flockEdits', 'sales', 'hallSheet']);
+export const PAGE_MODULES = new Set(['inventory', 'scopes', 'members', 'home', 'parties', 'cash', 'signin', 'uses', 'counts', 'purchasing', 'flocks', 'mill', 'purchases', 'flockIssues', 'dayBalance', 'millReport', 'money', 'debts', 'statement', 'halls', 'hallReports', 'weighTickets', 'flockClose', 'birdSales', 'flockEdits', 'sales', 'hallSheet', 'hallAdmin']);
 
 /** المسار ملف وحدة كسول بـrepo (src/lib/repo/inventory.ts …). */
 const isPageModule = (resolved) => {

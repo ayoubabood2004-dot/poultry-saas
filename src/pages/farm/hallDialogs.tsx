@@ -10,7 +10,8 @@ import { parseDayText } from '../../lib/dayText';
 import { describeError, RejectedError } from '../../lib/errors';
 import { fmtDay, fmtInt } from '../../lib/format';
 import { t } from '../../lib/i18n';
-import { createHall, openFlock, setHallSections, updateHall, type HallView, type SiteView } from '../../lib/repo/flocks';
+import type { HallView, SiteView } from '../../lib/repo/flocks';
+import { createHall, openFlock, setHallSections, updateHall } from '../../lib/repo/hallAdmin';
 import { hallLabel } from './shared';
 
 // نافذتا القاعة («أضف قاعة» و«عدّل القاعة») و«افتح فوجاً»: في جدول الحقل وفي صفحة القاعة الفارغة (كلمة المالك 2026-11-16)، من مكان واحد.

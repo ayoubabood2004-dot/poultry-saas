@@ -22,9 +22,9 @@ export class FlockShapeError extends Error {
   }
 }
 
-type Row = Record<string, unknown>;
+export type Row = Record<string, unknown>;
 
-const record = (value: unknown, field: string): Row => {
+export const record = (value: unknown, field: string): Row => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) throw new FlockShapeError(field);
   return value as Row;
 };
@@ -32,13 +32,13 @@ const list = (value: unknown, field: string): Row[] => {
   if (!Array.isArray(value)) throw new FlockShapeError(field);
   return value.map((entry) => record(entry, field));
 };
-const str = (row: Row, field: string): string => {
+export const str = (row: Row, field: string): string => {
   const value = row[field];
   if (typeof value !== 'string' || value === '') throw new FlockShapeError(field);
   return value;
 };
 const optStr = (row: Row, field: string): string | null => (row[field] === null || row[field] === undefined ? null : str(row, field));
-const int = (row: Row, field: string): number => {
+export const int = (row: Row, field: string): number => {
   const value = row[field];
   if (typeof value !== 'number' || !Number.isInteger(value)) throw new FlockShapeError(field);
   return value;
@@ -325,7 +325,7 @@ export interface FlocksOverview {
 }
 
 /** أقسام القاعة من 1 إلى 4، والغائب (خادم قبل 0038) 1. */
-function sectionsOf(hall: Row): number {
+export function sectionsOf(hall: Row): number {
   if (hall.sections === undefined) return 1;
   const sections = int(hall, 'sections');
   if (sections < 1 || sections > MAX_SECTIONS) throw new FlockShapeError('sections');
@@ -513,13 +513,13 @@ export async function loadFlockDetail(flockId: string): Promise<FlockDetail> {
 
 // ─── القاعات: كتابة مباشرة (مثل المخازن) بـupdatedRows وبشرط النسخة ─────────────────────────────────────────────────────
 
-type Raw = { data: unknown; error: PostgrestFailure | null; status: number };
+export type Raw = { data: unknown; error: PostgrestFailure | null; status: number };
 type Failed = PostgrestFailure & { status: number };
-const withStatus = (answer: Raw) => ({ data: answer.data as Row | Row[] | null, error: answer.error ? { ...answer.error, status: answer.status } : null });
+export const withStatus = (answer: Raw) => ({ data: answer.data as Row | Row[] | null, error: answer.error ? { ...answer.error, status: answer.status } : null });
 const failed = (error: unknown): error is Failed => typeof error === 'object' && error !== null && typeof (error as Failed).status === 'number';
 
 /** نفس written بـinventory.ts (ما ينستورد منه: حزمته مستثناة من التثبيت المسبق، والحقول بالتثبيت المسبق). */
-async function written(make: (db: SupabaseClient) => Promise<Row[]>): Promise<Row> {
+export async function written(make: (db: SupabaseClient) => Promise<Row[]>): Promise<Row> {
   const { result, wasOnline } = await send(
     async (db): Promise<{ rows: Row[]; error: PostgrestFailure | null; status: number }> => {
       try {
@@ -537,71 +537,12 @@ async function written(make: (db: SupabaseClient) => Promise<Row[]>): Promise<Ro
   return row;
 }
 
-export async function createHall(siteId: string, name: string, capacity: number | null, sections = 1): Promise<void> {
-  // أقسام القاعة (0038) تُكتب عند إنشائها؛ والعمود يُرسل لقاعة مقسومة وحدها (خادم قبل 0038 لا يعرفه).
-  await written(async (db) =>
-    updatedRows(withStatus(await db.from('halls').insert({ site_id: siteId, name: name.trim(), capacity, ...(sections > 1 ? { sections } : {}) }).select('id, version'))),
-  );
-}
-
-/** الاسم والسعة بشرط النسخة اللي انفتح عليها النموذج (صفر صفوف = تغيّرت بعده). */
-export async function updateHall(id: string, version: number, name: string, capacity: number | null): Promise<number> {
-  const row = await written(async (db) => updatedRows(withStatus(await db.from('halls').update({ name: name.trim(), capacity }).eq('id', id).eq('version', version).select('id, version'))));
-  // نسخة القاعة بعد الحفظ: تغيير أقسامها بعده يُشرط بها.
-  return int(row, 'version');
-}
-
-/** جواب set_hall_sections (0038): حُفظ بنسخة القاعة وأقسامها، أو stale_hall (تغيّرت القاعة بعد فتح النافذة). */
-export type HallSectionsResult = { status: 'saved' | 'stale_hall'; version: number; sections: number };
-
-export function parseHallSections(value: unknown): HallSectionsResult {
-  const answer = record(value, 'set_hall_sections');
-  const status = answer.status;
-  if (status !== 'saved' && status !== 'stale_hall') throw new FlockShapeError('status');
-  const hall = record(answer.hall, 'hall');
-  return { status, version: int(hall, 'version'), sections: sectionsOf(hall) };
-}
-
-/**
- * أقسام القاعة (0038، من 1 إلى 4) بشرط نسختها؛ ووجبتها القائمة بلا هلاكات تُقسم بالتساوي، وبهلاكات تُرفض (sections_after_deaths). بمرجع النافذة.
- */
-export async function setHallSections(hallId: string, sections: number, expectedVersion: number, clientRef: string): Promise<HallSectionsResult> {
-  return parseHallSections(await call<unknown>('set_hall_sections', { p_hall: hallId, p_sections: sections, p_expected_version: expectedVersion, p_client_ref: clientRef }));
-}
-
 /** أرشفة القاعة (لا حذف أبداً)؛ قاعة بيها فوج شغّال ترفض (hall_in_use). */
 export async function archiveHall(id: string, version: number): Promise<void> {
   await written(async (db) => updatedRows(withStatus(await db.from('halls').update({ archived_at: 'now' }).eq('id', id).eq('version', version).select('id, version'))));
 }
 
 // ─── الأفواج والأوزان: دوالّ بمرجع الجهاز ──────────────────────────────────────────────────────────────────────────────
-
-export interface OpenFlockInput {
-  hallId: string;
-  placedOn: Day;
-  placedCount: number;
-  ageDays: number;
-  breed: string;
-  /** 0038: عدد كلّ قسم في قاعة مقسومة (مجموعه placedCount)، أو غائب. */
-  sectionCounts?: number[];
-}
-
-/** فتح وتسكين بخطوة وحدة (النسخة الأولى: بلا كلفة أفراخ، chick_source = opening). يرجّع معرّف الفوج. */
-export async function openFlock(input: OpenFlockInput, clientRef: string): Promise<string> {
-  const answer = record(
-    await call<unknown>('open_flock', {
-      p_hall: input.hallId,
-      p_placed_on: input.placedOn,
-      p_placed_count: input.placedCount,
-      p_age_days: input.ageDays,
-      p_breed: input.breed.trim(),
-      p_client_ref: clientRef,
-      ...(input.sectionCounts ? { p_section_counts: input.sectionCounts } : {}),
-    }),
-    'open_flock',
-  );
-  return str(answer, 'flock_id');
-}
 
 /** وزن العيّنة ليوم (بنت بس، مو بالطابور): avgG بالأعشار. إعادة نفس اليوم تستبدله. */
 export async function recordFlockWeight(flockId: string, day: Day, sampleCount: number, avgG: string, clientRef: string): Promise<void> {

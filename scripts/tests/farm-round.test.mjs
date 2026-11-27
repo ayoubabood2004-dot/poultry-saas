@@ -31,7 +31,8 @@ const REAL36 = readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'rou
 // وعيّنات «عوف سالفة العلف الماكول» (round-once-feed.test بـROUND_FEED_SAMPLES_OUT=1، يومها 2026-11-24): الوجبة التالية N في «قاعة الإغلاق» يوم تسكينها
 // بالمنقول إليها (سطر carry) والمرسل.
 const FEED36 = readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'round-feed-0036.json'), 'utf8');
-const OVERRIDES = ['loadOverviewJson', 'loadFlockDetail', 'createHall', 'updateHall', 'archiveHall', 'openFlock', 'recordFlockWeight', 'setHallSections'];
+const OVERRIDES = ['loadOverviewJson', 'loadFlockDetail', 'archiveHall', 'recordFlockWeight'];
+const ADMIN = ['createHall', 'updateHall', 'openFlock', 'setHallSections'];
 const STUBS = {
   // loadOverview مثل الحقيقي بالضبط (parseOverview(await loadOverviewJson())) بس عبر البديل، حتى الرئيسية القديمة تقرا من نفس الخادم المزيّف.
   flocks: `export * from ${REAL_FLOCKS}; import { parseOverview as __parseOverview } from ${REAL_FLOCKS}; ${OVERRIDES.map((n) => `export const ${n} = (...a) => globalThis.__farm.call('${n}', a);`).join(' ')}
@@ -40,6 +41,8 @@ const STUBS = {
   // إرسال العلف: جواب الخادم المزيّف بمحلّله الحقيقي (parseFeedSent).
   hallSheet: `export * from ${REAL_SHEET}; import { parseFeedSent as __sent } from ${REAL_SHEET};
     export const sendFlockFeed = async (request) => __sent(await globalThis.__farm.call('sendFlockFeed', [request]));`,
+  // إدارة القاعات (hallAdmin: خارج flocks.ts لحجم التثبيت المسبق) عبر البديل نفسه.
+  hallAdmin: ADMIN.map((n) => `export const ${n} = (...a) => globalThis.__farm.call('${n}', a);`).join(' '),
   session: 'export const useSession = () => globalThis.__farm.session;',
   Toast: 'export const toast = (spec) => { globalThis.__farm.toasts.push(spec); }; export function Toaster() { return null; }',
   home: 'export const loadHomeSummary = () => globalThis.__farm.call("loadHomeSummary", []);',
@@ -80,7 +83,7 @@ async function screens() {
       {
         name: 'farm-stubs',
         setup(b) {
-          b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/flocks$|\/lib\/repo\/hallSheet$|\/Toast$|\/lib\/repo\/home$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'farm-stub' }));
+          b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/flocks$|\/lib\/repo\/hallAdmin$|\/lib\/repo\/hallSheet$|\/Toast$|\/lib\/repo\/home$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'farm-stub' }));
           b.onLoad({ filter: /.*/, namespace: 'farm-stub' }, (args) => ({ contents: STUBS[args.path], resolveDir: ROOT, loader: 'js' }));
         },
       },

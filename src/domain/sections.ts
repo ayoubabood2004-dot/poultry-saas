@@ -8,8 +8,9 @@ export const MAX_SECTIONS = 4;
 /** تقسيم العدد على n قسماً بالتساوي، والباقي للأقسام الأولى (27,051 على قسمين = 13,526 + 13,525) كما يقسم open_flock. */
 export function evenSplit(total: number, n: number): number[] {
   if (!Number.isInteger(total) || total < 0 || !Number.isInteger(n) || n < 1) return [];
-  const base = Math.floor(total / n);
-  const rest = total - base * n;
+  // قسمة أعداد صحيحة بلا تقريب: الباقي أوّلاً، ثمّ قسمة ما يقبل القسمة بالضبط.
+  const rest = total % n;
+  const base = (total - rest) / n;
   return Array.from({ length: n }, (_, index) => base + (index < rest ? 1 : 0));
 }
 
