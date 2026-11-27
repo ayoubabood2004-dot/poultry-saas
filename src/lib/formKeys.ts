@@ -15,6 +15,9 @@ export function isField(node: EventTarget | null): node is Field {
   return name === 'select' || name === 'textarea' || (name === 'input' && !NOT_TEXT.test((node as HTMLInputElement).type));
 }
 
+/** مربّع اختيار أو زرّ اختيار: ليس خانة كتابة، لكنّ Enter عليه في نموذج إرسال ضمنيّ في كروم وسفاري، فيُمنع وينقل إلى الخانة التالية. */
+const isToggle = (node: EventTarget | null): node is HTMLInputElement => (node as Element | null)?.localName === 'input' && /^(checkbox|radio)$/.test((node as HTMLInputElement).type);
+
 /** خانة يُنتقل إليها: مفعّلة وتُكتب وظاهرة وفي ترتيب Tab. */
 const usable = (field: Field): boolean => !field.disabled && !(field as HTMLInputElement).readOnly && field.tabIndex >= 0 && field.getClientRects().length > 0;
 
@@ -29,24 +32,52 @@ export function focusField(field: Field): void {
   if (field.localName === 'input') (field as HTMLInputElement).select();
 }
 
+/** نطاق الخانة (نموذجها، وإلّا أقرب نافذة) وعناصره بترتيبها ومعها أزرار الذيل المربوطة بـform=، وزرّ الحفظ الافتراضيّ (أوّل type="submit"). */
+function scopeOf(field: Field | HTMLInputElement): { nodes: Element[]; submit: HTMLButtonElement | undefined } | null {
+  const scope = field.form ?? field.closest('[role="dialog"]');
+  if (!scope) return null;
+  const nodes = Array.from<Element>(scope.localName === 'form' ? (scope as HTMLFormElement).elements : scope.querySelectorAll('input,select,textarea,button'));
+  return { nodes, submit: nodes.find((node) => node.localName === 'button' && (node as HTMLButtonElement).type === 'submit') as HTMLButtonElement | undefined };
+}
+
+/** Enter مركّب في سفاري (229) أو أثناء التركيب (IME): لا يُلمس. */
+const composing = (event: KeyboardEvent): boolean => event.isComposing || event.keyCode === 229;
+
 export function onFormKey(event: KeyboardEvent): void {
   const field = event.target;
   const save = event.ctrlKey || event.metaKey;
-  // 229: Enter يختم التركيب في سفاري وisComposing فيه false.
-  if (event.key !== 'Enter' || event.defaultPrevented || event.isComposing || event.keyCode === 229 || event.altKey || event.shiftKey || event.repeat || !isField(field)) return;
+  const toggle = isToggle(field);
+  if (event.key !== 'Enter' || event.defaultPrevented || composing(event) || !(toggle || isField(field))) return;
   if ((!save && field.localName === 'textarea') || field.closest('[data-enter="own"]')) return;
-  const scope = field.form ?? field.closest('[role="dialog"]');
+  const scope = scopeOf(field);
   if (!scope) return;
+  // كلّ Enter في خانة نموذج يُمنع: ما لا يفعله المستمع (المضغوط المكرّر وShift وAlt، وEnter على مربّع) كان إرسالاً ضمنيّاً يضغط «احفظ» من الخانة الثانية
+  // (مراجعة 0037 K1: تعديل الفوج قبل العدد، و«أنتج» من كمية بلا تأكيد). وما يفعله: Enter وحده ينقل، وفي آخر خانة يحفظ؛ وCtrl/Cmd+Enter يحفظ.
   event.preventDefault();
-  // عناصر النموذج بترتيبها ومعها أزرار الذيل المربوطة بـform=، أو عناصر النافذة.
-  const nodes = Array.from<Element>(scope.localName === 'form' ? (scope as HTMLFormElement).elements : scope.querySelectorAll('input,select,textarea,button'));
+  if (event.repeat || event.shiftKey || event.altKey) return;
   if (!save) {
-    const fields = nodes.filter((node): node is Field => node === field || (isField(node) && usable(node)));
+    const fields = scope.nodes.filter((node): node is Field => node === field || (isField(node) && usable(node)));
     const next = fields[fields.indexOf(field) + 1];
     if (next) return focusField(next);
+    // المربّع لا يحفظ بـEnter: الحفظ من آخر خانة كتابة أو Ctrl+Enter.
+    if (toggle) return;
   }
-  const submit = nodes.find((node) => node.localName === 'button' && (node as HTMLButtonElement).type === 'submit') as HTMLButtonElement | undefined;
-  if (submit && !submit.disabled) submit.click();
+  if (scope.submit && !scope.submit.disabled) scope.submit.click();
+}
+
+/**
+ * Ctrl/Cmd+Enter من خانة تملك Enter ([data-enter="own"]: بحث المادّة، والكمية المطلوبة، واسم المنتج…) يحفظ كأيّ خانة (مراجعة 0037 K2): يُلتقط قبل
+ * معالج المكوّن (مرحلة الالتقاط على الوثيقة) حين للنطاق زرّ حفظ مفعّل، وإلّا يُترك للمكوّن.
+ */
+export function onSaveKey(event: KeyboardEvent): void {
+  const field = event.target;
+  if (event.key !== 'Enter' || !(event.ctrlKey || event.metaKey) || event.shiftKey || event.altKey || composing(event)) return;
+  if (!(isToggle(field) || isField(field)) || !field.closest('[data-enter="own"]')) return;
+  const submit = scopeOf(field)?.submit;
+  if (!submit || submit.disabled) return;
+  event.preventDefault();
+  event.stopPropagation();
+  if (!event.repeat) submit.click();
 }
 
 /**
@@ -70,5 +101,6 @@ let installed = false;
 export function initFormKeys(target: Pick<Document, 'addEventListener'> = document): void {
   if (installed) return;
   installed = true;
+  target.addEventListener('keydown', onSaveKey, true);
   target.addEventListener('keydown', onFormKey);
 }

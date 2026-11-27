@@ -147,10 +147,20 @@ export default async function (t) {
       t.eq(name(active()), 'sel', 'R والقائمة (select) خانة يُنتقل إليها');
       press(sel);
       t.eq(name(active()), 'own', 'R ما في details مغلقة لا يُنتقل إليه، وخانة المنتقي ([data-enter="own"]) يُنتقل إليها كغيرها');
+      // خانة [data-enter="own"] كمكوّناتها الحقيقية: معالجها يملك Enter ويمنعه (المستمع بعده لا يلمسه).
+      let owns = 0;
+      ownInput.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter') return;
+        event.preventDefault();
+        owns += 1;
+      });
       ownInput.focus();
       const owned = press(ownInput);
-      t.same([name(active()), owned.defaultPrevented, submits], ['own', false, 0], 'R ضابط: Enter في [data-enter="own"] له: لا انتقال ولا حفظ ولا منع');
-      t.same([press(ownInput, 'Enter', { ctrlKey: true }).defaultPrevented, submits], [false, 0], 'R ضابط: ولا Ctrl+Enter فيه');
+      t.same([name(active()), owned.defaultPrevented, submits, owns], ['own', true, 0, 1], 'R ضابط: Enter في [data-enter="own"] لمعالجه: لا انتقال ولا حفظ');
+      press(ownInput, 'Enter', { ctrlKey: true });
+      t.same([submits, owns], [1, 1], 'R وCtrl+Enter فيه يحفظ قبل معالجه (مراجعة K2: كان لا يحفظ)');
+      submits = 0;
+      clicks = 0;
       last.focus();
       const saved = press(last);
       t.same([submits, clicks, name(active()), saved.defaultPrevented], [1, 1, 'last', true], 'R Enter في آخر خانة يضغط زرّ الحفظ المربوط بـform= مرّة واحدة (نقرة ثمّ إرسال)');
@@ -169,13 +179,13 @@ export default async function (t) {
       a.focus();
       const shift = press(a, 'Enter', { shiftKey: true });
       const alt = press(a, 'Enter', { altKey: true });
-      t.same([name(active()), shift.defaultPrevented, alt.defaultPrevented, submits], ['a', false, false, 3], 'R Shift+Enter وAlt+Enter يُتركان');
+      t.same([name(active()), shift.defaultPrevented, alt.defaultPrevented, submits], ['a', true, true, 3], 'R Shift+Enter وAlt+Enter لا ينقلان ولا يحفظان، والإرسال الضمنيّ ممنوع (مراجعة K1: كان يحفظ من الخانة الأولى)');
       const composing = press(a, 'Enter', { isComposing: true });
       t.same([name(active()), composing.defaultPrevented], ['a', false], 'R ضابط: التركيب بلوحات الهاتف (IME) لا يُقطع: Enter فيه يُترك');
       const safari = press(a, 'Enter', { keyCode: 229 });
       t.same([name(active()), safari.defaultPrevented], ['a', false], 'R ضابط: وEnter يختم التركيب في سفاري (keyCode 229) كذلك');
       const repeat = press(a, 'Enter', { repeat: true });
-      t.same([name(active()), repeat.defaultPrevented], ['a', false], 'R ضابط: Enter المضغوط (المكرّر) لا يقفز الخانات ولا يحفظ');
+      t.same([name(active()), repeat.defaultPrevented, submits], ['a', true, 3], 'R Enter المضغوط (المكرّر) لا يقفز الخانات ولا يحفظ: الإرسال الضمنيّ ممنوع (مراجعة K1)');
       const handled = (event) => event.preventDefault();
       a.addEventListener('keydown', handled);
       press(a);
@@ -184,7 +194,11 @@ export default async function (t) {
       const numpad = press(a, 'Enter', { code: 'NumpadEnter' });
       t.same([name(active()), numpad.defaultPrevented], ['d', true], 'R Enter لوحة الأرقام كـEnter (key واحد)');
       cb.focus();
-      t.eq(press(cb).defaultPrevented, false, 'R ضابط: Enter على مربّع اختيار يُترك للمتصفّح');
+      const toggle = press(cb);
+      t.same([toggle.defaultPrevented, name(active()), submits], [true, 'd', 3], 'R Enter على مربّع اختيار في نموذج ينقل إلى الخانة التالية ولا يحفظ (مراجعة K1: كان إرسالاً ضمنيّاً)');
+      cb.focus();
+      press(cb, 'Enter', { ctrlKey: true });
+      t.eq(submits, 4, 'R وCtrl+Enter منه يحفظ');
       cancel.focus();
       t.eq(press(cancel).defaultPrevented, false, 'R ضابط: وعلى زرّ يُترك (نقرته)');
       body.removeChild(dialog);
@@ -295,7 +309,14 @@ export default async function (t) {
           '  );',
           '}',
           // نافذة بخانات: الأولى مقروءة فقط والثانية معطّلة، ثمّ «25».
-          'export function Fields({ auto }) {',
+          'export function LateField({ show }) {',
+          '  return (',
+          '    <Dialog open onClose={() => {}} title="نافذة">',
+          '      {show ? <input data-name="late" /> : <p>جارٍ الفتح…</p>}',
+          '    </Dialog>',
+          '  );',
+          '}',
+          'export function Fields({ auto, autoField }) {',
           '  const [text, setText] = useState("25");',
           '  return (',
           '    <Dialog open onClose={() => {}} title="نافذة">',
@@ -303,6 +324,7 @@ export default async function (t) {
           '      <input data-name="dis" disabled />',
           '      <input data-name="first" value={text} onChange={(event) => setText(event.target.value)} />',
           "      {auto ? <button type=\"button\" data-name=\"auto\" data-autofocus>ابدأ</button> : null}",
+          "      {autoField ? <input data-name=\"second\" data-autofocus /> : null}",
           '    </Dialog>',
           '  );',
           '}',
@@ -398,6 +420,9 @@ export default async function (t) {
       const event = press(search);
       await settle();
       t.same([submits, picked, name(active()), event.defaultPrevented, search?.getAttribute('data-enter')], [0, null, 'search-item', true, 'own'], 'P ItemPicker: Enter بحث بلا اختيار، لا انتقال ولا إرسال للسطر بلا مادّة (data-enter="own" ويمنع)');
+      press(search, 'Enter', { ctrlKey: true });
+      await settle();
+      t.same([submits, picked], [1, null], 'P ItemPicker: Ctrl+Enter من البحث يحفظ النموذج كأيّ خانة (مراجعة K2)، ولا يختار');
     });
 
     await step('D fine', async () => {
@@ -410,10 +435,24 @@ export default async function (t) {
       await mount(m.h(m.Fields, { auto: false }));
       t.same([active()?.getAttribute('role'), selected()], ['dialog', null], 'D ضابط: لمس (هاتف): النافذة نفسها كما كان، فلا تقفز لوحة المفاتيح');
     });
+    // مراجعة K3: خانة تظهر بعد فتح النافذة (بعد قراءة) يصلها المؤشّر حين تظهر، ما دام التركيز على النافذة نفسها.
+    await step('D late', async () => {
+      pointer(true);
+      await mount(m.h(m.LateField, { show: false }));
+      const before = active()?.getAttribute('role');
+      m.flushSync(() => root.render(m.h(m.LateField, { show: true })));
+      await settle(20);
+      t.same([before, name(active())], ['dialog', 'late'], 'D خانة ظهرت بعد الفتح: المؤشّر إليها');
+    });
     await step('D autofocus', async () => {
       pointer(true);
       await mount(m.h(m.Fields, { auto: true }));
-      t.eq(name(active()), 'auto', 'D ضابط: [data-autofocus] يغلب أوّل خانة ولو بمؤشّر دقيق');
+      t.eq(name(active()), 'first', 'D [data-autofocus] على زرّ يغلبه أوّل خانة على الحاسوب (مراجعة K4: «لا، تراجع» في تأكيد بخانة سبب)');
+    });
+    await step('D autofocus خانة', async () => {
+      pointer(true);
+      await mount(m.h(m.Fields, { autoField: true }));
+      t.eq(name(active()), 'second', 'D ضابط: [data-autofocus] على خانة يغلب أوّل خانة');
     });
 
     // ── E1: «تعديل فوج» من البداية إلى الحفظ ─────────────────────────────────────────────────────────────────────────
@@ -494,9 +533,8 @@ export default async function (t) {
       const done = [];
       const target = { id: 'kb-sale-1', docNo: 'MS-00012', partyName: 'أبو علي', walkIn: false, free: false, refundedAll: false, paid: null, collectedLater: 0n, goods: '100 كغم من «علف بادئ»' };
       await mount(m.h(m.SaleVoidDialog, { target, pendingKey: '', onCancel: () => {}, onDone: (text) => done.push(text) }));
-      const cancel = descendants(body).find((node) => node.localName === 'button' && node.getAttribute('data-autofocus') !== null);
-      t.eq(active() === cancel, true, 'E3 ضابط: التركيز يبدأ على «لا، تراجع» ([data-autofocus]) لا في خانة السبب');
       const reason = byAction('void-sale-reason')[0];
+      t.eq(active() === reason, true, 'E3 على الحاسوب المؤشّر في خانة السبب (مراجعة K4: «لا، تراجع» [data-autofocus] زرّ يغلبه أوّل خانة؛ والسبب الفارغ يُبقي «ألغِ البيع» معطّلاً)');
       reason?.focus();
       type(reason, 'فاتورة مكرّرة');
       await settle();
@@ -604,6 +642,15 @@ export default async function (t) {
         'H السلالة ⏎: open_flock مرّة واحدة بالقاعة واليوم والعدد والعمر والسلالة',
       );
       t.eq(opened, 1, 'H والنافذة تنتهي مرّة (onOpened)');
+    });
+
+    await step('E3 لمس', async () => {
+      pointer(false);
+      globalThis.__kb = { calls: [], rpc: {} };
+      const target = { id: 'kb-sale-2', docNo: 'MS-00013', partyName: 'أبو علي', walkIn: false, free: false, refundedAll: false, paid: null, collectedLater: 0n, goods: '100 كغم من «علف بادئ»' };
+      await mount(m.h(m.SaleVoidDialog, { target, pendingKey: '', onCancel: () => {}, onDone: () => {} }));
+      const cancel = descendants(body).find((node) => node.localName === 'button' && node.getAttribute('data-autofocus') !== null);
+      t.eq(active() === cancel, true, 'E3 ضابط: على الهاتف التركيز على «لا، تراجع» كما كان (لا تقفز لوحة المفاتيح)');
     });
 
     // ── E4: «ألغِ الورقة» (VoidDocDialog): السبب ⏎ بسببه، والمعطّل بلا سبب لا شيء ─────────────────────────────────────

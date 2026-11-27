@@ -123,10 +123,59 @@ export function enrichDom(doc = globalThis.document) {
     if (event.defaultPrevented) return;
     if (this.localName === 'button' && this.type === 'submit' && this.form) fire(this.form, 'submit');
   };
+  // MutationObserver صغير (childList تحت الهدف وما فيه) كالمتصفّح بعد المهمّة الصغيرة: خانة تظهر بعد فتح النافذة (مراجعة 0037 K3).
+  const observers = new Set();
+  globalThis.MutationObserver = class {
+    constructor(callback) {
+      this.callback = callback;
+      this.target = null;
+      this.queued = false;
+    }
+    observe(target) {
+      this.target = target;
+      observers.add(this);
+    }
+    disconnect() {
+      observers.delete(this);
+    }
+    takeRecords() {
+      return [];
+    }
+  };
+  const notify = (parent) => {
+    for (const observer of observers) {
+      let inside = false;
+      for (let n = parent; n && !inside; n = n.parentNode) inside = n === observer.target;
+      if (!inside || observer.queued) continue;
+      observer.queued = true;
+      queueMicrotask(() => {
+        observer.queued = false;
+        if (observers.has(observer)) observer.callback([], observer);
+      });
+    }
+  };
+  for (const name of ['appendChild', 'insertBefore']) {
+    const original = Node.prototype[name];
+    Node.prototype[name] = function (...args) {
+      const result = original.apply(this, args);
+      notify(this);
+      return result;
+    };
+  }
   return { Node };
 }
 
-/** ضغطة مفتاح على العقدة كما يطلقها المتصفّح (keydown يفقّع)، وترجع الحدث (defaultPrevented). */
+const NO_IMPLICIT = /^(button|submit|reset|image|file|hidden)$/;
+
+/**
+ * ضغطة مفتاح على العقدة كما يطلقها المتصفّح (keydown يفقّع)، وترجع الحدث (defaultPrevented). ومعها فعل المتصفّح الافتراضيّ: Enter لم يُمنع في input
+ * داخل نموذج إرسالٌ ضمنيّ يضغط زرّ النموذج الافتراضيّ إن كان مفعّلاً (ومن المربّعات أيضاً في كروم وسفاري)، لا أثناء التركيب (مراجعة 0037 K1).
+ */
 export function press(target, key = 'Enter', init = {}) {
-  return fire(target, 'keydown', { key, code: key, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, repeat: false, isComposing: false, ...init });
+  const event = fire(target, 'keydown', { key, code: key, ctrlKey: false, metaKey: false, altKey: false, shiftKey: false, repeat: false, isComposing: false, ...init });
+  if (key === 'Enter' && !event.defaultPrevented && !init.isComposing && init.keyCode !== 229 && target?.localName === 'input' && !NO_IMPLICIT.test(target.type) && target.form) {
+    const submit = target.form.elements.find((node) => node.localName === 'button' && node.type === 'submit');
+    if (submit && !submit.disabled) submit.click();
+  }
+  return event;
 }
