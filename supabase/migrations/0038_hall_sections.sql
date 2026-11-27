@@ -15,12 +15,14 @@
 --     وprivate.flock_parts_check: هلاكات كلّ قسم في الأيّام كلّها لا تزيد على عدده (live_negative يسمّي القسم)، كـflock_live_check للوجبة كلّها.
 --   • public.set_flock_dead وpublic.save_flock_day بمعامل أقسام اختياريّ (p_parts وp_dead_parts، افتراضه فارغ: النداءات القائمة كما هي): للوجبة
 --     المقسومة هلاكات كلّ قسم بمجموعها، ولغيرها بلا أقسام؛ «مرّة في اليوم» بالأقسام نفسها saved وبغيرها dead_recorded؛ والمركون يحمل الأقسام.
+--   • public.save_flock_visit (0036، توقيعه كما هو): تعديلٌ يغيّر هلاكات زيارة بأقسام يمحو أقسامها، فتطبيق قبل 0038 يُردّ بـsections_required
+--     (flock_day_rebuild) لا بالقيد الخام، والتصفير يُحفظ (مراجعة 2026-11-27).
 --   • public.open_flock وpublic.edit_flock بأعداد أقسام اختياريّة (p_section_counts): التسكين بالتساوي افتراضاً أو بالمرسل، وتعديل العدد الداخل
---     لوجبة مقسومة يطلب عدد كلّ قسم (section_counts_required)، ولا يقلّ قسم عن هلاكاته.
+--     لوجبة مقسومة يطلب عدد كلّ قسم (section_counts_required)، ولا يقلّ قسم عن هلاكاته؛ وأعداد الأقسام وحدها كالعدد في الفترة المقفلة (period_locked).
 --   • public.set_hall_sections (flock.manage، بمرجع client_ref وبشرط نسخة القاعة): saved | stale_hall، والرفض sections_after_deaths ما دامت في القاعة
---     وجبة قائمة سُجّلت هلاكاتها؛ وغير ذلك تُقسم الوجبة القائمة بالتساوي.
+--     وجبة قائمة سُجّلت هلاكاتها، وperiod_locked لوجبة قائمة تسكينها داخل الفترة المقفلة؛ وغير ذلك تُقسم الوجبة القائمة بالتساوي.
 --   • public.reopen_flock (0029) لا يعيد فتح وجبة صارت أقسام قاعتها غير أقسامها (sections_changed)، وprivate.reopen_block (مرآته في flock_sales) بالشرط
---     نفسه وبترتيبه.
+--     نفسه وبترتيبه؛ ويقفل القاعة for no key update لا for update (كان يتقفّل مع كاتب من الطابور يركن عمليته، 40P01؛ مراجعة 2026-11-27).
 --   • القرّاء (مفاتيح جديدة فقط، وكلّ مفتاح قائم كما هو): flock_day_json بـdead_parts، وflock_summary بـsection_counts وsection_dead، وflocks_overview
 --     بـsections لكلّ قاعة، وhall_sheet بـdead_parts لكلّ يوم وtotals.dead_parts وsections في رأس الجواب؛ وhall_sheet بخطّة عامّة محفوظة لكلّ جلسة
 --     (plan_cache_mode = force_generic_plan): كان استعلامها الكبير يُخطَّط من جديد في كلّ نداء، والجواب نفسه حرفاً بالخطّتين.
@@ -40,7 +42,7 @@
 --   • القسم يبقى بأعداده في الوجبة المغلقة، فتغيير أقسام قاعة بلا وجبة قائمة حرّ؛ وإعادة فتح وجبة أقسامها غير أقسام قاعتها ترفض (sections_changed)
 --     حتى تعود أقسام القاعة كما كانت.
 --   • open_flock وedit_flock يرجعان section_counts في جوابهما (مفتاح جديد، والواجهة المنشورة تقرأ مفاتيحها وحدها).
--- تراجع: rollback_0038.sql — يرجّع set_flock_dead وsave_flock_day وflock_day_rebuild وflock_day_json وflock_summary وflocks_overview كما في 0036،
+-- تراجع: rollback_0038.sql — يرجّع set_flock_dead وsave_flock_day وsave_flock_visit وflock_day_rebuild وflock_day_json وflock_summary وflocks_overview كما في 0036،
 --   وhall_sheet وedit_flock وverify_kerosene كما في 0037، وverify_hall_sheet كما في 0035، وopen_flock وreopen_flock وreopen_block كما في 0029، حرفاً بحرف
 --   وبتواقيعها القديمة ومنحها، ويُسقط
 --   set_hall_sections وverify_hall_sections وflock_parts_check وflock_parts_input والأعمدة الأربعة (بقيودها ومنح العمود) ومساعداتها. **طريق رفض**:
@@ -518,6 +520,206 @@ begin
 end
 $$;
 
+-- الزيارة (الجسم الأخير من 0036) ومعها أقسامها (مراجعة 2026-11-27): تطبيق قبل 0038 يعدّل زيارة بأقسام (هلاكات سجّلتها الجولة الجديدة) كان
+-- يُبقي أقسامها ويغيّر هلاكاتها فيرفض القيد الخام (23514 بلا تلميح)؛ الآن تُمحى أقسامها حين تتغيّر هلاكاتها، فتردّ flock_day_rebuild كلّ هلاكات
+-- بلا أقسام في وجبة مقسومة بـsections_required، ويُحفظ التصفير. والوجبة غير المقسومة بلا أقسام كما كانت حرفاً.
+create or replace function public.save_flock_visit(p_visit uuid, p_flock uuid, p_date date, p_recorded_at timestamptz,
+  p_dead integer, p_culled integer, p_feed_kg numeric, p_eggs_total integer, p_eggs_cracked integer, p_eggs_broken integer,
+  p_note text, p_base_version integer, p_void boolean, p_client_ref uuid, p_queued boolean default false)
+returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_fn constant text := 'save_flock_visit';
+  v_cached jsonb;
+  v_today date := public.app_today();
+  v_lock date;
+  v_park text;
+  v_queued boolean := coalesce(p_queued, false);
+  v_void boolean := coalesce(p_void, false);
+  v_note text := private.note_text(p_note);
+  v_payload jsonb;
+  f public.flocks;
+  v public.flock_visits;
+  d public.flock_daily;
+  v_mark boolean;
+  v_hall text;
+begin
+  v_payload := jsonb_build_object('visit', p_visit, 'recorded_at', p_recorded_at, 'dead', p_dead, 'culled', p_culled, 'feed_kg', p_feed_kg::text,
+    'eggs_total', p_eggs_total, 'eggs_cracked', p_eggs_cracked, 'eggs_broken', p_eggs_broken, 'note', p_note, 'base_version', p_base_version,
+    'void', v_void);
+  v_cached := private.ref_claim(v_fn, p_client_ref, v_payload || jsonb_build_object('flock', p_flock, 'date', p_date, 'queued', v_queued));
+  if v_cached is not null then
+    return v_cached;
+  end if;
+  perform private.require('flock_day.save');
+  if p_visit is null then
+    raise exception 'visit_required' using hint = 'تعذّر الحفظ دون معرّف الزيارة. حدّث الشاشة وأعد التسجيل.';
+  end if;
+  set local lock_timeout = '5s';
+  perform private.period_guard();
+  select * into f from public.flocks x where x.org_id = public.auth_org() and x.id = p_flock for update;
+  if f.id is null then
+    raise exception 'flock_not_found' using hint = 'هذا الفوج غير موجود في منشأتك. حدّث الشاشة.';
+  end if;
+  if p_date is null then
+    raise exception 'date_required' using hint = 'اكتب تاريخ اليوم.';
+  end if;
+  if p_date > v_today then
+    raise exception 'date_in_future' using hint = format('التاريخ %s بعد تاريخ اليوم %s. الزيارة تُسجَّل لليوم أو لما قبله.', to_char(p_date, 'DD/MM/YYYY'), to_char(v_today, 'DD/MM/YYYY'));
+  end if;
+  select l.locked_through into v_lock from public.period_locks l where l.org_id = f.org_id;
+  -- الثلاثة التي تتغيّر والعملية بالطابور (0035: بلا حدّ الأيّام السبعة؛ كلّ أيّام الوجبة القائمة): بنداء مباشر ترمي، ومن الطابور (queued) تُركن وترجع parked.
+  if f.status = 'closed' then
+    if not v_queued then
+      raise exception 'flock_closed' using hint = 'الفوج مغلق، فلا تُسجَّل عليه زيارة.';
+    end if;
+    v_park := 'flock_closed';
+  elsif not public.in_scope_site(f.site_id) then
+    if not v_queued then
+      raise exception 'out_of_scope' using hint = 'قاعة هذا الفوج خارج نطاقك. اطلب من مالك المنشأة إضافة حقلها إلى نطاقك.';
+    end if;
+    v_park := 'out_of_scope';
+  elsif v_lock is not null and p_date <= v_lock then
+    if not v_queued then
+      raise exception 'period_locked' using hint = format('الحسابات مقفلة حتى %s (هذا اليوم وما قبله)، فلا تُسجَّل زيارة بتاريخ %s. إن كان التاريخ صحيحاً فاطلب من مالك المنشأة فتح الفترة.',
+        to_char(v_lock, 'DD/MM/YYYY'), to_char(p_date, 'DD/MM/YYYY'));
+    end if;
+    v_park := 'period_locked';
+  end if;
+  if v_park is not null then
+    insert into public.flock_day_rejects (org_id, flock_id, hall_id, site_id, division_id, on_date, client_ref, payload, reason, created_by, visit_id)
+    values (f.org_id, f.id, f.hall_id, f.site_id, f.division_id, p_date, p_client_ref, v_payload, v_park, auth.uid(), p_visit)
+    on conflict (org_id, visit_id) where visit_id is not null do update
+      set client_ref = excluded.client_ref, payload = excluded.payload, reason = excluded.reason, created_at = now(),
+          version = public.flock_day_rejects.version + 1, decision = null, decided_by = null, decided_at = null;
+    return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'parked', 'reason', v_park));
+  end if;
+  if f.status <> 'active' then
+    raise exception 'flock_not_placed' using hint = 'الفوج لم يُسكَّن بعد، فلا تُسجَّل عليه زيارة.';
+  end if;
+  if p_date < f.placed_on then
+    raise exception 'before_placement' using hint = format('التاريخ %s قبل تسكين الفوج في %s.', to_char(p_date, 'DD/MM/YYYY'), to_char(f.placed_on, 'DD/MM/YYYY'));
+  end if;
+
+  -- الزيارة بمعرّفها بعد قفل صفّ فوجها (كلّ كاتب لزيارات الفوج يأخذه أوّلاً).
+  select * into v from public.flock_visits x where x.org_id = f.org_id and x.id = p_visit;
+  if v.id is not null and (v.flock_id <> f.id or v.on_date <> p_date) then
+    raise exception 'visit_moved' using hint = 'هذه الزيارة مسجّلة لقاعة أخرى أو ليوم آخر. حدّث الشاشة ثمّ أعد التسجيل.';
+  end if;
+  if v_void then
+    -- الإلغاء: إلغاء الملغاة إعادة آمنة بلا كتابة، وغير ذلك بشرط النسخة.
+    if v.id is not null and v.voided_at is not null then
+      select * into d from public.flock_daily x where x.org_id = f.org_id and x.flock_id = f.id and x.on_date = p_date;
+      return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'saved', 'visit', private.flock_visit_json(v), 'day', private.flock_day_json(d)));
+    end if;
+    if v.id is null or v.version is distinct from p_base_version then
+      return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'stale_visit', 'server', private.flock_visit_json(v)));
+    end if;
+  elsif p_base_version is null then
+    -- الإضافة بمعرّف مسجَّل (مرجع جديد): بالمحتوى نفسه وحيّة = حُفظت، وغير ذلك stale_visit.
+    if v.id is not null then
+      if v.voided_at is null and (v.dead, v.culled, v.feed_kg, v.eggs_total, v.eggs_cracked, v.eggs_broken, v.note)
+         is not distinct from (coalesce(p_dead, 0), coalesce(p_culled, 0), p_feed_kg, p_eggs_total, p_eggs_cracked, p_eggs_broken, v_note) then
+        select * into d from public.flock_daily x where x.org_id = f.org_id and x.flock_id = f.id and x.on_date = p_date;
+        return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'saved', 'visit', private.flock_visit_json(v), 'day', private.flock_day_json(d)));
+      end if;
+      return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'stale_visit', 'server', private.flock_visit_json(v)));
+    end if;
+  elsif v.id is null or v.voided_at is not null or v.version is distinct from p_base_version then
+    return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'stale_visit', 'server', private.flock_visit_json(v)));
+  end if;
+
+  if not v_void then
+    if p_dead < 0 or p_dead > 10000000 then
+      raise exception 'bad_value' using hint = 'النافق عدد صحيح من صفر إلى 10,000,000.';
+    end if;
+    if p_culled < 0 or p_culled > 10000000 then
+      raise exception 'bad_value' using hint = 'المستبعد عدد صحيح من صفر إلى 10,000,000.';
+    end if;
+    if p_feed_kg is not null and not (abs(p_feed_kg) < 'Infinity' and p_feed_kg >= 0 and p_feed_kg < 1000000000 and p_feed_kg = round(p_feed_kg, 3)) then
+      raise exception 'bad_value' using hint = 'العلف بالكيلوغرام من صفر فأكثر، بثلاث مراتب عشرية على الأكثر.';
+    end if;
+    if p_eggs_total < 0 or p_eggs_cracked < 0 or p_eggs_broken < 0
+       or p_eggs_total > 10000000 or p_eggs_cracked > 10000000 or p_eggs_broken > 10000000 then
+      raise exception 'bad_value' using hint = 'أعداد البيض أعداد صحيحة من صفر إلى 10,000,000.';
+    end if;
+    if length(v_note) > 500 then
+      raise exception 'bad_note' using hint = 'الملاحظة لا تزيد على 500 حرف.';
+    end if;
+    if f.kind = 'broiler' and (p_eggs_total is not null or p_eggs_cracked is not null or p_eggs_broken is not null) then
+      raise exception 'eggs_on_broiler' using hint = 'فوج اللحم لا بيض له؛ البيض لأفواج البيّاض فقط.';
+    end if;
+    if (p_eggs_cracked is not null or p_eggs_broken is not null) and p_eggs_total is null then
+      raise exception 'eggs_need_total' using hint = 'اكتب بيض الزيارة كلّه قبل المكسور والمشعور.';
+    end if;
+    if coalesce(p_eggs_cracked, 0) + coalesce(p_eggs_broken, 0) > coalesce(p_eggs_total, 0) then
+      raise exception 'eggs_over_total' using hint = format('المكسور والمشعور (%s) أكثر من بيض الزيارة كلّه (%s). راجع الأرقام.',
+        to_char(coalesce(p_eggs_cracked, 0) + coalesce(p_eggs_broken, 0), 'FM999,999,999,990'), to_char(p_eggs_total, 'FM999,999,999,990'));
+    end if;
+    if p_base_version is null and (p_recorded_at is null or not isfinite(p_recorded_at) or p_recorded_at > now() + interval '10 minutes') then
+      raise exception 'bad_time' using hint = 'وقت الزيارة غير صالح: ساعة الجهاز متقدّمة على الخادم. صحّح ساعة الهاتف ثمّ أعد التسجيل.';
+    end if;
+    if p_dead is null and p_culled is null and p_feed_kg is null and p_eggs_total is null and p_eggs_cracked is null and p_eggs_broken is null
+       and v_note is null then
+      raise exception 'empty_visit' using hint = 'اكتب رقماً واحداً على الأقلّ قبل حفظ الزيارة، أو ألغِ الزيارة.';
+    end if;
+  end if;
+
+  -- 0036: علامة الزيارة: يبقى فيها نافق أو مستبعد (الصفر لا يقفل الجولة). وزيارة جديدة، أو تعديل يرفع زيارة من صفر، بهلاكات ليوم علّمته زيارة حيّة
+  -- أخرى (بعد قفل صفّ الوجبة، فكاتبان لليوم يترتّبان) لا تُضاف: من الطابور تُركن كلّها dead_recorded، وبنداء مباشر ترمي. وتعديل المعلَّمة نفسها مسموح.
+  v_mark := not v_void and coalesce(p_dead, 0) + coalesce(p_culled, 0) > 0;
+  if v_mark and (v.id is null or v.dead + v.culled = 0)
+     and exists (select 1 from public.flock_visits x where x.org_id = f.org_id and x.flock_id = f.id and x.on_date = p_date and x.voided_at is null
+       and x.dead_entry and x.id <> p_visit) then
+    if v_queued then
+      insert into public.flock_day_rejects (org_id, flock_id, hall_id, site_id, division_id, on_date, client_ref, payload, reason, created_by, visit_id)
+      values (f.org_id, f.id, f.hall_id, f.site_id, f.division_id, p_date, p_client_ref, v_payload, 'dead_recorded', auth.uid(), p_visit)
+      on conflict (org_id, visit_id) where visit_id is not null do update
+        set client_ref = excluded.client_ref, payload = excluded.payload, reason = excluded.reason, created_at = now(),
+            version = public.flock_day_rejects.version + 1, decision = null, decided_by = null, decided_at = null;
+      return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'parked', 'reason', 'dead_recorded'));
+    end if;
+    select * into d from public.flock_daily x where x.org_id = f.org_id and x.flock_id = f.id and x.on_date = p_date;
+    select h.name into v_hall from public.halls h where h.org_id = f.org_id and h.id = f.hall_id;
+    raise exception 'dead_recorded' using hint = format('هلاكات يوم %s في «%s» مسجّلة (%s)، فلا تُضاف إليها هلاكات زيارة أخرى. لتصحيح العدد افتح صفحة القاعة ← ✎ تعديل الجدول.',
+      to_char(p_date, 'DD/MM/YYYY'), v_hall, to_char(coalesce(d.dead + d.culled, 0), 'FM999,999,990'));
+  end if;
+
+  if v_void then
+    update public.flock_visits x set voided_at = now(), voided_by = auth.uid(), version = x.version + 1, updated_at = now(), updated_by = auth.uid()
+    where x.org_id = v.org_id and x.id = v.id
+    returning * into v;
+  elsif v.id is null then
+    insert into public.flock_visits (id, org_id, flock_id, hall_id, site_id, division_id, on_date, recorded_at, dead, culled, feed_kg,
+      eggs_total, eggs_cracked, eggs_broken, note, source, version, dead_entry)
+    values (p_visit, f.org_id, f.id, f.hall_id, f.site_id, f.division_id, p_date, p_recorded_at, coalesce(p_dead, 0), coalesce(p_culled, 0), p_feed_kg,
+      p_eggs_total, p_eggs_cracked, p_eggs_broken, v_note, 'visit', 1, v_mark)
+    returning * into v;
+  elsif (v.dead, v.culled, v.feed_kg, v.eggs_total, v.eggs_cracked, v.eggs_broken, v.note)
+        is not distinct from (coalesce(p_dead, 0), coalesce(p_culled, 0), p_feed_kg, p_eggs_total, p_eggs_cracked, p_eggs_broken, v_note) then
+    -- التعديل بالمحتوى نفسه: حُفظ بلا كتابة (ولا تكبر النسخة).
+    select * into d from public.flock_daily x where x.org_id = f.org_id and x.flock_id = f.id and x.on_date = p_date;
+    return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'saved', 'visit', private.flock_visit_json(v), 'day', private.flock_day_json(d)));
+  else
+    update public.flock_visits x
+    set dead = coalesce(p_dead, 0), culled = coalesce(p_culled, 0), feed_kg = p_feed_kg, eggs_total = p_eggs_total, eggs_cracked = p_eggs_cracked,
+        eggs_broken = p_eggs_broken, note = v_note, dead_entry = v_mark, version = x.version + 1, updated_at = now(), updated_by = auth.uid(),
+        -- 0038 (مراجعة 2026-11-27): أقسام الزيارة تبقى ما بقيت هلاكاتها؛ وتغييرها من تطبيق قبل 0038 (بلا أقسام) يمحوها، فهلاكات بلا أقسام في وجبة
+        -- مقسومة تردّها flock_day_rebuild بـsections_required (قاعدة واحدة لكلّ كاتب)، والتصفير يُحفظ. وكانت تبقى فيرفض القيد الخام بلا تلميح.
+        dead_parts = case when (x.dead, x.culled) is not distinct from (coalesce(p_dead, 0), coalesce(p_culled, 0)) then x.dead_parts end
+    where x.org_id = v.org_id and x.id = v.id
+    returning * into v;
+  end if;
+
+  -- مجموع اليوم من زياراته الحيّة (0036: وعلامته منها)، ثمّ الأيّام على المجموع: البيض لا يزيد على الحيّ أوّل اليوم (هذا اليوم وما بعده)، والحيّ لا
+  -- يصير سالباً في أيّ يوم.
+  d := private.flock_day_rebuild(f, p_date);
+  perform private.flock_eggs_live_check(f, p_date);
+  perform private.flock_live_check(f);
+  return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'saved', 'visit', private.flock_visit_json(v), 'day', private.flock_day_json(d)));
+end
+$$;
+
 -- ─── هـ. التسكين وتعديل الوجبة وأقسام القاعة وإعادة الفتح ───────────────────────────────────────────────────────────────
 -- التسكين (الجسم الأخير من 0029) ومعه p_section_counts (افتراضه فارغ): لقاعة مقسومة عدد كلّ قسم، بالتساوي افتراضاً والباقي للأقسام الأولى.
 drop function if exists public.open_flock(uuid, date, integer, integer, text, uuid);
@@ -725,7 +927,8 @@ begin
   -- التاريخ والعدد والعمر تغيّر أيّام الفوج ومؤشّراته؛ والسلالة اسم وحدها.
   v_core := p_placed_on is distinct from f.placed_on or p_placed_count is distinct from f.placed_count or coalesce(p_age_days, 0) is distinct from f.age_days_at_placement;
   v_changed := v_core or v_breed is distinct from f.breed or v_counts is distinct from f.section_counts;
-  if v_core then
+  -- 0038 (مراجعة 2026-11-27): وأعداد الأقسام وحدها تُقفل بالفترة كالعدد (كانت تُحفظ داخل الفترة المقفلة).
+  if v_core or v_counts is distinct from f.section_counts then
     select l.locked_through into v_lock from public.period_locks l where l.org_id = f.org_id;
     if v_lock is not null and least(p_placed_on, f.placed_on) <= v_lock then
       raise exception 'period_locked' using hint = format('الحسابات مقفلة حتى %s، وتسكين الفوج %s داخلها، فلا يُعدَّل. إن كان التعديل صحيحاً فاطلب من مالك المنشأة فتح الفترة.',
@@ -792,6 +995,7 @@ declare
   h public.halls;
   f public.flocks;
   v_day date;
+  v_lock date;
 begin
   v_cached := private.ref_claim(v_fn, p_client_ref, jsonb_build_object('hall', p_hall, 'sections', p_sections, 'version', p_expected_version));
   if v_cached is not null then
@@ -799,6 +1003,7 @@ begin
   end if;
   perform private.require('flock.manage');
   set local lock_timeout = '5s';
+  perform private.period_guard();
   select * into h from public.halls x where x.org_id = public.auth_org() and x.id = p_hall for no key update;
   if h.id is null then
     raise exception 'hall_not_found' using hint = 'هذه القاعة غير موجودة في منشأتك. حدّث الشاشة.';
@@ -821,6 +1026,15 @@ begin
   if f.id is not null and exists (select 1 from public.flock_daily d where d.org_id = f.org_id and d.flock_id = f.id and d.dead + d.culled > 0) then
     raise exception 'sections_after_deaths' using hint = format('في القاعة «%s» وجبة سُجّلت هلاكاتها، فلا تتغيّر أقسامها حتى تُغلق.', h.name);
   end if;
+  -- مراجعة 2026-11-27: أعداد أقسام الوجبة القائمة وأيّامها تُقفل بالفترة كعددها (edit_flock): وجبة تسكينها داخل الفترة المقفلة لا تتغيّر أقسامها
+  -- (كانت تُعاد كتابة أيّامها في الفترة، وsave_flock_day يرفض اليوم نفسه).
+  if f.id is not null then
+    select l.locked_through into v_lock from public.period_locks l where l.org_id = h.org_id;
+    if v_lock is not null and f.placed_on <= v_lock then
+      raise exception 'period_locked' using hint = format('الحسابات مقفلة حتى %s، وتسكين الوجبة في «%s» يوم %s داخلها، فلا تتغيّر أقسامها. إن كان التغيير صحيحاً فاطلب من مالك المنشأة فتح الفترة.',
+        to_char(v_lock, 'DD/MM/YYYY'), h.name, to_char(f.placed_on, 'DD/MM/YYYY'));
+    end if;
+  end if;
   update public.halls x set sections = p_sections where x.org_id = h.org_id and x.id = h.id
   returning * into h;
   if f.id is not null then
@@ -839,7 +1053,7 @@ begin
 end
 $$;
 
--- «أعد فتح الدورة» (الجسم الأخير من 0029) ومعها sections_changed: أقسام الوجبة ثابتة بأعدادها، فإن صارت أقسام قاعتها غيرها بعد إغلاقها لا تُعاد فتحها.
+-- «أعد فتح الدورة» (الجسم الأخير من 0029) ومعها sections_changed: أقسام الوجبة ثابتة بأعدادها، فإن صارت أقسام قاعتها غيرها بعد إغلاقها لا يُعاد فتحها.
 create or replace function public.reopen_flock(p_close_id uuid, p_reason text, p_client_ref uuid) returns jsonb
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare
@@ -886,7 +1100,10 @@ begin
     perform private.stock_wh(v_wh, true);
   end loop;
   perform private.check_void_date();
-  select * into h from public.halls y where y.org_id = v_org and y.id = x.hall_id for update;
+  -- مراجعة 2026-11-27: القاعة for no key update لا for update (من 0029): كاتبٌ من الطابور يقفل صفّ الوجبة أوّلاً ثمّ يركن عمليته، فيأخذ إدراجه في
+  -- flock_day_rejects (والمفتاح الأجنبيّ إلى القاعة) key share عليها، وfor update هنا ثمّ انتظار صفّ الوجبة كان يقفّل الاثنين (40P01). وno key update
+  -- يبقى يمنع التسكين (open_flock) وتغيير الأقسام (set_hall_sections) والإغلاق (close_flock) وإرجاع المنقول في القاعة نفسها حتى ينتهي.
+  select * into h from public.halls y where y.org_id = v_org and y.id = x.hall_id for no key update;
   -- 0038: أقسام الوجبة مع قفلها (تُقارن بأقسام القاعة أدناه).
   select y.section_counts into v_counts from public.flocks y where y.org_id = v_org and y.id = x.flock_id for update;
   select * into x from public.flock_closes y where y.org_id = v_org and y.id = p_close_id for update;
@@ -908,10 +1125,10 @@ begin
     raise exception 'hall_reused' using hint = format('سُكّن في «%s» فوج جديد يوم %s بعد هذه الدورة، فلا يُعاد فتحها.', h.name,
       coalesce(to_char(o.placed_on, 'DD/MM/YYYY'), '—'));
   end if;
-  -- 0038: أقسام الوجبة ثابتة بأعدادها، فإن صارت أقسام القاعة غيرها بعد إغلاقها لا تُعاد فتحها حتى تعود أقسام القاعة كما كانت (وتعود بحرّية ما دام
+  -- 0038: أقسام الوجبة ثابتة بأعدادها، فإن صارت أقسام القاعة غيرها بعد إغلاقها لا يُعاد فتحها حتى تعود أقسام القاعة كما كانت (وتعود بحرّية ما دام
   -- لا وجبة قائمة فيها).
   if coalesce(cardinality(v_counts), 1) <> h.sections then
-    raise exception 'sections_changed' using hint = format('أقسام القاعة «%s» صارت %s بعد إغلاق هذه الوجبة وكانت %s، فلا تُعاد فتحها. أعِد أقسام القاعة إلى %s ثمّ أعد فتحها.',
+    raise exception 'sections_changed' using hint = format('أقسام القاعة «%s» صارت %s بعد إغلاق هذه الوجبة وكانت %s، فلا يُعاد فتحها. أعِد أقسام القاعة إلى %s ثمّ أعد فتحها.',
       h.name, h.sections, coalesce(cardinality(v_counts), 1), coalesce(cardinality(v_counts), 1));
   end if;
   -- النقل المطبَّق على فوج جديد يمنع (والمعلَّق يُلغى، والمُرجَع يُعكس إرجاعه أدناه).

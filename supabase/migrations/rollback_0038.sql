@@ -1,5 +1,5 @@
 -- rollback_0038 — تراجع «القاعة بأقسام» (0038_hall_sections؛ مشغّل التراجع بالحزمة FOUNDATION ٨٢٠، ٨٧٦): يرجّع public.set_flock_dead
---   وpublic.save_flock_day وprivate.flock_day_rebuild وprivate.flock_day_json وprivate.flock_summary وpublic.flocks_overview كما في 0036، وpublic.hall_sheet
+--   وpublic.save_flock_day وpublic.save_flock_visit وprivate.flock_day_rebuild وprivate.flock_day_json وprivate.flock_summary وpublic.flocks_overview كما في 0036، وpublic.hall_sheet
 --   وpublic.edit_flock وpublic.verify_kerosene كما في 0037، وpublic.verify_hall_sheet كما في 0035، وpublic.open_flock وpublic.reopen_flock وprivate.reopen_block
 --   كما في 0029، حرفاً بحرف (md5 نفسه بالكتالوج)، والأربعة التي تغيّر توقيعها بتواقيعها القديمة ومنحها؛ ويُسقط verify_hall_sections وset_hall_sections
 --   وflock_parts_check وflock_parts_input، ثمّ أعمدة الأقسام الأربعة (بقيودها ومنح عمود القاعة) بعد الأجسام التي تقرؤها، ثمّ مساعداتها (بعد القيود التي
@@ -515,6 +515,201 @@ grant execute on function public.set_flock_dead(uuid, date, integer, uuid, boole
 
 -- ٣) الأجسام القديمة بتواقيعها نفسها حرفاً.
 -- private.flock_day_rebuild كما في 0036_round_once.sql.
+-- الزيارة كما في 0036 (توقيعها لم يتغيّر، فمنحها كما هو).
+create or replace function public.save_flock_visit(p_visit uuid, p_flock uuid, p_date date, p_recorded_at timestamptz,
+  p_dead integer, p_culled integer, p_feed_kg numeric, p_eggs_total integer, p_eggs_cracked integer, p_eggs_broken integer,
+  p_note text, p_base_version integer, p_void boolean, p_client_ref uuid, p_queued boolean default false)
+returns jsonb
+language plpgsql security definer set search_path = public, pg_temp as $$
+declare
+  v_fn constant text := 'save_flock_visit';
+  v_cached jsonb;
+  v_today date := public.app_today();
+  v_lock date;
+  v_park text;
+  v_queued boolean := coalesce(p_queued, false);
+  v_void boolean := coalesce(p_void, false);
+  v_note text := private.note_text(p_note);
+  v_payload jsonb;
+  f public.flocks;
+  v public.flock_visits;
+  d public.flock_daily;
+  v_mark boolean;
+  v_hall text;
+begin
+  v_payload := jsonb_build_object('visit', p_visit, 'recorded_at', p_recorded_at, 'dead', p_dead, 'culled', p_culled, 'feed_kg', p_feed_kg::text,
+    'eggs_total', p_eggs_total, 'eggs_cracked', p_eggs_cracked, 'eggs_broken', p_eggs_broken, 'note', p_note, 'base_version', p_base_version,
+    'void', v_void);
+  v_cached := private.ref_claim(v_fn, p_client_ref, v_payload || jsonb_build_object('flock', p_flock, 'date', p_date, 'queued', v_queued));
+  if v_cached is not null then
+    return v_cached;
+  end if;
+  perform private.require('flock_day.save');
+  if p_visit is null then
+    raise exception 'visit_required' using hint = 'تعذّر الحفظ دون معرّف الزيارة. حدّث الشاشة وأعد التسجيل.';
+  end if;
+  set local lock_timeout = '5s';
+  perform private.period_guard();
+  select * into f from public.flocks x where x.org_id = public.auth_org() and x.id = p_flock for update;
+  if f.id is null then
+    raise exception 'flock_not_found' using hint = 'هذا الفوج غير موجود في منشأتك. حدّث الشاشة.';
+  end if;
+  if p_date is null then
+    raise exception 'date_required' using hint = 'اكتب تاريخ اليوم.';
+  end if;
+  if p_date > v_today then
+    raise exception 'date_in_future' using hint = format('التاريخ %s بعد تاريخ اليوم %s. الزيارة تُسجَّل لليوم أو لما قبله.', to_char(p_date, 'DD/MM/YYYY'), to_char(v_today, 'DD/MM/YYYY'));
+  end if;
+  select l.locked_through into v_lock from public.period_locks l where l.org_id = f.org_id;
+  -- الثلاثة التي تتغيّر والعملية بالطابور (0035: بلا حدّ الأيّام السبعة؛ كلّ أيّام الوجبة القائمة): بنداء مباشر ترمي، ومن الطابور (queued) تُركن وترجع parked.
+  if f.status = 'closed' then
+    if not v_queued then
+      raise exception 'flock_closed' using hint = 'الفوج مغلق، فلا تُسجَّل عليه زيارة.';
+    end if;
+    v_park := 'flock_closed';
+  elsif not public.in_scope_site(f.site_id) then
+    if not v_queued then
+      raise exception 'out_of_scope' using hint = 'قاعة هذا الفوج خارج نطاقك. اطلب من مالك المنشأة إضافة حقلها إلى نطاقك.';
+    end if;
+    v_park := 'out_of_scope';
+  elsif v_lock is not null and p_date <= v_lock then
+    if not v_queued then
+      raise exception 'period_locked' using hint = format('الحسابات مقفلة حتى %s (هذا اليوم وما قبله)، فلا تُسجَّل زيارة بتاريخ %s. إن كان التاريخ صحيحاً فاطلب من مالك المنشأة فتح الفترة.',
+        to_char(v_lock, 'DD/MM/YYYY'), to_char(p_date, 'DD/MM/YYYY'));
+    end if;
+    v_park := 'period_locked';
+  end if;
+  if v_park is not null then
+    insert into public.flock_day_rejects (org_id, flock_id, hall_id, site_id, division_id, on_date, client_ref, payload, reason, created_by, visit_id)
+    values (f.org_id, f.id, f.hall_id, f.site_id, f.division_id, p_date, p_client_ref, v_payload, v_park, auth.uid(), p_visit)
+    on conflict (org_id, visit_id) where visit_id is not null do update
+      set client_ref = excluded.client_ref, payload = excluded.payload, reason = excluded.reason, created_at = now(),
+          version = public.flock_day_rejects.version + 1, decision = null, decided_by = null, decided_at = null;
+    return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'parked', 'reason', v_park));
+  end if;
+  if f.status <> 'active' then
+    raise exception 'flock_not_placed' using hint = 'الفوج لم يُسكَّن بعد، فلا تُسجَّل عليه زيارة.';
+  end if;
+  if p_date < f.placed_on then
+    raise exception 'before_placement' using hint = format('التاريخ %s قبل تسكين الفوج في %s.', to_char(p_date, 'DD/MM/YYYY'), to_char(f.placed_on, 'DD/MM/YYYY'));
+  end if;
+
+  -- الزيارة بمعرّفها بعد قفل صفّ فوجها (كلّ كاتب لزيارات الفوج يأخذه أوّلاً).
+  select * into v from public.flock_visits x where x.org_id = f.org_id and x.id = p_visit;
+  if v.id is not null and (v.flock_id <> f.id or v.on_date <> p_date) then
+    raise exception 'visit_moved' using hint = 'هذه الزيارة مسجّلة لقاعة أخرى أو ليوم آخر. حدّث الشاشة ثمّ أعد التسجيل.';
+  end if;
+  if v_void then
+    -- الإلغاء: إلغاء الملغاة إعادة آمنة بلا كتابة، وغير ذلك بشرط النسخة.
+    if v.id is not null and v.voided_at is not null then
+      select * into d from public.flock_daily x where x.org_id = f.org_id and x.flock_id = f.id and x.on_date = p_date;
+      return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'saved', 'visit', private.flock_visit_json(v), 'day', private.flock_day_json(d)));
+    end if;
+    if v.id is null or v.version is distinct from p_base_version then
+      return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'stale_visit', 'server', private.flock_visit_json(v)));
+    end if;
+  elsif p_base_version is null then
+    -- الإضافة بمعرّف مسجَّل (مرجع جديد): بالمحتوى نفسه وحيّة = حُفظت، وغير ذلك stale_visit.
+    if v.id is not null then
+      if v.voided_at is null and (v.dead, v.culled, v.feed_kg, v.eggs_total, v.eggs_cracked, v.eggs_broken, v.note)
+         is not distinct from (coalesce(p_dead, 0), coalesce(p_culled, 0), p_feed_kg, p_eggs_total, p_eggs_cracked, p_eggs_broken, v_note) then
+        select * into d from public.flock_daily x where x.org_id = f.org_id and x.flock_id = f.id and x.on_date = p_date;
+        return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'saved', 'visit', private.flock_visit_json(v), 'day', private.flock_day_json(d)));
+      end if;
+      return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'stale_visit', 'server', private.flock_visit_json(v)));
+    end if;
+  elsif v.id is null or v.voided_at is not null or v.version is distinct from p_base_version then
+    return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'stale_visit', 'server', private.flock_visit_json(v)));
+  end if;
+
+  if not v_void then
+    if p_dead < 0 or p_dead > 10000000 then
+      raise exception 'bad_value' using hint = 'النافق عدد صحيح من صفر إلى 10,000,000.';
+    end if;
+    if p_culled < 0 or p_culled > 10000000 then
+      raise exception 'bad_value' using hint = 'المستبعد عدد صحيح من صفر إلى 10,000,000.';
+    end if;
+    if p_feed_kg is not null and not (abs(p_feed_kg) < 'Infinity' and p_feed_kg >= 0 and p_feed_kg < 1000000000 and p_feed_kg = round(p_feed_kg, 3)) then
+      raise exception 'bad_value' using hint = 'العلف بالكيلوغرام من صفر فأكثر، بثلاث مراتب عشرية على الأكثر.';
+    end if;
+    if p_eggs_total < 0 or p_eggs_cracked < 0 or p_eggs_broken < 0
+       or p_eggs_total > 10000000 or p_eggs_cracked > 10000000 or p_eggs_broken > 10000000 then
+      raise exception 'bad_value' using hint = 'أعداد البيض أعداد صحيحة من صفر إلى 10,000,000.';
+    end if;
+    if length(v_note) > 500 then
+      raise exception 'bad_note' using hint = 'الملاحظة لا تزيد على 500 حرف.';
+    end if;
+    if f.kind = 'broiler' and (p_eggs_total is not null or p_eggs_cracked is not null or p_eggs_broken is not null) then
+      raise exception 'eggs_on_broiler' using hint = 'فوج اللحم لا بيض له؛ البيض لأفواج البيّاض فقط.';
+    end if;
+    if (p_eggs_cracked is not null or p_eggs_broken is not null) and p_eggs_total is null then
+      raise exception 'eggs_need_total' using hint = 'اكتب بيض الزيارة كلّه قبل المكسور والمشعور.';
+    end if;
+    if coalesce(p_eggs_cracked, 0) + coalesce(p_eggs_broken, 0) > coalesce(p_eggs_total, 0) then
+      raise exception 'eggs_over_total' using hint = format('المكسور والمشعور (%s) أكثر من بيض الزيارة كلّه (%s). راجع الأرقام.',
+        to_char(coalesce(p_eggs_cracked, 0) + coalesce(p_eggs_broken, 0), 'FM999,999,999,990'), to_char(p_eggs_total, 'FM999,999,999,990'));
+    end if;
+    if p_base_version is null and (p_recorded_at is null or not isfinite(p_recorded_at) or p_recorded_at > now() + interval '10 minutes') then
+      raise exception 'bad_time' using hint = 'وقت الزيارة غير صالح: ساعة الجهاز متقدّمة على الخادم. صحّح ساعة الهاتف ثمّ أعد التسجيل.';
+    end if;
+    if p_dead is null and p_culled is null and p_feed_kg is null and p_eggs_total is null and p_eggs_cracked is null and p_eggs_broken is null
+       and v_note is null then
+      raise exception 'empty_visit' using hint = 'اكتب رقماً واحداً على الأقلّ قبل حفظ الزيارة، أو ألغِ الزيارة.';
+    end if;
+  end if;
+
+  -- 0036: علامة الزيارة: يبقى فيها نافق أو مستبعد (الصفر لا يقفل الجولة). وزيارة جديدة، أو تعديل يرفع زيارة من صفر، بهلاكات ليوم علّمته زيارة حيّة
+  -- أخرى (بعد قفل صفّ الوجبة، فكاتبان لليوم يترتّبان) لا تُضاف: من الطابور تُركن كلّها dead_recorded، وبنداء مباشر ترمي. وتعديل المعلَّمة نفسها مسموح.
+  v_mark := not v_void and coalesce(p_dead, 0) + coalesce(p_culled, 0) > 0;
+  if v_mark and (v.id is null or v.dead + v.culled = 0)
+     and exists (select 1 from public.flock_visits x where x.org_id = f.org_id and x.flock_id = f.id and x.on_date = p_date and x.voided_at is null
+       and x.dead_entry and x.id <> p_visit) then
+    if v_queued then
+      insert into public.flock_day_rejects (org_id, flock_id, hall_id, site_id, division_id, on_date, client_ref, payload, reason, created_by, visit_id)
+      values (f.org_id, f.id, f.hall_id, f.site_id, f.division_id, p_date, p_client_ref, v_payload, 'dead_recorded', auth.uid(), p_visit)
+      on conflict (org_id, visit_id) where visit_id is not null do update
+        set client_ref = excluded.client_ref, payload = excluded.payload, reason = excluded.reason, created_at = now(),
+            version = public.flock_day_rejects.version + 1, decision = null, decided_by = null, decided_at = null;
+      return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'parked', 'reason', 'dead_recorded'));
+    end if;
+    select * into d from public.flock_daily x where x.org_id = f.org_id and x.flock_id = f.id and x.on_date = p_date;
+    select h.name into v_hall from public.halls h where h.org_id = f.org_id and h.id = f.hall_id;
+    raise exception 'dead_recorded' using hint = format('هلاكات يوم %s في «%s» مسجّلة (%s)، فلا تُضاف إليها هلاكات زيارة أخرى. لتصحيح العدد افتح صفحة القاعة ← ✎ تعديل الجدول.',
+      to_char(p_date, 'DD/MM/YYYY'), v_hall, to_char(coalesce(d.dead + d.culled, 0), 'FM999,999,990'));
+  end if;
+
+  if v_void then
+    update public.flock_visits x set voided_at = now(), voided_by = auth.uid(), version = x.version + 1, updated_at = now(), updated_by = auth.uid()
+    where x.org_id = v.org_id and x.id = v.id
+    returning * into v;
+  elsif v.id is null then
+    insert into public.flock_visits (id, org_id, flock_id, hall_id, site_id, division_id, on_date, recorded_at, dead, culled, feed_kg,
+      eggs_total, eggs_cracked, eggs_broken, note, source, version, dead_entry)
+    values (p_visit, f.org_id, f.id, f.hall_id, f.site_id, f.division_id, p_date, p_recorded_at, coalesce(p_dead, 0), coalesce(p_culled, 0), p_feed_kg,
+      p_eggs_total, p_eggs_cracked, p_eggs_broken, v_note, 'visit', 1, v_mark)
+    returning * into v;
+  elsif (v.dead, v.culled, v.feed_kg, v.eggs_total, v.eggs_cracked, v.eggs_broken, v.note)
+        is not distinct from (coalesce(p_dead, 0), coalesce(p_culled, 0), p_feed_kg, p_eggs_total, p_eggs_cracked, p_eggs_broken, v_note) then
+    -- التعديل بالمحتوى نفسه: حُفظ بلا كتابة (ولا تكبر النسخة).
+    select * into d from public.flock_daily x where x.org_id = f.org_id and x.flock_id = f.id and x.on_date = p_date;
+    return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'saved', 'visit', private.flock_visit_json(v), 'day', private.flock_day_json(d)));
+  else
+    update public.flock_visits x
+    set dead = coalesce(p_dead, 0), culled = coalesce(p_culled, 0), feed_kg = p_feed_kg, eggs_total = p_eggs_total, eggs_cracked = p_eggs_cracked,
+        eggs_broken = p_eggs_broken, note = v_note, dead_entry = v_mark, version = x.version + 1, updated_at = now(), updated_by = auth.uid()
+    where x.org_id = v.org_id and x.id = v.id
+    returning * into v;
+  end if;
+
+  -- مجموع اليوم من زياراته الحيّة (0036: وعلامته منها)، ثمّ الأيّام على المجموع: البيض لا يزيد على الحيّ أوّل اليوم (هذا اليوم وما بعده)، والحيّ لا
+  -- يصير سالباً في أيّ يوم.
+  d := private.flock_day_rebuild(f, p_date);
+  perform private.flock_eggs_live_check(f, p_date);
+  perform private.flock_live_check(f);
+  return private.ref_store(v_fn, p_client_ref, jsonb_build_object('status', 'saved', 'visit', private.flock_visit_json(v), 'day', private.flock_day_json(d)));
+end
+$$;
+
 create or replace function private.flock_day_rebuild(f public.flocks, p_on date) returns public.flock_daily
 language plpgsql security definer set search_path = public, pg_temp as $$
 declare

@@ -767,12 +767,12 @@ end $s$`;
       ['0036_round_once.sql', 'private.flock_day_json'], ['0036_round_once.sql', 'private.flock_summary'], ['0036_round_once.sql', 'public.flocks_overview'],
       ['0037_kerosene.sql', 'public.hall_sheet'], ['0037_kerosene.sql', 'public.edit_flock'], ['0029_bird_sales_close.sql', 'public.open_flock'],
       ['0029_bird_sales_close.sql', 'public.reopen_flock'], ['0029_bird_sales_close.sql', 'private.reopen_block'],
-      ['0037_kerosene.sql', 'public.verify_kerosene'], ['0035_hall_sheet.sql', 'public.verify_hall_sheet'],
+      ['0037_kerosene.sql', 'public.verify_kerosene'], ['0035_hall_sheet.sql', 'public.verify_hall_sheet'], ['0036_round_once.sql', 'public.save_flock_visit'],
     ];
     const rollback = readFileSync(path.join(MIGRATIONS, 'rollback_0038.sql'), 'utf8');
     const migration = readFileSync(path.join(MIGRATIONS, '0038_hall_sections.sql'), 'utf8');
     same(HEADS.filter(([file, head]) => !rollback.includes(bodyOf(file, head))).map(([, head]) => head), [],
-      'ملفّ التراجع يرجّع الأجسام الثلاثة عشر كما في آخر هجرة عرّفتها (0029 و0035 و0036 و0037) حرفاً');
+      'ملفّ التراجع يرجّع الأجسام الأربعة عشر كما في آخر هجرة عرّفتها (0029 و0035 و0036 و0037) حرفاً');
     same(HEADS.filter(([file, head]) => migration.includes(bodyOf(file, head)) || !migration.includes(`create or replace function ${head}(`)).map(([, head]) => head), [],
       'والهجرة تعيد تعريفها كلّها بجسم غير جسمها السابق');
     // آخر تعريف: لا هجرة بعد التي أُخذ منها الجسم تعرّفه (لا رجوع إلى جسم قديم).
