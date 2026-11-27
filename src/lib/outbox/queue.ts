@@ -114,6 +114,9 @@ function mergePayload(older: FlockDayPayload, newer: FlockDayPayload): FlockDayP
   for (const [field, value] of Object.entries(newer)) {
     if (value !== null && value !== undefined) merged[field] = value;
   }
+  // هلاكات الأقسام مع هلاكاتها أبداً (0038، مراجعة 2026-11-27): هلاكاتٌ جديدة بلا أقسام (القاعة صارت قسماً واحداً بين التعديلين) لا تُبقي أقسام القديمة،
+  // فلا يُرسل يومٌ أقسامه لا تساوي هلاكاته.
+  if (newer.dead !== null && newer.dead !== undefined && (newer.dead_parts === null || newer.dead_parts === undefined)) delete merged.dead_parts;
   return merged as FlockDayPayload;
 }
 

@@ -278,8 +278,9 @@ export default async function (t) {
           await q.saveRound(db, STAMP, { fn: 'save_flock_day', flockId: 'f-1', day: '2026-11-21', payload: { dead: 2 }, baseVersion: null });
           const first = await q.flush(db, STAMP, repo.flockDayTransport);
           t.same(
-            [first.stopped, await ops(db), server.calls.map(([name]) => name)],
-            ['done', [], [fn, 'save_flock_day']],
+            // يوما العمليتين مختلفان، فترتيب إرسالهما غير ثابت (قد يتساوى وقتاهما): المهمّ أنّ كلتيهما أُرسلتا.
+            [first.stopped, await ops(db), server.calls.map(([name]) => name).sort()],
+            ['done', [], [fn, 'save_flock_day'].sort()],
             `Q2 ${fn}: «حُفظ» بلا نسخة (لا صفّ) يُقرأ، والعملية بعده تُرفع (لا يعلق طابور الجهاز)`,
           );
         }

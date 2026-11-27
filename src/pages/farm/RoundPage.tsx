@@ -89,10 +89,11 @@ const deadTypedText = (flock: FlockSummary, entry: RoundEntry): string => {
 };
 
 /**
- * هلاكات أقسام القاعة كما كُتبت (0038): الفارغ صفر ما دام قسمٌ كُتب، وكلّ قسم عدد صحيح لا يتجاوز الباقي فيه (عدده − هلاكاته قبل اليوم، كما يفحص الخادم)؛
- * أو null: لم يُكتب شيء؛ أو الخطأ بخانته.
+ * هلاكات أقسام القاعة كما كُتبت (0038): الفارغ صفر ما دام قسمٌ كُتب، وكلّ قسم عدد صحيح لا يتجاوز الباقي فيه (عدده − هلاكاته قبل اليوم، كما يفحص الخادم؛
+ * sectionDead من صفّ الجولة: هلاكات كلّ قسم في القراءة وفوقها عمليات الجهاز المنتظرة ليومها حين تكون القراءة أقدم من اليوم)؛ أو null: لم يُكتب شيء؛ أو
+ * الخطأ بخانته.
  */
-function readParts(flock: FlockSummary, entry: RoundEntry): { parts: number[] } | { field: PartField; message: string } | null {
+function readParts(flock: FlockSummary, entry: RoundEntry, sectionDead: readonly number[] | null): { parts: number[] } | { field: PartField; message: string } | null {
   const fields = partFields(flock);
   if (fields.length === 0 || !fields.some((field) => typed(entry[field]))) return null;
   const parts: number[] = [];
@@ -100,7 +101,7 @@ function readParts(flock: FlockSummary, entry: RoundEntry): { parts: number[] } 
     const text = entry[field].trim();
     const n = text === '' ? 0 : wholeCount(text);
     if (n === null) return { field, message: t('round.error.bad_part', 'اكتب هلاكات {section} عدداً صحيحاً، أو اتركها فارغة (صفر).', { section: sectionName(index) }) };
-    const left = (flock.sectionCounts?.[index] ?? 0) - (flock.sectionDead?.[index] ?? 0);
+    const left = (flock.sectionCounts?.[index] ?? 0) - (sectionDead?.[index] ?? 0);
     if (n > left) return { field, message: t('round.error.part_over', 'هلاكات {section} أكثر من طيوره الباقية ({left}).', { section: sectionName(index), left: fmtInt(Math.max(left, 0)) }) };
     parts.push(n);
   }
@@ -116,6 +117,8 @@ interface RoundRow {
   siteName: string;
   /** الحيّ بداية اليوم. */
   liveStart: number;
+  /** هلاكات كلّ قسم قبل اليوم (0038؛ null لقاعة غير مقسومة): كالحيّ، من القراءة وفوقها عمليات الجهاز ليومها حين تكون أقدم من اليوم. */
+  sectionDead: number[] | null;
   /** مجموع اليوم حتى الآن (الهلاكات و«سُجّلت؟» والبيض): المحفوظ (أو نسخة الجهاز) وعمليات هذا الجهاز لليوم. */
   total: SoFar;
   /** غاز اليوم حتى الآن: المحفوظ وعمليات هذا الجهاز. */
@@ -135,10 +138,14 @@ function roundRows(overview: FlocksOverview, kind: FlockKind, today: string, pen
       if (!flock || flock.status !== 'active' || flock.placedOn === null || flock.placedOn > today) continue;
       const opsOf = (day: string) => pending.filter((op) => op.flockId === flock.id && op.day === day);
       let liveStart = fresh ? flock.liveStartToday : flock.live;
+      let sectionDead = flock.sectionDead ? [...flock.sectionDead] : null;
       if (!fresh) {
         // نسخة أقدم من اليوم (بلا نت من البارحة): الحيّ آخر ذاك اليوم ناقص ما أضافته عمليات الجهاز المنتظرة لذلك اليوم على المحفوظ.
         const then = soFar(flock.today, opsOf(overview.today));
         liveStart -= then.dead + then.culled - (flock.today?.dead ?? 0) - (flock.today?.culled ?? 0);
+        // وهلاكات كلّ قسم كذلك (مراجعة 2026-11-27: كان باقي القسم بلا هلاكات الجهاز المنتظرة ليوم القراءة، فيقبل ما يردّه الخادم).
+        const savedParts = flock.today?.deadParts ?? null;
+        if (sectionDead && then.deadParts) sectionDead = sectionDead.map((n, index) => n + (then.deadParts?.[index] ?? 0) - (savedParts?.[index] ?? 0));
       }
       const ops = opsOf(today);
       rows.push({
@@ -147,6 +154,7 @@ function roundRows(overview: FlocksOverview, kind: FlockKind, today: string, pen
         hallName: hall.name,
         siteName: site.name,
         liveStart,
+        sectionDead,
         total: soFar(fresh ? flock.today : null, ops),
         gas: gasSoFar(fresh ? flock.gasToday : null, ops),
         sent: fresh ? { kg: flock.feedTodayKg, lines: flock.feedToday } : null,
@@ -199,7 +207,21 @@ function statusText(status: RowStatus): string {
   }
 }
 
-type ShelfField = 'dead' | 'culled' | 'feed_kg' | 'eggs_total' | 'eggs_broken' | 'cylinders' | 'add' | 'liters' | 'note';
+type ShelfField = 'dead' | 'culled' | 'feed_kg' | 'eggs_total' | 'eggs_broken' | 'cylinders' | 'add' | 'liters' | 'note' | PartKey;
+/** هلاكات قسم في رفّ المراجعة (0038): ق1 إلى ق4. */
+type PartKey = 'part1' | 'part2' | 'part3' | 'part4';
+const PART_KEYS: readonly PartKey[] = ['part1', 'part2', 'part3', 'part4'];
+const partOf = (key: ShelfField): number | null => {
+  const at = PART_KEYS.indexOf(key as PartKey);
+  return at < 0 ? null : at;
+};
+
+/** هلاكات كلّ قسم في صفّ اليوم كما يعرضه الخادم (flock_day_json، 0038)، أو null. */
+function dayParts(server: unknown): readonly unknown[] | null {
+  if (typeof server !== 'object' || server === null) return null;
+  const parts = (server as { dead_parts?: unknown }).dead_parts;
+  return Array.isArray(parts) ? parts : null;
+}
 
 /** الهلاكات في صفّ اليوم كما يعرضها الخادم: النافق والمستبعد القديم معاً (الورقة)، أو null. */
 function dayDeaths(server: unknown): number | null {
@@ -253,22 +275,33 @@ function ReviewShelf({ entries, names, halls, kind, onRemove }: { entries: reado
         // الزيارة (0032) «زيارتك والمحفوظة» بخاناتها كلّها (المحتوى كامل)، ومجموع اليوم القديم بخاناته المكتوبة وحدها، وهلاكات اليوم (0036) الهلاكات وحدها
         // (المسجّلة: النافق والمستبعد القديم معاً)، والغاز المضاف خانته وحدها.
         const visit = op.fn === 'save_flock_visit' ? op.payload : null;
-        const mine = op.payload as Readonly<Partial<Record<ShelfField, unknown>>>;
+        const payload = op.payload as Readonly<Partial<Record<ShelfField, unknown>>>;
+        // هلاكات اليوم لقاعة مقسومة (0038، مراجعة 2026-11-27): صفّ لكلّ قسم بقيمتيه، فيُرى الفرق ولو تساوى المجموع ([3،2] و[2،3]).
+        const myParts = op.fn === 'set_flock_dead' && op.payload.parts ? op.payload.parts : null;
+        const partRows = (myParts ?? []).map((_, at): { key: ShelfField; label: string; amount?: boolean } => ({ key: PART_KEYS[at] ?? 'part1', label: t('round.review.part', 'هلاكات {section}', { section: sectionName(at) }) }));
+        const mineOf = (field: ShelfField): unknown => {
+          const at = partOf(field);
+          return at === null ? payload[field] : myParts?.[at];
+        };
         const rows =
           op.fn === 'set_flock_dead'
-            ? fields.filter((field) => field.key === 'dead')
+            ? [...fields.filter((field) => field.key === 'dead'), ...partRows]
             : op.fn === 'add_flock_gas'
               ? fields.filter((field) => field.key === 'add')
               : fields.filter((field) =>
                   visit
-                    ? field.amount || field.key === 'dead' || field.key === 'culled' || present(mine[field.key]) || present(server?.[field.key])
+                    ? field.amount || field.key === 'dead' || field.key === 'culled' || present(payload[field.key]) || present(server?.[field.key])
                     : field.key === 'cylinders'
                       ? op.fn === 'set_flock_gas'
                       : field.key === 'liters'
                         ? op.fn === 'set_flock_kerosene'
-                        : field.key !== 'add' && present(mine[field.key]),
+                        : field.key !== 'add' && present(payload[field.key]),
                 );
-        const serverOf = (field: ShelfField): unknown => (op.fn === 'set_flock_dead' ? dayDeaths(entry.server) : op.fn === 'add_flock_gas' ? null : server?.[field]);
+        const serverOf = (field: ShelfField): unknown => {
+          const at = partOf(field);
+          if (at !== null) return dayParts(entry.server)?.[at];
+          return op.fn === 'set_flock_dead' ? dayDeaths(entry.server) : op.fn === 'add_flock_gas' ? null : server?.[field];
+        };
         const reason =
           entry.reason === 'stale_day'
             ? t('round.review.stale', 'حُفظ هذا اليوم من جهاز آخر قبل أن تصل جولتك، فلم تُكتب فوقه.')
@@ -314,8 +347,8 @@ function ReviewShelf({ entries, names, halls, kind, onRemove }: { entries: reado
             <DataTable
               caption={visit ? t('round.review.visit_table', 'زيارتك والمحفوظة') : t('round.review.table', 'جولتك والمحفوظ في الخادم')}
               columns={[
-                { key: 'field', header: t('round.review.field', 'الخانة'), cell: (field) => (op.fn === 'set_flock_dead' ? t('round.dead.title', 'الهلاكات') : field.label) },
-                { key: 'mine', header: visit ? t('round.review.visit_mine', 'زيارتك') : t('round.review.mine', 'جولتك'), kind: 'number', cell: (field) => <Num>{shown(mine[field.key], field.amount)}</Num> },
+                { key: 'field', header: t('round.review.field', 'الخانة'), cell: (field) => (op.fn === 'set_flock_dead' && partOf(field.key) === null ? t('round.dead.title', 'الهلاكات') : field.label) },
+                { key: 'mine', header: visit ? t('round.review.visit_mine', 'زيارتك') : t('round.review.mine', 'جولتك'), kind: 'number', cell: (field) => <Num>{shown(mineOf(field.key), field.amount)}</Num> },
                 { key: 'server', header: visit ? t('round.review.visit_server', 'المحفوظة') : t('round.review.server', 'المحفوظ في الخادم'), kind: 'number', cell: (field) => <Num>{shown(serverOf(field.key), field.amount)}</Num> },
               ]}
               rows={rows}
@@ -748,7 +781,7 @@ export default function RoundPage({ kind }: { kind: FlockKind }) {
       for (const row of ready) {
         const entry = entryOf(row);
         // قاعة مقسومة (0038): هلاكات الأقسام أوّلاً بخاناتها، ومجموعها هلاكات اليوم يُفحص كما يُفحص الرقم الواحد.
-        const split = row.total.deadEntered ? null : readParts(row.flock, entry);
+        const split = row.total.deadEntered ? null : readParts(row.flock, entry, row.sectionDead);
         if (split !== null && 'field' in split) {
           nextErrors[row.flock.id] = { field: split.field, message: split.message };
           continue;

@@ -551,7 +551,7 @@ export default async function (t) {
       const tellsRound = Boolean(shelf?.textContent.includes('أعد إدخال ما تراه صحيحاً في الجولة'));
       t.ok(links.includes('/broiler/hall/h-1') || !tellsRound, `R9 صفّ «سُجّلت هلاكات هذا اليوم من جهاز آخر» يدلّ على التصحيح (صفحة القاعة ← ✎ تعديل) لا على الجولة المقفولة (روابط الصفّ ${JSON.stringify(links)}، والرفّ يقول «أعد إدخال … في الجولة»: ${tellsRound})`);
       const fix = entry ? byAction('review-dead-fix', entry)[0] : null;
-      t.same([fix?.getAttribute('href') ?? null, fix?.textContent ?? null, fix?.parentNode?.textContent ?? null, shelf?.textContent.includes('والهلاكات المسجّلة من صفحة القاعة')], ['/broiler/hall/h-1', 'صفحة القاعة ← ✎ تعديل', 'للتصحيح: صفحة القاعة ← ✎ تعديل', true], 'R9 «للتصحيح: صفحة القاعة ← ✎ تعديل» رابطاً في الصفّ، والرفّ يقول إنّ الهلاكات المسجّلة من صفحة القاعة');
+      t.same([fix?.getAttribute('href') ?? null, fix?.textContent ?? null, fix?.parentNode?.textContent ?? null, shelf?.textContent.includes('(الهلاكات المسجّلة والغاز والكاز) من صفحة القاعة')], ['/broiler/hall/h-1', 'صفحة القاعة ← ✎ تعديل', 'للتصحيح: صفحة القاعة ← ✎ تعديل', true], 'R9 «للتصحيح: صفحة القاعة ← ✎ تعديل» رابطاً في الصفّ، والرفّ يقول إنّ الهلاكات المسجّلة (وغاز الورقة وكازها، مراجعة 2026-11-27) من صفحة القاعة');
     });
 
     // ── R10: علف اليوم كلّه بلا كتلة (feed_today_kg = null وسطوره موجودة): «أُرسل اليوم» بسطوره؛ وجواب إرسال كهذا (day.feed_kg = null) «حُفظ» ─────────

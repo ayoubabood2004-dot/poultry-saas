@@ -6,6 +6,7 @@ import { Notice } from '../../components/ui/Notice';
 import { Segmented } from '../../components/ui/Segmented';
 import { toast } from '../../components/ui/Toast';
 import { localDay } from '../../domain/dates';
+import { evenSplit } from '../../domain/sections';
 import { parseDayText } from '../../lib/dayText';
 import { describeError, RejectedError } from '../../lib/errors';
 import { fmtDay, fmtInt } from '../../lib/format';
@@ -42,11 +43,14 @@ function failureText(failure: unknown): string {
 }
 
 /**
- * عدد كلّ قسم في قاعة مقسومة (0038، جواب المالك: يُكتب عند التسكين): خانة لكلّ قسم («عدد ق1»)، والمجموع تحتها هو العدد الداخل. values نصوص الخانات.
+ * عدد كلّ قسم في قاعة مقسومة (0038، جواب المالك: يُكتب عند التسكين): خانة لكلّ قسم («عدد ق1»)، والمجموع تحتها. values نصوص الخانات؛ وexpected العدد
+ * الداخل المكتوب في خانته (نافذة الفتح): المجموع يُقارن به ويُقال الفرق قبل الحفظ. والمجموع لا يتجاوز حدّ خانة العدد (مراجعة 2026-11-27).
  */
-export function SectionCountsFields({ id, values, onChange }: { id: string; values: readonly string[]; onChange: (values: string[]) => void }) {
+export function SectionCountsFields({ id, values, onChange, expected = null }: { id: string; values: readonly string[]; onChange: (values: string[]) => void; expected?: number | null }) {
   const counts = values.map((value) => wholeNumber(value));
   const total = counts.every((n) => n !== null) ? counts.reduce<number>((sum, n) => sum + (n ?? 0), 0) : null;
+  const tooMany = total !== null && total > MAX_COUNT;
+  const mismatch = !tooMany && total !== null && expected !== null && expected > 0 && total !== expected;
   return (
     <div className="flex flex-col gap-2" data-action="section-counts">
       <div className="grid grid-cols-2 gap-3">
@@ -70,22 +74,33 @@ export function SectionCountsFields({ id, values, onChange }: { id: string; valu
           </Field>
         ))}
       </div>
-      <p className="text-sm" data-action="section-total">
-        {total === null ? t('farm.open.sections_total_none', 'المجموع يظهر حين تُكتب أعداد الأقسام كلّها.') : t('farm.open.sections_total', 'مجموع الطيور المسكّنة: {n}', { n: fmtInt(total) })}
+      <p className={tooMany || mismatch ? 'text-sm font-medium text-danger-700 dark:text-danger-300' : 'text-sm'} role={tooMany || mismatch ? 'alert' : undefined} data-action="section-total">
+        {total === null
+          ? t('farm.open.sections_total_none', 'المجموع يظهر حين تُكتب أعداد الأقسام كلّها.')
+          : tooMany
+            ? t('farm.open.sections_total_max', 'مجموع الأقسام ({n}) أكبر من {max} طير.', { n: fmtInt(total), max: fmtInt(MAX_COUNT) })
+            : mismatch
+              ? t('farm.open.sections_total_mismatch', 'مجموع الأقسام ({n}) لا يساوي عدد الطيور المسكّنة ({total}).', { n: fmtInt(total), total: fmtInt(expected ?? 0) })
+              : t('farm.open.sections_total', 'مجموع الطيور المسكّنة: {n}', { n: fmtInt(total) })}
       </p>
     </div>
   );
 }
 
-/** أعداد الأقسام من خاناتها: كلّها أعداد صحيحة ومجموعها أكبر من صفر، أو null. */
+/** أعداد الأقسام من خاناتها: كلّها أعداد صحيحة ومجموعها أكبر من صفر ولا يتجاوز حدّ خانة العدد، أو null. */
 export function sectionCountsOf(values: readonly string[]): number[] | null {
   const counts = values.map((value) => wholeNumber(value));
   if (counts.some((n) => n === null)) return null;
   const done = counts as number[];
-  return done.reduce((sum, n) => sum + n, 0) > 0 ? done : null;
+  const total = done.reduce((sum, n) => sum + n, 0);
+  return total > 0 && total <= MAX_COUNT ? done : null;
 }
 
-export function HallDialog({ site, hall, onClose, onSaved }: { site: SiteView; hall: HallView | null; onClose: () => void; onSaved: () => void }) {
+/**
+ * onChanged: قراءة الصفحة من جديد بلا إغلاق النافذة (مراجعة 2026-11-27): بعد stale_hall (فإغلاقها وفتحها يأتي بنسخة القاعة الجديدة؛ كان يعيد النسخة القديمة
+ * فيُرفض أبداً)، وبعد حفظ الاسم والسعة ورفض الأقسام (فيظهر الاسم الجديد في الجدول).
+ */
+export function HallDialog({ site, hall, onClose, onSaved, onChanged }: { site: SiteView; hall: HallView | null; onClose: () => void; onSaved: () => void; onChanged: () => void }) {
   const id = useId();
   const [name, setName] = useState(hall?.name ?? '');
   const initialSections = String(hall?.sections ?? 1) as SectionsChoice;
@@ -96,6 +111,8 @@ export function HallDialog({ site, hall, onClose, onSaved }: { site: SiteView; h
   const [capacity, setCapacity] = useState(initialCapacity);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // ما حُفظ من الاسم والسعة ونسخة القاعة بعده: محاولةٌ تالية بعد رفض الأقسام لا تعيد الاسم بالنسخة القديمة (صفر صفوف؛ مراجعة 2026-11-27).
+  const [base, setBase] = useState(() => ({ version: hall?.version ?? 0, name: hall?.name ?? '', capacity: hall?.capacity ?? null }));
   const capacityValue = capacity.trim() === '' ? null : wholeNumber(capacity);
   const capacityError = capacity.trim() !== '' && (capacityValue === null || capacityValue < 1) ? t('farm.hall.capacity.bad', 'اكتب السعة عدداً صحيحاً من الطيور، أو اتركها فارغة.') : null;
 
@@ -103,16 +120,28 @@ export function HallDialog({ site, hall, onClose, onSaved }: { site: SiteView; h
     if (name.trim() === '' || capacityError) return;
     setBusy(true);
     setError(null);
+    let renamed = false;
     try {
       if (hall) {
         // الاسم والسعة أوّلاً بنسخة القاعة، ثمّ الأقسام بنسختها بعدهما (0038): رفضُ الأقسام (وجبة سُجّلت هلاكاتها) يُقال ويبقى ما حُفظ قبله.
-        const plain = name !== hall.name || capacityValue !== hall.capacity;
-        const version = plain ? await updateHall(hall.id, hall.version, name, capacityValue) : hall.version;
+        const plain = name !== base.name || capacityValue !== base.capacity;
+        let version = base.version;
+        if (plain) {
+          version = await updateHall(hall.id, base.version, name, capacityValue);
+          renamed = true;
+          setBase({ version, name, capacity: capacityValue });
+        }
         if (sections !== initialSections) {
           const result = await setHallSections(hall.id, Number(sections), version, sectionsRef.current); // number-ok: عدد الأقسام من خيارات النافذة (1 إلى 4)
           if (result.status === 'stale_hall') {
-            setError(t('farm.hall.sections.stale', 'تغيّرت القاعة من جهاز آخر بعد فتح هذه النافذة، فلم تتغيّر أقسامها. أغلق النافذة وافتحها من جديد.'));
+            setError(
+              renamed
+                ? t('farm.hall.sections.stale_part', 'حُفظ الاسم والسعة، ولم تتغيّر الأقسام: تغيّرت القاعة من جهاز آخر أثناء الحفظ. أغلق النافذة وافتحها من جديد.')
+                : t('farm.hall.sections.stale', 'تغيّرت القاعة من جهاز آخر بعد فتح هذه النافذة، فلم تتغيّر أقسامها. أغلق النافذة وافتحها من جديد.'),
+            );
             setBusy(false);
+            // القراءة من جديد: فتح النافذة بعدها يأتي بالقاعة كما هي الآن.
+            onChanged();
             return;
           }
         }
@@ -122,8 +151,9 @@ export function HallDialog({ site, hall, onClose, onSaved }: { site: SiteView; h
       toast({ tone: 'success', title: hall ? t('farm.hall.saved', 'حُفظت القاعة «{name}».', { name: name.trim() }) : t('farm.hall.added', 'أُضيفت القاعة «{name}».', { name: name.trim() }) });
       onSaved();
     } catch (failure) {
-      setError(failureText(failure));
+      setError(renamed ? `${t('farm.hall.saved_part', 'حُفظ الاسم والسعة، ولم تتغيّر الأقسام:')} ${failureText(failure)}` : failureText(failure));
       setBusy(false);
+      if (renamed) onChanged();
     }
   };
 
@@ -167,9 +197,17 @@ export function OpenFlockDialog({ hall, onClose, onOpened }: { hall: HallView; o
   const initialDay = fmtDay(today);
   const [day, setDay] = useState(initialDay);
   const [count, setCount] = useState('');
-  // قاعة مقسومة (0038): عدد لكلّ قسم بدل العدد الواحد، ومجموعها العدد الداخل.
+  // قاعة مقسومة (0038، العقد: «تقسيم متساوٍ افتراضاً، والمجموع يساوي العدد»): العدد الداخل يُكتب، وأعداد الأقسام تُملأ منه بالتساوي (الباقي للأوّل:
+  // 27,051 ← 13,526 + 13,525) ما لم يُعدَّل قسمٌ بيده، ومجموعها يُقارن به قبل الحفظ (مراجعة 2026-11-27: كانت الخانات فارغة بلا عددٍ داخل).
   const split = hall.sections > 1;
   const [parts, setParts] = useState<string[]>(() => Array.from({ length: hall.sections > 1 ? hall.sections : 0 }, () => ''));
+  const [partsTouched, setPartsTouched] = useState(false);
+  const onCount = (text: string) => {
+    setCount(text);
+    if (!split || partsTouched) return;
+    const total = wholeNumber(text);
+    setParts(total !== null && total > 0 ? evenSplit(total, hall.sections).map((part) => String(part)) : Array.from({ length: hall.sections }, () => '')); // number-ok: عدد قسم نصّاً في خانته للتعديل، لا عرض
+  };
   const [age, setAge] = useState('0');
   const [breed, setBreed] = useState('');
   const [busy, setBusy] = useState(false);
@@ -180,11 +218,12 @@ export function OpenFlockDialog({ hall, onClose, onOpened }: { hall: HallView; o
   const placedOn = parseDayText(day);
   const dayError = placedOn === null ? t('day.invalid', 'اكتب التاريخ يوم/شهر/سنة، مثل 30/09/2026.') : placedOn > today ? t('day.future', 'التاريخ بعد اليوم.') : null;
   const sectionCounts = split ? sectionCountsOf(parts) : null;
-  const countValue = split ? (sectionCounts ? sectionCounts.reduce((sum, n) => sum + n, 0) : null) : wholeNumber(count);
-  const countError = !split && count.trim() !== '' && (countValue === null || countValue < 1) ? t('farm.open.count.bad', 'اكتب عدد الطيور عدداً صحيحاً أكبر من صفر.') : null;
+  const countValue = wholeNumber(count);
+  const countError = count.trim() !== '' && (countValue === null || countValue < 1) ? t('farm.open.count.bad', 'اكتب عدد الطيور عدداً صحيحاً أكبر من صفر.') : null;
+  const partsMatch = !split || (sectionCounts !== null && sectionCounts.reduce((sum, n) => sum + n, 0) === countValue);
   const ageValue = wholeNumber(age === '' ? '0' : age, 1000);
   const ageError = ageValue === null ? t('farm.open.age.bad', 'اكتب العمر بالأيام عدداً صحيحاً من 0 إلى 1,000.') : null;
-  const ready = placedOn !== null && !dayError && countValue !== null && countValue > 0 && ageValue !== null;
+  const ready = placedOn !== null && !dayError && countValue !== null && countValue > 0 && partsMatch && ageValue !== null;
 
   const save = async () => {
     if (!ready || placedOn === null || countValue === null || ageValue === null) return;
@@ -219,13 +258,20 @@ export function OpenFlockDialog({ hall, onClose, onOpened }: { hall: HallView; o
         <Field id={`${id}-day`} label={t('farm.open.day', 'تاريخ التسكين')} error={dayError} hint={t('farm.open.day.hint', 'يوم/شهر/سنة. فوج قائم يُكتب بتاريخ تسكينه الحقيقي.')}>
           <input id={`${id}-day`} className="input tabular-nums" dir="ltr" inputMode="numeric" autoComplete="off" placeholder={t('org.go_live.placeholder', 'يوم/شهر/سنة')} value={day} onChange={(event) => setDay(event.target.value)} />
         </Field>
+        <Field id={`${id}-count`} label={t('farm.open.count', 'عدد الطيور المسكّنة')} error={countError} hint={split ? t('farm.open.count.split_hint', 'يُقسم على الأقسام بالتساوي، وتعدّل عدد أيّ قسم تحته.') : undefined}>
+          <input id={`${id}-count`} className="input tabular-nums" dir="ltr" inputMode="numeric" autoComplete="off" value={count} onChange={(event) => onCount(event.target.value)} />
+        </Field>
         {split ? (
-          <SectionCountsFields id={id} values={parts} onChange={setParts} />
-        ) : (
-          <Field id={`${id}-count`} label={t('farm.open.count', 'عدد الطيور المسكّنة')} error={countError}>
-            <input id={`${id}-count`} className="input tabular-nums" dir="ltr" inputMode="numeric" autoComplete="off" value={count} onChange={(event) => setCount(event.target.value)} />
-          </Field>
-        )}
+          <SectionCountsFields
+            id={id}
+            values={parts}
+            expected={countValue}
+            onChange={(values) => {
+              setParts(values);
+              setPartsTouched(true);
+            }}
+          />
+        ) : null}
         <Field id={`${id}-age`} label={t('farm.open.age', 'العمر عند التسكين بالأيام')} error={ageError} hint={t('farm.open.age.hint', 'صفر لأفراخ عمر يوم.')}>
           <input id={`${id}-age`} className="input tabular-nums" dir="ltr" inputMode="numeric" autoComplete="off" value={age} onChange={(event) => setAge(event.target.value)} />
         </Field>

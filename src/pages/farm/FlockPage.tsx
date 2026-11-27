@@ -892,7 +892,13 @@ function rejectWhat(payload: Record<string, unknown>): string {
   const num = (key: string) => (typeof payload[key] === 'number' && Number.isInteger(payload[key]) ? (payload[key] as number) : null);
   const dead = num('dead');
   const culled = num('culled');
-  if (dead !== null || culled !== null) parts.push(t('sheet.reject.dead', 'الهلاكات {n}', { n: fmtInt((dead ?? 0) + (culled ?? 0)) }));
+  // وهلاكات كلّ قسم لقاعة مقسومة (0038، مراجعة 2026-11-27): المركون يحملها (parts أو dead_parts) فتُسمّى.
+  const split = Array.isArray(payload.parts) ? payload.parts : Array.isArray(payload.dead_parts) ? payload.dead_parts : null;
+  const splitText =
+    split && split.every((n) => typeof n === 'number' && Number.isInteger(n))
+      ? ` (${(split as number[]).map((n, at) => t('sheet.reject.part', 'ق{section} {n}', { section: fmtInt(at + 1), n: fmtInt(n) })).join(t('list.separator', '، '))})`
+      : '';
+  if (dead !== null || culled !== null) parts.push(`${t('sheet.reject.dead', 'الهلاكات {n}', { n: fmtInt((dead ?? 0) + (culled ?? 0)) })}${splitText}`);
   const gas = num('gas');
   if (gas !== null) parts.push(t('sheet.reject.gas', 'الغاز {n}', { n: fmtInt(gas) }));
   // مسحٌ مركون: المفتاح موجود بلا رقم (مراجعة 2026-11-27: كان يُقرأ «تعديل»).
@@ -936,6 +942,10 @@ export function sameParked(reject: SheetReject, entry: ReviewEntry): boolean {
   if (op.fn === 'save_flock_visit') return saved.visit === op.payload.visitId;
   if ('gas' in saved || 'kerosene' in saved || 'visit' in saved) return false;
   const p = op.payload;
+  // وهلاكات الأقسام (0038): مركونان بالمجموع نفسه وأقسامٍ مختلفة ليسا واحداً.
+  const partsKey = (value: unknown): string | null => (Array.isArray(value) ? value.join(',') : null);
+  const mineParts = (p as { parts?: unknown; dead_parts?: unknown }).parts ?? (p as { dead_parts?: unknown }).dead_parts ?? null;
+  if (partsKey(saved.parts ?? saved.dead_parts ?? null) !== partsKey(mineParts)) return false;
   return (
     sameValue(saved.dead, p.dead) &&
     sameValue(saved.culled, p.culled) &&
@@ -1388,6 +1398,9 @@ function useSheetCells(sheet: HallSheet | null, flockId: string, ops: readonly O
       let liveLeft = sheet.summary.live;
       // أقسام يومٍ كتب فيه اللصق قسماً قبل قسم (0038): القسم التالي يُفحص على أقسامه بعد الأوّل، لا على ما في الخانات قبله.
       const after = new Map<string, Shown>();
+      // هلاكات كلّ قسم في اللصق معاً (مراجعة 2026-11-27): كلّ يوم يُقبل وحده حتى باقي قسمه، ومعاً لا تتجاوز باقيه (الخادم يردّ live_negative باسم القسم).
+      // المفتاح «اليوم|القسم»، والقيمة زيادته على هلاكات ذلك اليوم في الخادم.
+      const partTaken = new Map<string, { part: number; delta: number }>();
       return changes.map((change): ChangeCheck => {
         const day = sheet.days.find((entry) => entry.on === change.on);
         if (!day) return { kind: 'error', error: t('sheet.grid.no_day', 'هذا اليوم ليس في الورقة.') };
@@ -1395,6 +1408,15 @@ function useSheetCells(sheet: HallSheet | null, flockId: string, ops: readonly O
         const outcome = cellWrite(sheet, day, change.field, shown, change.value);
         if (outcome.kind === 'error') return outcome;
         const part = partIndex(change.field);
+        const section = part === null ? undefined : sheet.sections?.[part];
+        if (part !== null && section && typeof change.value === 'number') {
+          const key = `${day.on}|${part}`;
+          let others = 0;
+          for (const [taken, entry] of partTaken) if (taken !== key && entry.part === part) others += entry.delta;
+          const left = section.placed - section.dead + (day.deadParts?.[part] ?? 0) - others;
+          if (change.value > left) return { kind: 'error', error: t('sheet.dead.part_max', 'هلاكات ق{n} أكثر من طيوره الباقية ({left}).', { n: fmtInt(part + 1), left: fmtInt(Math.max(left, 0)) }) };
+          partTaken.set(key, { part, delta: change.value - (day.deadParts?.[part] ?? 0) });
+        }
         if ((change.field === 'dead' || part !== null) && typeof change.value === 'number') {
           liveLeft -= part === null ? change.value - day.dead : change.value - (shown.deadParts?.[part] ?? 0);
           if (liveLeft < 0) return { kind: 'error', error: t('sheet.dead.max', 'الهلاكات أكثر من الطيور الحيّة ({live}).', { live: fmtInt(Math.max(sheet.summary.live, 0)) }) };
@@ -1409,46 +1431,55 @@ function useSheetCells(sheet: HallSheet | null, flockId: string, ops: readonly O
     [sheet, ops, saved],
   );
 
+  // قراءة الطابور ثمّ الكتابة فيه بالترتيب (مراجعة 2026-11-27): حفظٌ يبدأ قبل أن ينتهي سابقه (خانتا قسمين متتاليتان بسرعة، أو Ctrl+Z مضغوطاً) كان يقرأ
+  // الطابور قبل عملية سابقه، فيبني أقسام اليوم على لقطة قديمة ويمحو دمجُ الطابور (الهلاكات وأقسامها معاً) القسمَ الأوّل. والرفع بعدها خارج هذا الترتيب: حفظٌ
+  // تالٍ يُكتب في الطابور فوراً ولا ينتظر رفع سابقه (إغلاق التطبيق أثناء الرفع لا يضيّعه).
+  const enqueueLock = useRef<Promise<unknown>>(Promise.resolve());
   const commit = useCallback(
     async (changes: readonly CellChange[]): Promise<ChangeResult[]> => {
       if (!stamp || !sheet) return changes.map(() => ({ kind: 'failed', message: t('sheet.held', 'محفوظ على هذا الجهاز: ادخل من جديد ليُرسل.') }));
       const results: ChangeResult[] = changes.map(() => ({ kind: 'same' }));
       try {
         const db = await openOutbox();
-        // النسخة من الطابور الآن ومن آخر رفع (لا من لقطة الشاشة): كتابة سبقتها في الجدول ربما رُفعت للتوّ.
-        const fresh = (await pendingOps(db, stamp)).filter((op) => op.flockId === flockId);
-        const latest = savedEdits(roundQueueStore.get().runs, stampKey(stamp), flockId);
-        const dayInputs = new Map<string, { input: EnqueueInput; at: number[] }>();
-        const gasInputs: { input: EnqueueInput; at: number[] }[] = [];
-        const written = new Map<string, Shown>();
-        changes.forEach((change, index) => {
-          const day = sheet.days.find((entry) => entry.on === change.on);
-          if (!day) {
-            results[index] = { kind: 'error', error: t('sheet.grid.no_day', 'هذا اليوم ليس في الورقة.') };
-            return;
-          }
-          // أقسام يومٍ كُتب فيه قسمٌ قبل هذا في الدفعة نفسها (0038): يُبنى عليها، فلا يمحو القسم الثاني الأوّل في العملية المدموجة.
-          const shown = written.get(day.on) ?? shownOf(day, fresh, latest);
-          if (sameShown(change, shown)) return;
-          const outcome = cellWrite(sheet, day, change.field, shown, change.value);
-          if (outcome.kind !== 'input') {
-            results[index] = outcome;
-            return;
-          }
-          const input = outcome.input;
-          if (partIndex(change.field) !== null && input.fn === 'save_flock_day') {
-            written.set(day.on, { ...shown, dead: input.payload.dead ?? shown.dead, deadParts: input.payload.dead_parts ?? shown.deadParts, recorded: true });
-          }
-          const open = dayInputs.get(change.on);
-          if (input.fn === 'save_flock_day' && open && open.input.fn === 'save_flock_day') {
-            // خانات اليوم الواحد (الهلاكات والبيض والملاحظة) عملية واحدة بنسخة صفّه.
-            open.input = { ...open.input, payload: { ...open.input.payload, ...input.payload } };
-            open.at.push(index);
-          } else if (input.fn === 'save_flock_day') dayInputs.set(change.on, { input, at: [index] });
-          else gasInputs.push({ input, at: [index] });
+        const step = enqueueLock.current.then(async () => {
+          // النسخة من الطابور الآن ومن آخر رفع (لا من لقطة الشاشة): كتابة سبقتها في الجدول ربما رُفعت للتوّ.
+          const fresh = (await pendingOps(db, stamp)).filter((op) => op.flockId === flockId);
+          const latest = savedEdits(roundQueueStore.get().runs, stampKey(stamp), flockId);
+          const dayInputs = new Map<string, { input: EnqueueInput; at: number[] }>();
+          const gasInputs: { input: EnqueueInput; at: number[] }[] = [];
+          const written = new Map<string, Shown>();
+          changes.forEach((change, index) => {
+            const day = sheet.days.find((entry) => entry.on === change.on);
+            if (!day) {
+              results[index] = { kind: 'error', error: t('sheet.grid.no_day', 'هذا اليوم ليس في الورقة.') };
+              return;
+            }
+            // أقسام يومٍ كُتب فيه قسمٌ قبل هذا في الدفعة نفسها (0038): يُبنى عليها، فلا يمحو القسم الثاني الأوّل في العملية المدموجة.
+            const shown = written.get(day.on) ?? shownOf(day, fresh, latest);
+            if (sameShown(change, shown)) return;
+            const outcome = cellWrite(sheet, day, change.field, shown, change.value);
+            if (outcome.kind !== 'input') {
+              results[index] = outcome;
+              return;
+            }
+            const input = outcome.input;
+            if (partIndex(change.field) !== null && input.fn === 'save_flock_day') {
+              written.set(day.on, { ...shown, dead: input.payload.dead ?? shown.dead, deadParts: input.payload.dead_parts ?? shown.deadParts, recorded: true });
+            }
+            const open = dayInputs.get(change.on);
+            if (input.fn === 'save_flock_day' && open && open.input.fn === 'save_flock_day') {
+              // خانات اليوم الواحد (الهلاكات والبيض والملاحظة) عملية واحدة بنسخة صفّه.
+              open.input = { ...open.input, payload: { ...open.input.payload, ...input.payload } };
+              open.at.push(index);
+            } else if (input.fn === 'save_flock_day') dayInputs.set(change.on, { input, at: [index] });
+            else gasInputs.push({ input, at: [index] });
+          });
+          const queued: { op: OutboxOp | null; at: number[] }[] = [];
+          for (const entry of [...dayInputs.values(), ...gasInputs]) queued.push({ op: await saveRound(db, stamp, entry.input), at: entry.at });
+          return queued;
         });
-        const queued: { op: OutboxOp | null; at: number[] }[] = [];
-        for (const entry of [...dayInputs.values(), ...gasInputs]) queued.push({ op: await saveRound(db, stamp, entry.input), at: entry.at });
+        enqueueLock.current = step.catch(() => undefined); /* swallow-ok: القفل للترتيب وحده؛ خطأ الكتابة في الطابور يصل من step إلى هذا الحفظ */
+        const queued = await step;
         if (queued.length === 0) return results;
         const uploaded = online ? await uploadRounds(stamp, loadTransport).catch(() => []) : []; /* swallow-ok: الرفع فشل (IndexedDB)؛ العمليات باقية بالجهاز وترتفع بالمحاولة الجاية */
         if (!online) {
@@ -1795,6 +1826,7 @@ function EmptyHall({ kind, site, hall, nav, onChanged }: { kind: FlockKind; site
             setDialog(null);
             onChanged();
           }}
+          onChanged={onChanged}
         />
       ) : null}
     </div>

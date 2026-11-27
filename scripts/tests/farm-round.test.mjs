@@ -1145,11 +1145,20 @@ export default async function (t) {
       fire(byAction('flock-open')[0], 'click');
       await settle();
       const sectionInputs = byAction('section-count');
-      t.same([sectionInputs.length, byIdSuffix('-count').length, textOf('section-total')], [2, 0, 'المجموع يظهر حين تُكتب أعداد الأقسام كلّها.'], 'FS فتح فوج في قاعة مقسومة: خانة عدد لكلّ قسم بدل العدد الواحد');
-      type(sectionInputs[0], '13525');
-      type(sectionInputs[1], '13525');
+      // العقد (مراجعة 2026-11-27): العدد الداخل يُكتب، وأعداد الأقسام تُملأ منه بالتساوي (الباقي للأوّل) وتُعدَّل بيد.
+      t.same([sectionInputs.length, byIdSuffix('-count').length, textOf('section-total')], [2, 1, 'المجموع يظهر حين تُكتب أعداد الأقسام كلّها.'], 'FS فتح فوج في قاعة مقسومة: العدد الداخل وخانة عدد لكلّ قسم تحته');
+      type(byIdSuffix('-count')[0], '27051');
       await settle();
-      t.eq(textOf('section-total'), 'مجموع الطيور المسكّنة: 27,050', 'FS المجموع تحتها هو العدد الداخل');
+      t.same([sectionInputs.map((input) => input.value), textOf('section-total')], [['13526', '13525'], 'مجموع الطيور المسكّنة: 27,051'], 'FS العدد يُقسم بالتساوي والباقي للقسم الأوّل (27,051 ← 13,526 + 13,525)');
+      type(sectionInputs[0], '13500');
+      await settle();
+      t.same([textOf('section-total'), byAction('flock-open-save')[0]?.hasAttribute('disabled')], ['مجموع الأقسام (27,025) لا يساوي عدد الطيور المسكّنة (27,051).', true], 'FS قسمٌ عُدّل بيده فصار المجموع غير العدد: يُقال قبل الحفظ ولا يُفتح');
+      type(byIdSuffix('-count')[0], '27050');
+      await settle();
+      t.same([sectionInputs.map((input) => input.value), textOf('section-total')], [['13500', '13525'], 'مجموع الأقسام (27,025) لا يساوي عدد الطيور المسكّنة (27,050).'], 'FS بعد تعديل قسمٍ بيده لا يُعاد التقسيم على تغيير العدد');
+      type(sectionInputs[0], '13525');
+      await settle();
+      t.eq(textOf('section-total'), 'مجموع الطيور المسكّنة: 27,050', 'FS المجموع يساوي العدد الداخل');
       fire(byAction('flock-open-save')[0], 'click');
       await settle(60);
       t.same(calls.find(([name]) => name === 'openFlock')?.[1]?.[0], { hallId: 'h-3', placedOn: TODAY, placedCount: 27050, ageDays: 0, breed: '', sectionCounts: [13525, 13525] }, 'FS open_flock بالمجموع وعدد كلّ قسم');

@@ -1,5 +1,6 @@
 import type { Day } from '../../domain/dates';
 import { call, updatedRows } from './core';
+import './constraints-halls';
 import { FlockShapeError, int, record, sectionsOf, str, withStatus, written } from './flocks';
 
 // إدارة القاعات وفتح الوجبة (0012، والأقسام 0038): إضافة القاعة وتعديلها وأقسامها، وتسكين وجبة فيها. كلّها بنتٍ لا بالطابور، ونوافذها في حزمة

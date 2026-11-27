@@ -204,7 +204,7 @@ export default function FarmPage({ kind }: { kind: FlockKind }) {
           />
         </section>
       ))}
-      {editing?.kind === 'add' || editing?.kind === 'edit' ? <HallDialog site={editing.site} hall={editing.kind === 'edit' ? editing.hall : null} onClose={() => setEditing(null)} onSaved={done} /> : null}
+      {editing?.kind === 'add' || editing?.kind === 'edit' ? <HallDialog site={editing.site} hall={editing.kind === 'edit' ? editing.hall : null} onClose={() => setEditing(null)} onSaved={done} onChanged={state.retry} /> : null}
       {editing?.kind === 'open' ? <OpenFlockDialog hall={editing.hall} onClose={() => setEditing(null)} onOpened={done} /> : null}
       {/* القراءة من جديد بعد stale_flock لا تطوي النافذة: هي من حالة الصفحة لا من الجدول، فيبقى التلميح حتى تُغلق وتُفتح بالقيم الحالية. */}
       {editing?.kind === 'flock' ? <FlockEditDialog hallName={hallLabel(editing.hall.name)} flock={editing.flock} onClose={() => setEditing(null)} onSaved={done} onDeleted={done} onStale={state.retry} /> : null}
