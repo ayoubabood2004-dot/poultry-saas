@@ -41,6 +41,9 @@
 // بجسم 0035 وغاز اليوم بـset_flock_gas، وبعد الإعادة الملء يعلّم زيارتي اليومين ثمّ اليومين منهما، والجولة لا تضيف إليهما والإضافة تكمل المجموع (وضابطا
 // الإعادة: بلا ملء الزيارات، وبلا اشتقاق الأيّام، يفشل الثابت). والطريق الثاني بثلاثة فروع، كلّ واحد ببذرته: يوم سُجّلت هلاكاته صفراً، وهلاكات مركونة،
 // وغاز مضاف مركون؛ والفرع الرابع (زيارة مركونة بسبب dead_recorded) يحرسه قيد 0012 نفسه أيضاً فلا يكمل التراجع بلا الكتلة، وفحصه في round-once.test.
+// 0037: البذرة نفسها وفوقها غاز أمس وعلف اليوم بلا كاز (ROLLBACK_EXTRAS)، فالتراجع يكمل ويرجّع الأجسام الأربعة كما في 0035؛ وبين التراجع والإعادة غاز اليوم
+// بجسم 0035، وبعد الإعادة كاز يومين أحدهما يُمسح والورقة تعدّه بجانب الغاز. والطريق الثاني بثلاثة فروع، كلّ واحد ببذرته: خانة كاز، وخانة كاز مُسحت
+// (الصفّ يبقى بنسخته)، وكاز مركون.
 
 const U = {
   owner: '60000000-0000-4000-8000-000000000001',
@@ -815,7 +818,53 @@ const roundSeed = (variant) => async (db) => {
   }, { commit: true });
 };
 
+const H37 = (n) => `60000000-0000-4000-8000-0000000037${String(n).padStart(2, '0')}`;
+
+/**
+ * 0037 (طريق الرفض): ما لا يحمله النموذج القديم، كلّ حقيقة ببذرتها على فوج البذرة (المدير): خانة كاز بلترات أمس، وخانة كاز مُسحت (الصفّ يبقى بنسخته 2 ولا
+ * لترات فيه)، وكاز مركون من الطابور بيوم في الفترة المقفلة (البذرة تقفل حتى قبل 30 يوماً). التراجع يُسقطها فطريق الرفض يوقفه، وطفرة كلّ فرع تعبر بذرته
+ * (وطفرة «الممسوحة» تعدّ الصفوف بلترات وحدها، فلا يوقفه إلّا عدّ كلّ صفّ).
+ */
+const keroseneSeed = (variant) => async (db) => {
+  await flockReady(db);
+  await db.asUser(U.manager, async (q) => {
+    const flock = await value(q, SEED_FLOCK);
+    if (variant !== 'parked') await q('select public.set_flock_kerosene($1, public.app_today() - 1, 120, null, $2, false)', [flock, H37(1)]);
+    if (variant === 'cleared') {
+      const cleared = await value(q, "select public.set_flock_kerosene($1, public.app_today() - 1, null, 1, $2, false) -> 'kerosene'", [flock, H37(2)]);
+      if (cleared?.liters !== null || cleared?.version !== 2) throw new Error(`كاز البذرة لم يُمسح: ${JSON.stringify(cleared)}`);
+    }
+    if (variant === 'parked') {
+      const parked = await value(q, 'select public.set_flock_kerosene($1, public.app_today() - 31, 40, null, $2, true)', [flock, H37(3)]);
+      if (parked?.status !== 'parked') throw new Error(`كاز البذرة في الفترة المقفلة لم يُركن: ${JSON.stringify(parked)}`);
+    }
+  }, { commit: true });
+};
+
 export const BLOCKING_SEEDS = {
+  37: [
+    {
+      name: 'خانة كاز',
+      code: 'rollback_blocked',
+      seed: keroseneSeed('recorded'),
+      data: "select (select count(*) from public.flock_day_kerosene where liters is not null)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_kerosene > 0 then', 'if false then'),
+    },
+    {
+      name: 'خانة كاز مُسحت (الصفّ يبقى بنسخته)',
+      code: 'rollback_blocked',
+      seed: keroseneSeed('cleared'),
+      data: "select (select count(*) from public.flock_day_kerosene where liters is null and version > 1)::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace("'select count(*) from public.flock_day_kerosene'", "'select count(*) from public.flock_day_kerosene where liters is not null'"),
+    },
+    {
+      name: 'كاز مركون من الطابور',
+      code: 'rollback_blocked',
+      seed: keroseneSeed('parked'),
+      data: "select (select count(*) from public.flock_day_rejects where payload ? 'kerosene')::text || '/' || (select count(*) from public.items)::text as v",
+      mutate: (sql) => sql.replace('if v_parked > 0 then', 'if false then'),
+    },
+  ],
   36: [
     {
       name: 'يوم سُجّلت هلاكاته صفراً',
@@ -1332,6 +1381,7 @@ export const BLOCKING_REQUIRED = [
   [33, 8, 'فاتورة بأكثر من سطر، وبخصم، ومن صندوقين، وبدفع جزئيّ، وبوحدة بيع، وبملاحظة، ولزبون نقديّ، وساق مدقَّقة لفاتورة جديدة مدفوعة كلّها، كلّ واحدة توقف التراجع'],
   [35, 3, 'خانة غاز، وعلف أُرسل ليوم فات، وغاز مركون، كلّ واحد يوقف التراجع'],
   [36, 3, 'يوم سُجّلت هلاكاته صفراً، وهلاكات مركونة، وغاز مضاف مركون، كلّ واحد يوقف التراجع'],
+  [37, 3, 'خانة كاز، وخانة كاز مُسحت فبقي صفّها بنسخته، وكاز مركون، كلّ واحد يوقف التراجع'],
 ];
 
 /**
@@ -1950,7 +2000,57 @@ const roundRedone = async (db) => {
   return problems;
 };
 
+/**
+ * 0037: حالة التراجع الكاملة على فوج البذرة بلا كاز (أيّ صفّ كاز يوقفه): غاز أمس (2) و10 كغم «علف الورقة» أُرسلت اليوم، فالتراجع يكمل ويرجّع الأجسام الأربعة
+ * كما في 0035؛ وبين التراجع والإعادة غاز اليوم (1) بجسم 0035؛ وبعد الإعادة كاز أمس 150 لتراً، واليوم 40 ثمّ يُمسح، والورقة تعدّها على أيّامها بجانب الغاز
+ * (المجموع 150 والخلاصة مثله، واليوم لترات فارغة بالنسخة 2)، والثابت صفر.
+ */
+const keroseneFullReady = async (db) => {
+  await sheetReady(db);
+  await db.asUser(U.manager, async (q) => {
+    const flock = await value(q, SEED_FLOCK);
+    const feed = await value(q, "select id from public.items where name = 'علف الورقة'");
+    await q('select public.set_flock_gas($1, public.app_today() - 1, 2, null, $2, false)', [flock, H37(10)]);
+    await q('select public.send_flock_feed($1, $2, $3, $4, $5, 10, public.app_today())', [H37(11), H37(12), H37(13), flock, feed]);
+  }, { commit: true });
+};
+
+const keroseneOn0036 = async (db) => {
+  await db.asUser(U.manager, async (q) => {
+    const flock = await value(q, SEED_FLOCK);
+    await q('select public.set_flock_gas($1, public.app_today(), 1, null, $2, false)', [flock, H37(14)]);
+  }, { commit: true });
+};
+
+const keroseneRedone = async (db) => {
+  const problems = [];
+  try {
+    const sheet = await db.asUser(U.manager, async (q) => {
+      const flock = await value(q, SEED_FLOCK);
+      await q('select public.set_flock_kerosene($1, public.app_today() - 1, 150, null, $2, false)', [flock, H37(15)]);
+      await q('select public.set_flock_kerosene($1, public.app_today(), 40, null, $2, false)', [flock, H37(16)]);
+      await q('select public.set_flock_kerosene($1, public.app_today(), null, 1, $2, false)', [flock, H37(17)]);
+      return value(q, 'select public.hall_sheet($1)', [flock]);
+    }, { commit: true });
+    const byDay = Object.fromEntries(sheet.days.filter((d) => d.gas !== null || d.kerosene_version !== null).map((d) => [d.on, [d.gas, d.kerosene, d.kerosene_version]]));
+    const want = { [sheet.days[2].on]: [2, 150, 1], [sheet.today]: [1, null, 2] };
+    const got = [byDay, sheet.totals.kerosene, sheet.summary.kerosene, sheet.totals.gas, sheet.totals.feed_kg];
+    if (JSON.stringify(got) !== JSON.stringify([want, 150, 150, 3, '10.000'])) problems.push(`الورقة بعد الإعادة: ${JSON.stringify(got)}`);
+  } catch (error) {
+    problems.push(`الكاز بعد الإعادة رُفض: ${error.message}`);
+  }
+  const bad = await db.asService(async (q) => (await q('select check_name, violations::text as v from public.verify_kerosene()')).rows
+    .filter((r) => r.v !== '0').map((r) => `${r.check_name} = ${r.v}`));
+  if (bad.length) problems.push(`الثوابت بعد الكاز: ${bad.join('، ')}`);
+  return problems;
+};
+
 export const ROLLBACK_EXTRAS = {
+  37: {
+    seed: keroseneFullReady,
+    afterRollback: keroseneOn0036,
+    afterRedo: keroseneRedone,
+  },
   36: {
     seed: roundFullReady,
     afterRollback: roundOn0035,

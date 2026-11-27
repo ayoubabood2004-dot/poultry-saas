@@ -973,6 +973,13 @@ export default async function (t, db) {
       value: true,
       expect: all('ok:saved:2'),
     },
+    // 0037 («الكاز» بجانب الغاز في ورقة القاعة، كلمة المالك 2026-11-26) تحت 0034: كلّ عضو فعّال يكتب لترات الكاز كالمالك؛ والخانة بمعاملة تُرجَع، فكلّ دور
+    // يكتب 120 لتراً ليوم بلا كاز (saved بالنسخة 1).
+    set_flock_kerosene: {
+      sql: () => ["select (r ->> 'status') || ':' || (r -> 'kerosene' ->> 'liters') || ':' || (r -> 'kerosene' ->> 'version') as v from public.set_flock_kerosene($1, public.app_today(), 120, null, gen_random_uuid(), false) as r", [p2.flock]],
+      value: true,
+      expect: all('ok:saved:120:1'),
+    },
   };
 
   const allowlisted = ALLOWLIST.authenticated.map((signature) => signature.slice('public.'.length, signature.indexOf('('))).sort();
@@ -1365,6 +1372,9 @@ export default async function (t, db) {
     set_flock_dead_queued: ["select public.set_flock_dead($1, public.app_today(), 4, gen_random_uuid(), true) ->> 'status' as v", [otherFlock]],
     add_flock_gas: ["select public.add_flock_gas($1, public.app_today(), 2, gen_random_uuid(), false) ->> 'status' as v", [otherFlock]],
     add_flock_gas_queued: ["select public.add_flock_gas($1, public.app_today(), 2, gen_random_uuid(), true) ->> 'status' as v", [otherFlock]],
+    // 0037: الكاز على وجبة منشأة أخرى، بنداء مباشر ومن الطابور (لا ركن لما ليس في المنشأة).
+    set_flock_kerosene: ["select public.set_flock_kerosene($1, public.app_today(), 120, null, gen_random_uuid(), false) ->> 'status' as v", [otherFlock]],
+    set_flock_kerosene_queued: ["select public.set_flock_kerosene($1, public.app_today(), 120, null, gen_random_uuid(), true) ->> 'status' as v", [otherFlock]],
   };
   const across = {};
   for (const role of ROLES) {
@@ -1382,8 +1392,9 @@ export default async function (t, db) {
     all({
       identity: 'ok:false', stock_on_hand: 'out_of_scope', rows: 'ok:0', hall_sheet: 'flock_not_found', set_flock_gas: 'flock_not_found', send_flock_feed: 'flock_not_found',
       set_flock_dead: 'flock_not_found', set_flock_dead_queued: 'flock_not_found', add_flock_gas: 'flock_not_found', add_flock_gas_queued: 'flock_not_found',
+      set_flock_kerosene: 'flock_not_found', set_flock_kerosene_queued: 'flock_not_found',
     }),
-    'شيء منشأة أخرى: خارج النطاق لكلّ دور، ولا صفّ منها؛ ووجبة منشأة أخرى (0035) لا ورقة لها ولا غاز ولا علف، ولا هلاكات ولا غاز مضاف (0036) ولو من الطابور، لكلّ دور',
+    'شيء منشأة أخرى: خارج النطاق لكلّ دور، ولا صفّ منها؛ ووجبة منشأة أخرى (0035) لا ورقة لها ولا غاز ولا علف، ولا هلاكات ولا غاز مضاف (0036) ولا كاز (0037) ولو من الطابور، لكلّ دور',
   );
   // دوالّ التحقّق لـservice_role وحدها (catalog.test)، ومنها verify_hall_sheet (0035): لا يناديها دور ولو صار كالمالك (0034).
   const verifyAs = {};
