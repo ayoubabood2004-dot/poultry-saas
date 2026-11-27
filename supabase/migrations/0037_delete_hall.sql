@@ -14,18 +14,21 @@
 --     من الدالّتين الخاصّتين نفسيهما اللتين يفحص بهما delete_hall وبالترتيب نفسه (درس 2026-11-15): private.delete_hall_blocks وprivate.delete_hall_plan.
 --     رموز المنع: permission (أوّلاً ووحده: حقل القاعة خارج النطاق، أو لا إدارة للقاعات، أو صرف يُلغى بلا فعل الإلغاء أو من مخزن خارج النطاق)، ثمّ sales
 --     (فاتورة طيور مرحَّلة)، ثمّ tickets (تذكرة وزن غير ملغاة)، ثمّ carry (علف منقول من الدورة السابقة ما زال مطبَّقاً على الفوج، أو — بلا فوج قائم —
---     علف منقول معلَّق للدورة التالية يمنع الأرشفة)، ثمّ period_locked (قفل فترة على أيّام الفوج من تسكينه، ويوم الإلغاء اليوم داخلها حتماً). والقاعة
---     المؤرشفة hall_not_found. والبصمة md5 للقاعة ونسختها، والفوج ونسخته (أو none)، والصرف المرحَّل بمعرّفاته ونسخه مرتّباً، والتأشيرات «تمّ» مرتّبة.
+--     علف منقول معلَّق للدورة التالية يمنع الأرشفة)، ثمّ period_locked (قفل فترة على أيّام الفوج من تسكينه، ويوم الإلغاء اليوم داخلها حتماً)، ثمّ
+--     revalued (تصحيح سعر حيّ بعد إرسال إلى الفوج، و«أكمل السعر» منه)، ثمّ counted (جرد معتمد لمادّة إرسال في مخزنه في يومه أو بعده، ولو بلا فرق).
+--     والقاعة المؤرشفة hall_not_found. والبصمة md5 للقاعة ونسختها، والفوج ونسخته (أو none)، والصرف المرحَّل بمعرّفاته ونسخه مرتّباً، والتأشيرات «تمّ» مرتّبة.
 --   • public.delete_hall(القاعة، النسخة، البصمة، المرجع) (flock.manage؛ وvoid حين يُلغى صرف): تنعاد بأمان بالمرجع (ref_claim وref_store) وبالحالة:
 --     القاعة المؤرشفة ترجع {hall_id, name, deleted: true, already: true, back: []} بلا كتابة (جواب ضاع ثمّ مرجع جديد لا يغيّر شيئاً). ثمّ تحت الأقفال:
 --     stale_hall إن تغيّرت النسخة، وstale_plan إن تغيّرت البصمة (أو صرف جديد بعد قفل الصرف)، وأوّل منع يرمي رمزه (forbidden وhall_has_sales
---     وhall_has_tickets وhall_has_carry وperiod_locked) وجملته تلميحاً. والأثر في المعاملة الواحدة بيوم اليوم: تأشيرات «تمّ» ملغاة بالسبب (قبل صرفها:
+--     وhall_has_tickets وhall_has_carry وperiod_locked، وlot_consumed لـrevalued وcount_superseded لـcounted برمزي apply_move) وجملته تلميحاً.
+--     والأثر في المعاملة الواحدة بيوم اليوم: تأشيرات «تمّ» ملغاة بالسبب (قبل صرفها:
 --     حارس الصرف يمنع إلغاء صرف تحت تأشير «تمّ»)، وكلّ صرف مرحَّل يُلغى بالنواة نفسها التي يلغي بها void_flock_issue (private.flock_issue_reverse: حركات
 --     عكسية على دفعاتها بيوم اليوم، وصفوف كلفة عكسية بيوم اليوم، والحالة void بالسبب «حُذفت القاعة «الاسم»»)، والفوج void (voided_at وvoided_by
 --     وvoid_reason والنسخة + 1)، والقاعة مؤرشفة (archived_at والنسخة + 1). الجولات والزيارات والغاز والأوزان والأدوية والعدّ تبقى صفوفاً (سجلّ التدقيق)
 --     يخفيها إلغاء الفوج، ولا يُحذف شيء. والجواب {hall_id, name, deleted: true, already: false, flock_id, voided_issues, back} بشكل back في المعاينة.
 --   • public.void_flock_issue (0019) بالنواة المشتركة: الأقفال والفحوص والجواب كما هي حرفاً، والأثر (الحلقتان والتعديل) في private.flock_issue_reverse.
---   • public.verify_delete_hall (مفتاح الخادم): لا فوج ملغى بصرف مرحَّل أو تأشير «تمّ» أو في قاعة فعّالة، ودفتر كلفته صفر، وشكل إلغائه.
+--   • public.verify_delete_hall (مفتاح الخادم): لا فوج ملغى بصرف مرحَّل أو تأشير «تمّ» أو في قاعة فعّالة، ودفتر كلفته صفر، وشكل إلغائه، ولا فاتورة
+--     طيور مرحَّلة ولا تذكرة وزن غير ملغاة ولا علف منقول مطبَّق على فوج ملغى (منع sales وtickets وcarry).
 -- ترتيب الأقفال الواحد (delete_hall): قفل الفترة للمشاركة (period_guard) ← القاعة ← صرف الفوج القائم المرحَّل (for update بترتيب المعرّف، من جملة
 --   القفل نفسها) ← صفّ الفوج ← المخازن والموادّ (lock_masters) ← الأرصدة (lock_balances) ← تأشيرات «تمّ» (for update بترتيب المعرّف)؛ والفحوص كلّها
 --   بعد الأقفال. وهو ترتيب كلّ من يمسّ الصفوف نفسها: void_flock_issue (الفترة ← الصرف ← الفوج ← المخزن والمادّة ← الرصيد)، وundo_vaccination للمربوط
@@ -109,8 +112,13 @@
 --   • مخزن الصرف المرحَّل خارج نطاق الكاتب منع permission، كقاعدة إلغاء الصرف (stock_wh)، فالنواة المشتركة لا تُنادى بما ترفضه دالّتها.
 --   • القاعة بلا فوج قائم: لا منع بقفل الفترة (لا يُكتب مستند مؤرَّخ)، والعلف المنقول المعلَّق منع carry بما يُفعل (halls_check يمنع الأرشفة بلاه).
 --   • العلف المنقول المطبَّق على الفوج منع carry: لا دالّة تعكس نقلاً مطبَّقاً، فالجملة تقول أغلق الدورة ثمّ احذف.
---   • عكس حركة يسبقها جرد معتمد أو تصحيح سعر حيّ يُرفض من apply_move بسببه (count_superseded وlot_consumed بتلميحهما) عند الحذف، كإلغاء الصرف؛
---     ولا رمز منع له في المعاينة (العقد يسمّي خمسة رموز).
+--   • ما يرفض به apply_move عكس الإرسال منعان في المعاينة (المراجعة المستقلّة لـ0037: كان الحذف يرفض بما لم تعرضه المعاينة): revalued وcounted، بشرطي
+--     private.check_draw_not_revalued وprivate.check_move_not_counted حرفاً على حركات الإرسال الأصلية للصرف المرحَّل، وبترتيب reopen_block لإعادة فتح
+--     الدورة (0029: بعد carry وperiod_locked، والتصحيح قبل الجرد)؛ وجملتاهما تسمّيان المادّة ومستند السعر أو رقم الجرد ومخزنه ويومه وتقولان «ألغِ التصحيح
+--     أوّلاً» و«ألغِ الجرد أوّلاً». والحذف يرميهما من المنع نفسه تحت الأقفال برمزي apply_move (lot_consumed وcount_superseded) فلا يصل إليه بهما. والعقد
+--     سمّى خمسة رموز، وهذان يكمّلانها بلا رمز رفض جديد.
+--   • الثابت يحرس منع البيع والتذاكر والنقل المطبَّق أيضاً (void_flock_posted_sale وvoid_flock_live_ticket وvoid_flock_applied_carry)، وضابط كلّ واحد طفرة
+--     حقيقية: الحذف بلا منعه (v_block := null) داخل معاملة ترجع.
 --   • القاعة المؤرشفة بـ«أرشف» قبل الحذف «already» أيضاً: الحذف إخفاء، وقد اختفت.
 -- مسألة دمج (للشاشات): التذكرة الملغاة التي تذكر فوجاً ملغى ترجع flock_status = 'void' في weigh_ticket_json (والعيّنة في
 --   scripts/tests/fixtures/delete-hall-0037.json)، ومحلّل weighTickets.ts يقبل preparing/active/closed وحدها.
@@ -2310,6 +2318,39 @@ begin
       v_blocks := v_blocks || jsonb_build_object('code', 'period_locked', 'text', format('الحسابات مقفلة حتى %s، وأيّام الفوج من %s داخلها؛ اطلب من مالك المنشأة فتح الفترة ثمّ احذف القاعة.',
         to_char(v_lock, 'DD/MM/YYYY'), to_char(v_from, 'DD/MM/YYYY')));
     end if;
+    -- ٦) و٧) ما يرفض به apply_move عكس حركات الإرسال الأصلية للصرف المرحَّل (مرآة reopen_block لإعادة فتح الدورة في 0029، بترتيبه): تصحيح سعر حيّ
+    --    لعائلة الدفعة بعد السحب (شرط private.check_draw_not_revalued: lot_consumed)، ثمّ جرد معتمد لمادّة الحركة بمخزنها في يومها أو بعده ولو بلا فرق
+    --    (شرط private.check_move_not_counted: count_superseded). مخزن الجرد مخزن الصرف نفسه، وهو بنطاق الكاتب (أعلاه).
+    select string_agg(z.entry, '، ' order by z.item collate "C", z.doc collate "C", z.rev_no, z.id), count(distinct z.id)::int into v_list, v_n
+    from (select distinct i.name as item, r.doc_no as doc, v.rev_no, v.id,
+        format('«%s» (%s)', i.name, private.stock_doc_label('receipt_revalue', v.id)) as entry
+      from public.flock_issues x
+      join public.stock_moves m on m.org_id = x.org_id and m.doc_kind = 'flock_issue' and m.doc_id = x.id and m.reverses_move_id is null and m.qty < 0
+      join public.stock_lots l on l.org_id = m.org_id and l.id = m.lot_id
+      join public.stock_lots o on o.org_id = l.org_id and o.id = coalesce(l.origin_lot_id, l.id) and o.source_kind = 'receipt'
+      join public.receipt_revaluations v on v.org_id = m.org_id and v.receipt_line_id = o.source_line_id and v.status = 'posted'
+        and (v.marks ->> m.warehouse_id::text)::bigint >= m.seq
+      join public.receipts r on r.org_id = v.org_id and r.id = v.receipt_id
+      join public.items i on i.org_id = m.org_id and i.id = m.item_id
+      where x.org_id = f.org_id and x.flock_id = f.id and x.status = 'posted') as z;
+    if v_n > 0 then
+      v_blocks := v_blocks || jsonb_build_object('code', 'revalued', 'text', format('أُرسل إلى الفوج قبل تصحيح سعره: %s؛ ألغِ %s أوّلاً ثمّ احذف القاعة.',
+        v_list, case when v_n = 1 then 'التصحيح' else 'التصحيحات' end));
+    end if;
+    select string_agg(z.entry, '، ' order by z.item collate "C", z.counted_on, z.doc collate "C", z.id), count(distinct z.id)::int into v_list, v_n
+    from (select distinct i.name as item, c.counted_on, c.doc_no as doc, c.id,
+        format('«%s» (الجرد %s في «%s» بتاريخ %s)', i.name, c.doc_no, w.name, to_char(c.counted_on, 'DD/MM/YYYY')) as entry
+      from public.flock_issues x
+      join public.stock_moves m on m.org_id = x.org_id and m.doc_kind = 'flock_issue' and m.doc_id = x.id and m.reverses_move_id is null and m.qty <> 0
+      join public.stock_counts c on c.org_id = m.org_id and c.warehouse_id = m.warehouse_id and c.status = 'approved' and c.counted_on >= m.moved_on
+      join public.stock_count_lines n on n.org_id = c.org_id and n.doc_id = c.id and n.item_id = m.item_id and n.snapshot_seq >= m.seq
+      join public.items i on i.org_id = m.org_id and i.id = m.item_id
+      join public.warehouses w on w.org_id = c.org_id and w.id = c.warehouse_id
+      where x.org_id = f.org_id and x.flock_id = f.id and x.status = 'posted') as z;
+    if v_n > 0 then
+      v_blocks := v_blocks || jsonb_build_object('code', 'counted', 'text', format('أُرسل إلى الفوج قبل جرد مخزنه: %s؛ ألغِ %s أوّلاً ثمّ احذف القاعة.',
+        v_list, case when v_n = 1 then 'الجرد' else 'الجرود' end));
+    end if;
   else
     -- القاعة بلا فوج قائم: العلف المنقول المعلَّق من دورتها المنتهية يمنع أرشفتها (halls_check)، فيُقال هنا بسببه وما يُفعل.
     select string_agg(z.name, '، ' order by z.name collate "C") into v_list
@@ -2437,6 +2478,10 @@ begin
     raise exception 'hall_has_carry' using hint = coalesce(v_block ->> 'text', 'في القاعة علف منقول بين دورتين؛ عالجه أوّلاً ثمّ احذف القاعة.');
   elsif v_block ->> 'code' = 'period_locked' then
     raise exception 'period_locked' using hint = coalesce(v_block ->> 'text', 'الحسابات مقفلة على أيّام الفوج؛ اطلب من مالك المنشأة فتح الفترة ثمّ احذف القاعة.');
+  elsif v_block ->> 'code' = 'revalued' then
+    raise exception 'lot_consumed' using hint = coalesce(v_block ->> 'text', 'أُرسل إلى الفوج قبل تصحيح سعره؛ ألغِ التصحيح أوّلاً ثمّ احذف القاعة.');
+  elsif v_block ->> 'code' = 'counted' then
+    raise exception 'count_superseded' using hint = coalesce(v_block ->> 'text', 'أُرسل إلى الفوج قبل جرد مخزنه؛ ألغِ الجرد أوّلاً ثمّ احذف القاعة.');
   elsif v_block is not null then
     raise exception 'forbidden' using hint = 'تعذّر حذف القاعة. حدّث الشاشة وراجع ما يمنع الحذف.';
   end if;
@@ -2608,6 +2653,19 @@ language sql stable security definer set search_path = public, pg_temp as $$
   union all
   select 'void_flock_shape', count(*) from public.flocks f
   where (f.status = 'void') <> (f.voided_at is not null and f.void_reason is not null) or (f.status = 'void' and f.closed_on is not null)
+  -- ٥) وما يمنع الحذف لا يبقى على فوج ملغى: فاتورة طيور مرحَّلة (sales)، وتذكرة وزن غير ملغاة (tickets)، وعلف منقول إليه ما زال مطبَّقاً (carry).
+  union all
+  select 'void_flock_posted_sale', count(*) from public.bird_sales b
+  where b.status = 'posted' and exists (select 1 from public.bird_sale_sources s join public.flocks f on f.org_id = s.org_id and f.id = s.flock_id
+    where s.org_id = b.org_id and s.sale_id = b.id and f.status = 'void')
+  union all
+  select 'void_flock_live_ticket', count(*) from public.weigh_tickets t
+  where t.status <> 'void' and exists (select 1 from public.weigh_ticket_stops s join public.flocks f on f.org_id = s.org_id and f.id = s.flock_id
+    where s.org_id = t.org_id and s.ticket_id = t.id and f.status = 'void')
+  union all
+  select 'void_flock_applied_carry', count(*) from public.flock_close_lines l
+  join public.flocks f on f.org_id = l.org_id and f.id = l.to_flock_id
+  where f.status = 'void' and l.carry_status = 'applied'
 $$;
 
 -- ─── ح. الصلاحيات ──────────────────────────────────────────────────────────────────────────────────────────────────
