@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, FileDown, NotebookPen, Printer } from 'lucide-react';
+import { ArrowUpDown, ChevronLeft, ChevronRight, FileDown, NotebookPen, Palette, Printer } from 'lucide-react';
 import { useCallback, useId, useRef, useState, type FormEvent } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../../components/ui/Button';
@@ -17,9 +17,14 @@ import { columnDecimals, fmtDay, fmtInt, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import * as dayBalance from '../../lib/repo/dayBalance';
 import type { DayBalanceSections, DayNote, DayNoteResult, DayRow, DaySection, DaySectionKey, Named } from '../../lib/repo/dayBalance';
+import { shownColor, type StoreColors } from '../../lib/repo/storeMarks';
 import { baseUnitLabel } from '../../lib/storeLabels';
 import { useLoad } from '../../lib/useLoad';
 import { downloadFile, IMAGE_WIDTH, reportPdf, sendFile } from '../halls/reportImage';
+import { ArrangeDialog } from './ArrangeDialog';
+import { ColorsDialog } from './ColorsDialog';
+import { MarkDialog, markSavedText } from './MarkDialog';
+import { colorName, MARK_LOOK, stateWord, tintStyle } from './markColors';
 import { itemFilePath } from './simple-shared';
 import { itemsCountText } from './storeSections';
 import './dayReport.css';
@@ -142,7 +147,13 @@ function itemLink(row: DayRow, here: string): string {
  * أوّل خليّتها (أقرب إلى الرصيد): بعرض الهاتف كان العمودان الملفوفان (عرض أدنى 48 لكلّ منهما) يدفعان زرّ الملاحظة خارج الشاشة (مراجعة 0022 P1).
  * وزرّ الملاحظة بحجم الإصبع (44). وbusy (الجداول تُقرأ من جديد): أزرار الملاحظات معطّلة، فلا تُفتح نافذة على ملاحظة من قراءة قديمة.
  */
-export function dayColumns(rows: readonly DayRow[], on: Day, here: string, onNote: ((row: DayRow) => void) | null, busy = false): Column<DayRow>[] {
+export interface DayLook {
+  colors: StoreColors;
+  /** زرّ لون المادّة (stock_note.write)، أو null. */
+  onMark: ((row: DayRow) => void) | null;
+}
+
+export function dayColumns(rows: readonly DayRow[], on: Day, here: string, onNote: ((row: DayRow) => void) | null, busy = false, look: DayLook | null = null): Column<DayRow>[] {
   const units = [...new Set(rows.map((row) => row.baseUnit))];
   const [single] = units.length === 1 ? units : [];
   const decimals = columnDecimals(rows.map((row) => row.qty), 3) as 0 | 1 | 2 | 3;
@@ -152,9 +163,18 @@ export function dayColumns(rows: readonly DayRow[], on: Day, here: string, onNot
       key: 'item',
       header: t('dayb.col.item', 'المادّة'),
       cell: (row) => (
-        <Link to={itemLink(row, here)} className="font-medium text-brand-700 dark:text-brand-200" data-action="day-item">
-          {row.name}
-        </Link>
+        <>
+          <Link to={itemLink(row, here)} className="font-medium text-brand-700 dark:text-brand-200" data-action="day-item">
+            {row.name}
+          </Link>
+          {/* كلمة الحالة بجانب اللون التلقائيّ: اللون وحده لا يُفهم ولا يظهر بالطباعة بالأبيض والأسود (0040). وبسطر تحت الاسم: بجانبه كانت تعرّض
+              عمود «المادّة» فيدفع زرّ اللون خارج الشاشة بعرض الهاتف. */}
+          {look?.colors.auto && row.state ? (
+            <span className="block text-xs font-semibold" data-action="day-state" data-state={row.state}>
+              {stateWord(row.state)}
+            </span>
+          ) : null}
+        </>
       ),
     },
     {
@@ -185,6 +205,8 @@ export function dayColumns(rows: readonly DayRow[], on: Day, here: string, onNot
             <NotebookPen aria-hidden="true" className="size-5" />
           </button>
         ) : null}
+        {/* زرّ اللون بعد زرّ الملاحظة: الملاحظة أوّل الخليّة أقرب إلى الرصيد (مراجعة 0022 P1). */}
+        {look?.onMark ? <MarkButton row={row} colors={look.colors} busy={busy} onMark={look.onMark} /> : null}
         <span className="min-w-0" data-action="day-note">
           {row.note?.text ?? ''}
         </span>
@@ -192,6 +214,33 @@ export function dayColumns(rows: readonly DayRow[], on: Day, here: string, onNot
     ),
   });
   return columns;
+}
+
+/** زرّ لون المادّة في صفّها: دائرة بلونها الظاهر، أو أيقونة اللوحة بلا لون. بحجم الإصبع (44)، ولا يُطبع. */
+function MarkButton({ row, colors, busy, onMark }: { row: DayRow; colors: StoreColors; busy: boolean; onMark: (row: DayRow) => void }) {
+  const color = shownColor(row.mark, row.state, colors);
+  const label = color
+    ? t('dayb.mark.colored', 'لون «{item}»: {color}', { item: row.name, color: colorName(color) })
+    : t('dayb.mark.none', 'لوّن «{item}»', { item: row.name });
+  return (
+    <button
+      type="button"
+      className="inline-flex size-11 shrink-0 items-center justify-center rounded-full text-ink-muted hover:bg-surface-2 hover:text-ink disabled:opacity-50 print:hidden"
+      aria-label={label}
+      title={label}
+      onClick={() => onMark(row)}
+      disabled={busy}
+      data-action="mark-item"
+      data-id={row.itemId}
+      data-color={color ?? undefined}
+    >
+      {color ? (
+        <span aria-hidden="true" className="size-6 rounded-full border border-line" style={{ backgroundColor: MARK_LOOK[color].solid }} />
+      ) : (
+        <Palette aria-hidden="true" className="size-5" />
+      )}
+    </button>
+  );
 }
 
 /** رسالة رفض الخادم بتلميحه، وإلّا وصفها العامّ. */
@@ -380,7 +429,13 @@ function PickDayDialog({ today, current, onClose, onPick }: { today: Day; curren
 
 // ─── العرض ─────────────────────────────────────────────────────────────────────────────────────────────────────
 
-type Open = null | { kind: 'note'; key: string; item: Named; day: Day; shown: DayNote | null } | { kind: 'day' };
+type Open =
+  | null
+  | { kind: 'note'; key: string; item: Named; day: Day; shown: DayNote | null }
+  | { kind: 'day' }
+  | { kind: 'mark'; key: string; row: DayRow }
+  | { kind: 'arrange'; section: DaySectionKey }
+  | { kind: 'colors' };
 
 /**
  * اطبع بعنوان الصفحة عنوانَ التقرير وتاريخه (Chrome يسمّي ملفّ «احفظ PDF» بعنوان الصفحة، فكان كلّ تقرير «نظام الدواجن.pdf»)، ثمّ يعود
@@ -443,7 +498,7 @@ export function DayBalanceView({ orgName, by }: { orgName: string; by: string })
   const failed = !state.loading && state.error !== null;
   const [open, setOpen] = useState<Open>(null);
   // نافذة ملاحظة لعرض آخر (رجع المستخدم بزرّ المتصفّح) لا تبقى: ملاحظتها ليوم غير المعروض.
-  if (open?.kind === 'note' && open.key !== here) setOpen(null);
+  if ((open?.kind === 'note' || open?.kind === 'mark') && open.key !== here) setOpen(null);
   const go = (next: Day | null) => setSearch(dayQuery({ day: next }));
   const printed = usePrintedAt();
   // جذر العرض (كجذر تقرير الوجبة): نسخته تُصوَّر، فقواعد [data-capture] لما تحته (الورقة بلا إطار، وما يُخفى عند الطباعة) تنطبق على الورقة.
@@ -458,6 +513,7 @@ export function DayBalanceView({ orgName, by }: { orgName: string; by: string })
   const today = meta?.today ?? null;
   const on = data?.on ?? day ?? today;
   const canNote = meta?.canNote === true;
+  const canArrange = meta?.canArrange === true;
   const toDay = (target: Day) => go(today !== null && target >= today ? null : target);
   const sections = data ? shownSections(data) : [];
   const printable = data !== null && data.sections.some((section) => section.rows.length > 0);
@@ -492,6 +548,22 @@ export function DayBalanceView({ orgName, by }: { orgName: string; by: string })
     if (uncertain) state.retry();
   };
   const onNote = canNote && data ? (row: DayRow) => setOpen({ kind: 'note', key: here, item: { id: row.itemId, name: row.name }, day: data.on, shown: row.note }) : null;
+  // لون المادّة لمن يكتب الملاحظات (stock_note.write)، وتظليل الصفّ بلونه الظاهر (0040).
+  const look: DayLook | null = data ? { colors: data.colors, onMark: canNote ? (row: DayRow) => setOpen({ kind: 'mark', key: here, row }) : null } : null;
+  const tinted = data
+    ? {
+        table: {},
+        cell: (row: DayRow) => {
+          const color = shownColor(row.mark, row.state, data.colors);
+          return color ? { style: tintStyle(color), 'data-color': color } : {};
+        },
+      }
+    : undefined;
+  const afterSave = (title: string) => {
+    setOpen(null);
+    toast({ tone: 'success', title });
+    state.retry();
+  };
 
   return (
     <section ref={rootRef} className="flex flex-col gap-4" aria-label={t('board.view.day', 'الرصيد اليومي')} data-action="day-view">
@@ -526,6 +598,12 @@ export function DayBalanceView({ orgName, by }: { orgName: string; by: string })
               <FileDown aria-hidden="true" className="size-5" />
               {t('dayb.pdf.send', 'أرسل PDF')}
             </Button>
+            {canArrange && data ? (
+              <Button variant="secondary" onClick={() => setOpen({ kind: 'colors' })} disabled={state.loading} data-action="day-colors">
+                <Palette aria-hidden="true" className="size-5" />
+                {t('dayb.colors', 'ألوان الرصيد')}
+              </Button>
+            ) : null}
           </div>
           {ready ? (
             <Notice
@@ -564,6 +642,23 @@ export function DayBalanceView({ orgName, by }: { orgName: string; by: string })
           <ReportHeader org={orgName} orgAction="day-org" title={reportTitle()} titleAction="day-title" level={2} info={dayInfo(data.on, sections, printed.at)} />
           {sections.map((section) => (
             <section key={section.key} aria-label={sectionTitle(section.key)} data-action="day-section" data-key={section.key}>
+              {/* «رتّب» فوق جدول القسم (0040)، لا يُطبع ولا يدخل ملفّ PDF. */}
+              {canArrange && section.rows.length > 1 ? (
+                <div className="flex justify-end py-2 print:hidden">
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    icon={<ArrowUpDown aria-hidden="true" className="size-4" />}
+                    onClick={() => setOpen({ kind: 'arrange', section: section.key })}
+                    disabled={state.loading}
+                    aria-label={t('dayb.arrange.section', 'رتّب «{section}»', { section: sectionTitle(section.key) })}
+                    data-action="arrange-section"
+                    data-key={section.key}
+                  >
+                    {t('dayb.arrange', 'رتّب')}
+                  </Button>
+                </div>
+              ) : null}
               {/* sm: بالهاتف الملاحظات بلا عرض أدنى فيأخذ اسم المادّة ما بقي (كورقة القاعة)، ومن 640 كالباقي. */}
               <DataTable
                 variant="official"
@@ -571,9 +666,10 @@ export function DayBalanceView({ orgName, by }: { orgName: string; by: string })
                 title={sectionTitle(section.key)}
                 titleLevel={3}
                 caption={`${sectionTitle(section.key)} ${reportDate(data.on)}`}
-                columns={dayColumns(section.rows, data.on, here, onNote, state.loading)}
+                columns={dayColumns(section.rows, data.on, here, onNote, state.loading, look)}
                 rows={section.rows}
                 rowKey={(row) => row.itemId}
+                grid={tinted}
                 onRowClick={(row) => navigate(itemLink(row, here))}
                 empty={sectionEmpty(section.key)}
               />
@@ -606,6 +702,34 @@ export function DayBalanceView({ orgName, by }: { orgName: string; by: string })
             });
             state.retry();
           }}
+        />
+      ) : null}
+      {open?.kind === 'mark' && data ? (
+        <MarkDialog
+          item={{ id: open.row.itemId, name: open.row.name, baseUnit: open.row.baseUnit }}
+          shown={open.row.mark}
+          colors={data.colors}
+          onClose={closeAfter}
+          onSaved={(mark, request) => afterSave(markSavedText({ id: open.row.itemId, name: open.row.name, baseUnit: open.row.baseUnit }, mark, request))}
+        />
+      ) : null}
+      {open?.kind === 'arrange' ? (
+        <ArrangeDialog
+          section={open.section}
+          title={sectionTitle(open.section)}
+          onClose={() => setOpen(null)}
+          onSaved={() => afterSave(t('dayb.arrange.saved', 'حُفظ ترتيب «{section}»: بهذا الترتيب تظهر في البطاقات والرصيد اليوميّ.', { section: sectionTitle(open.section) }))}
+        />
+      ) : null}
+      {open?.kind === 'colors' && meta ? (
+        <ColorsDialog
+          colors={meta.colors}
+          failed={failed}
+          onClose={closeAfter}
+          onReread={state.retry}
+          onSaved={(saved) =>
+            afterSave(saved.auto ? t('dayb.colors.saved_auto', 'حُفظت ألوان الرصيد: التلوين التلقائيّ مشغَّل.') : t('dayb.colors.saved_off', 'حُفظت ألوان الرصيد: التلوين التلقائيّ مطفأ.'))
+          }
         />
       ) : null}
       {open?.kind === 'day' && on !== null && today !== null ? (

@@ -898,6 +898,41 @@ export default async function (t, db) {
       value: true,
       expect: all('ok:1'),
     },
+    // 0040 (رسالتا الزبون 2026-11-26): قائمة القسم وترتيبه، ولون المادّة وحدّ قلّتها، وإعدادات الألوان لكلّ دور (0034)؛ وكلّ كاتب يُعاد بالقيمة نفسها
+    // بلا رفض، والنسخة المتوقّعة تُقرأ في النداء نفسه (نتيجة كلّ دور مثل المالك، أيّاً كان ترتيب الأدوار).
+    store_section_items: {
+      sql: () => ["select jsonb_array_length(public.store_section_items('other') -> 'items') > 0 as v", []],
+      value: true,
+      expect: all('ok:true'),
+    },
+    set_store_order: {
+      sql: () => [
+        "select public.set_store_order('other', x.ids, x.ids) ->> 'section' as v from (select array_agg((j.e ->> 'id')::uuid order by j.n) as ids from jsonb_array_elements(public.store_section_items('other') -> 'items') with ordinality as j(e, n)) as x",
+        [],
+      ],
+      value: true,
+      expect: all('ok:other'),
+    },
+    set_item_color: {
+      sql: () => ["select public.set_item_color($1, 'yellow', coalesce((select m.version from public.item_marks m where m.item_id = $1), 0)) -> 'mark' ->> 'color' as v", [p20.fuel]],
+      value: true,
+      expect: all('ok:yellow'),
+    },
+    set_item_low: {
+      sql: () => ["select public.set_item_low($1, 5, coalesce((select m.version from public.item_marks m where m.item_id = $1), 0)) -> 'mark' ->> 'low_qty' as v", [p20.fuel]],
+      value: true,
+      expect: all('ok:5.000'),
+    },
+    set_store_colors: {
+      sql: () => ["select public.set_store_colors(true, 'orange', 'red', coalesce((select s.version from public.store_color_settings s), 0)) ->> 'low' as v", []],
+      value: true,
+      expect: all('ok:orange'),
+    },
+    item_mark: {
+      sql: () => ["select public.item_mark($1) ->> 'can_mark' as v", [p20.fuel]],
+      value: true,
+      expect: all('ok:true'),
+    },
     // 0023 (ترتيب معمل العلف، كلمة المالك 2026-11-10): ترتيب العلائق وموادّ المسوّدة لمن يفعّل الخلطة (المالك والمدير)، كلّ واحد بما يراه الآن؛
     // والإنتاج بنداء واحد بفعل التسويد: المالك والمدير يرحّلان، ومشغّل المعمل مسوّدة تنتظر ختم الكلف؛ والتقرير لكلّ دور بمنشأة بنطاق الدفعة.
     set_recipe_order: {

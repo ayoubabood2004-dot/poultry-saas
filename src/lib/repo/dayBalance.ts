@@ -4,6 +4,7 @@ import { BASE_UNITS, ITEM_KINDS, type ItemKind } from '../../domain/stores';
 import type { BaseUnit } from '../../domain/units';
 import { call } from './core';
 import { arr, bool, count, obj, oneOf, qtyOf, RowShapeError, str } from './inventory';
+import { arrangeOf, colorsOf, markOf, stateOf, type ItemMark, type StockState, type StoreColors } from './storeMarks';
 
 // «الرصيد اليومي» في المخزن. 0022 (كلمة المالك 2026-11-09 بصورة ورقته «رصيد مواد العلف — 4/11/2026»: ت | المادّة | الرصيد (كغم) |
 // الملاحظات): ملاحظة لكلّ مادّة لكلّ يوم (set_day_note). و«المخزن بقسمين» (كلمة المالك 2026-11-21، عقد 0034/0035 B5): الصفحة جداول بأقسام المخزن
@@ -76,6 +77,10 @@ export interface DayRow {
   note: DayNote | null;
   /** تصنيف المادّة (يرتّب الصفوف بالخادم) أو null. */
   category: Named | null;
+  /** لونها باليد وحدّ قلّتها (0040)، أو null. */
+  mark: ItemMark | null;
+  /** نافدة أو قليلة برصيد اليوم المعروض (0040)، أو null. */
+  state: StockState | null;
 }
 
 export interface DaySection {
@@ -93,6 +98,10 @@ export interface DayBalanceSections {
   canNote: boolean;
   /** الأقسام الثلاثة دائماً وبترتيب DAY_SECTION_KEYS (قسم غاب من الجواب = بلا صفوف). */
   sections: readonly DaySection[];
+  /** «لوّن تلقائيّاً» ولونا القلّة والنفاد (0040). */
+  colors: StoreColors;
+  /** can('stores.manage'): «رتّب» (0040). */
+  canArrange: boolean;
 }
 
 function rowOf(entry: unknown): DayRow {
@@ -105,6 +114,8 @@ function rowOf(entry: unknown): DayRow {
     qty: qtyOf(row, 'qty'),
     note: noteOf(row, 'note'),
     category: namedOf(row, 'category'),
+    mark: markOf(row),
+    state: stateOf(row),
   };
 }
 
@@ -132,6 +143,8 @@ export function parseDayBalanceSections(value: unknown): DayBalanceSections {
     on: dayOf(json, 'on'),
     canNote: bool(json, 'can_note'),
     sections: DAY_SECTION_KEYS.map((key) => ({ key, rows: found.get(key) ?? [] })),
+    colors: colorsOf(json),
+    canArrange: arrangeOf(json),
   };
 }
 

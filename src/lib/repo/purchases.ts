@@ -4,6 +4,7 @@ import { BASE_UNITS, ITEM_KINDS, WAREHOUSE_KINDS, type ItemKind, type WarehouseK
 import type { BaseUnit } from '../../domain/units';
 import { call } from './core';
 import { arr, bool, count, filsOf, moneyOf, obj, oneOf, optStr, qtyOf, RowShapeError, scaled, str } from './inventory';
+import { arrangeOf, colorsOf, markOf, stateOf, type ItemMark, type StockState, type StoreColors } from './storeMarks';
 
 // «المخزن ببساطة» (0017، كلمة المالك 2026-11-06: «لما اجي اكتب اسم مادة… راح ينفتحلي ملف الذرة بشكل بطاقة… هذا الملف يسجلي بالضبط
 // كل شراء»): بطاقات المواد (items_overview)، وملفّ المادّة (item_file)، والشراء بدالّة واحدة تُحفظ فوراً (record_purchase) بدل ورقة
@@ -49,6 +50,10 @@ export interface OverviewItem {
   unpricedCount: number;
   /** null: المال مخفيّ عن هذا الدور. */
   money: OverviewMoney | null;
+  /** لونها باليد وحدّ قلّتها (0040)، أو null. */
+  mark: ItemMark | null;
+  /** نافدة أو قليلة بما عندك الآن (0040)، أو null. */
+  state: StockState | null;
 }
 
 export interface ItemsOverview {
@@ -57,6 +62,11 @@ export interface ItemsOverview {
   canRecord: boolean;
   /** can('item.create') من الخادم: «أضف مادّة». */
   canAddItem: boolean;
+  /** «لوّن تلقائيّاً» ولونا القلّة والنفاد (0040). */
+  colors: StoreColors;
+  /** can('stores.manage'): «رتّب» (0040). */
+  canArrange: boolean;
+  /** بترتيب القسم الذي اختاره (0040)، ثمّ التصنيف ثمّ الاسم. */
   items: readonly OverviewItem[];
 }
 
@@ -66,6 +76,8 @@ export function parseItemsOverview(value: unknown): ItemsOverview {
     today: str(json, 'today'),
     canRecord: bool(json, 'can_record'),
     canAddItem: bool(json, 'can_add_item'),
+    colors: colorsOf(json),
+    canArrange: arrangeOf(json),
     items: arr(json.items, 'items').map((entry) => {
       const row = obj(entry, 'items');
       const money = moneyOf(row);
@@ -79,6 +91,8 @@ export function parseItemsOverview(value: unknown): ItemsOverview {
         lastPurchaseOn: optStr(row, 'last_purchase_on'),
         unpricedCount: row.unpriced_count === undefined ? 0 : nat(row, 'unpriced_count'),
         money: money ? { sellPrice: scaled(money, 'sell_price', 2), avgUnitPrice: scaled(money, 'avg_unit_price', 2) } : null,
+        mark: markOf(row),
+        state: stateOf(row),
       };
     }),
   };
