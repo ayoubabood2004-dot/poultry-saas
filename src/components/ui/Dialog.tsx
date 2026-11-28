@@ -2,6 +2,7 @@ import { X } from 'lucide-react';
 import { useCallback, useEffect, useId, useRef, useState, type ReactNode } from 'react';
 import { createPortal } from 'react-dom';
 import { isTopModal, trapFocus } from '../../lib/focus';
+import { firstField, focusField, isField } from '../../lib/formKeys';
 import { t } from '../../lib/i18n';
 import { useDirtyForm } from '../../lib/pwa/dirty';
 import { lockScroll } from '../../lib/scrollLock';
@@ -62,7 +63,28 @@ export function Dialog({ open, onClose, title, dirty = false, locked = false, di
     if (!open || !panel) return;
     const unlock = lockScroll();
     const release = trapFocus(panel);
+    // على الحاسوب (مؤشّر دقيق) المؤشّر في أوّل خانة حين تُفتح النافذة (كلمة المالك 2026-11-26)؛ والهاتف كما كان: لوحة مفاتيحه لا تقفز فوق الورقة.
+    // [data-autofocus] على خانة يغلب؛ وعلى زرّ («لا، تراجع» في التأكيد) يغلبه خانة السبب على الحاسوب: السبب الفارغ يُبقي الفعل معطّلاً (مراجعة 0037 K4).
+    const auto = panel.querySelector('[data-autofocus]');
+    const fine = window.matchMedia('(pointer: fine)').matches;
+    let late: MutationObserver | null = null;
+    if (fine && !(auto && isField(auto))) {
+      const first = firstField(panel);
+      if (first) focusField(first);
+      else if (!auto && typeof MutationObserver !== 'undefined') {
+        // خانة تظهر بعد قراءة (تحويل المادّة): المؤشّر إليها حين تظهر ما دام التركيز على النافذة نفسها (لم يُختر شيء آخر) (مراجعة 0037 K3).
+        late = new MutationObserver(() => {
+          if (document.activeElement !== panel) return late?.disconnect();
+          const found = firstField(panel);
+          if (!found) return;
+          late?.disconnect();
+          focusField(found);
+        });
+        late.observe(panel, { childList: true, subtree: true });
+      }
+    }
     return () => {
+      late?.disconnect();
       release();
       unlock();
     };

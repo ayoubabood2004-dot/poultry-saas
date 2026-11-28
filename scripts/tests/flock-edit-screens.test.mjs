@@ -404,6 +404,19 @@ export default async function (t) {
       const [args] = named(calls, 'rpc:edit_flock');
       t.same([args?.p_breed, args?.p_placed_on, args?.p_placed_count, args?.p_age_days], ['كوب 500', PLACED, 5000, 1], 'E السلالة بلا فراغات حولها، وما لم يُلمس يُرسل بقيمته المحفوظة');
     });
+    // 0038: وجبة مقسومة: عدد كلّ قسم بدل العدد الواحد، ومجموعها العدد الداخل، وتُرسل الأقسام حين تتغيّر.
+    await step('E الأقسام', async () => {
+      const calls = fresh('manager', { loadOverviewJson: () => overview({ f5: { section_counts: [2500, 2500], section_dead: [3, 1] } }) }, { edit_flock: () => editedJson({ placed_count: 5100 }) });
+      await mount('/broiler');
+      await click(inRow('قاعة 5', 'flock-edit')[0]);
+      const inputs = byAction('section-count');
+      t.same([inputs.map((n) => n.value), field('-count'), byAction('section-total')[0]?.textContent], [['2500', '2500'], null, 'مجموع الطيور المسكّنة: 5,000'], 'E الأقسام: خانة لكلّ قسم بعدده بدل العدد الواحد، والمجموع تحتها');
+      type(inputs[1], '2600');
+      await settle();
+      await click(byAction('flock-edit-save')[0]);
+      const [args] = named(calls, 'rpc:edit_flock');
+      t.same([args?.p_placed_count, args?.p_section_counts], [5100, [2500, 2600]], 'E الأقسام: edit_flock بالمجموع الجديد وعدد كلّ قسم');
+    });
     await step('E الرفض', async () => {
       const HINT = 'سُجّلت للفوج جولة يوم 06/11/2026 قبل تاريخ التسكين الجديد. اختر تاريخاً لا يتأخّر عنها.';
       const calls = fresh(
@@ -425,6 +438,32 @@ export default async function (t) {
         [1, true, false, 1, 0],
         'E الرفض: تلميح الخادم داخل النافذة، والحفظ متاح للتصحيح، بلا قراءة ولا رسالة نجاح',
       );
+    });
+
+    // ── S flock_void (مراجعة 0037 H 7): حُذفت قاعة الفوج من جهاز آخر، فرفض التعديل يقرأ الحقل من جديد كالفوج المغلق ─────────────────────────────
+    await step('S flock_void', async () => {
+      const HINT = 'حُذفت قاعة هذا الفوج، فلا يُعرض ولا يُسجَّل له شيء.';
+      let reads = 0;
+      fresh(
+        'manager',
+        {
+          loadOverviewJson: () => {
+            reads += 1;
+            return overview();
+          },
+        },
+        {
+          edit_flock: () => {
+            throw new m.RejectedError('flock_void', HINT);
+          },
+        },
+      );
+      await mount('/broiler');
+      await click(inRow('قاعة 5', 'flock-edit')[0]);
+      type(field('-count'), '5300');
+      await settle();
+      await click(byAction('flock-edit-save')[0]);
+      t.same([dialogText().includes(HINT), reads], [true, 2], 'S flock_void: التلميح، والحقل يُقرأ من جديد');
     });
 
     // ── S: stale_flock ──────────────────────────────────────────────────────────────────────────────────────────────

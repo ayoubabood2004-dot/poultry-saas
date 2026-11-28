@@ -18,6 +18,7 @@ import type { ItemKind } from '../../domain/stores';
 import { kgToLiters, litersToKg, parseQty, type BaseUnit } from '../../domain/units';
 import { parseDayText } from '../../lib/dayText';
 import { describeError, IdentityError, NetworkError, NotConnectedError, RejectedError, RetryableError } from '../../lib/errors';
+import { noSubmit } from '../../lib/formKeys';
 import { columnDecimals, fmtCounted, fmtDay, fmtMilli, fmtMoney, fmtQty, fmtQtyCell, type CountedForms } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { useDirtyForm } from '../../lib/pwa/dirty';
@@ -1435,7 +1436,8 @@ export default function ProducePage() {
   });
 
   return (
-    <div className="flex flex-col gap-5">
+    // شاشة الإنتاج نموذج واحد (0037 K): Enter ينقل بين الكميات والتفاصيل، وفي آخر خانة «أنتج».
+    <form className="flex flex-col gap-5" onSubmit={noSubmit} noValidate>
       {header}
       {legacyNotice}
       {formState.error ? <LoadFailed what={t('mill.produce.what', 'شاشة الإنتاج')} error={formState.error} onRetry={formState.retry} /> : null}
@@ -1471,8 +1473,12 @@ export default function ProducePage() {
                   setTargetNote(null);
                 }}
                 onKeyDown={(event) => {
-                  if (event.key === 'Enter') applyTarget(targetOf(targetText, targetUnit));
+                  // Enter «احسب الكميات» (للخانة زرّها)، لا الانتقال ولا «أنتج» (0037 K).
+                  if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+                  event.preventDefault();
+                  applyTarget(targetOf(targetText, targetUnit));
                 }}
+                data-enter="own"
                 data-action="target-qty"
               />
             </Field>
@@ -1745,7 +1751,7 @@ export default function ProducePage() {
 
       {failure ? <Notice tone="danger" title={failure} /> : null}
       <div className="flex flex-wrap items-start gap-3">
-        <Button size="lg" icon={<Factory className="size-5" aria-hidden="true" />} busy={busy && !busyDraft} disabled={!ready || locked} onClick={() => send(false)} data-action="produce-go">
+        <Button type="submit" size="lg" icon={<Factory className="size-5" aria-hidden="true" />} busy={busy && !busyDraft} disabled={!ready || locked} onClick={() => send(false)} data-action="produce-go">
           {t('mill.card.produce', 'أنتج')}
         </Button>
         {/* المسوّدة بما كُتب هنا كلّه، ثمّ صفحة الدفعة: تكاليف الدفعة ومعاينتها الكاملة قبل الترحيل (تلميحات الخادم تسمّي الزرّ باسمه). */}
@@ -1788,6 +1794,6 @@ export default function ProducePage() {
           onClose={() => setPicking(null)}
         />
       ) : null}
-    </div>
+    </form>
   );
 }

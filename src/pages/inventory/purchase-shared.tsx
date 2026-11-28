@@ -9,6 +9,7 @@ import type { Fils } from '../../domain/money';
 import { toWesternDigits } from '../../domain/normalize';
 import { can } from '../../domain/permissions';
 import { describeError } from '../../lib/errors';
+import { ownEnter } from '../../lib/formKeys';
 import { t } from '../../lib/i18n';
 import * as purchasing from '../../lib/repo/purchasing';
 import type { BoxPick, PartyPick } from '../../lib/repo/purchasing';
@@ -94,7 +95,7 @@ export function SupplierPicker({ id, label, value, onChange, customer = false }:
   return (
     <div className="flex flex-col gap-2">
       <Field id={id} label={label}>
-        <input id={id} type="search" className="input" autoComplete="off" value={search} onChange={(event) => { setSearch(event.target.value); setTwins(null); }} placeholder={t('party.pick.search', 'ابحث بالاسم')} />
+        <input id={id} type="search" className="input" autoComplete="off" value={search} onChange={(event) => { setSearch(event.target.value); setTwins(null); }} onKeyDown={ownEnter} placeholder={t('party.pick.search', 'ابحث بالاسم')} data-enter="own" />
       </Field>
       {found.error ? (
         <LoadFailed what={t('party.list', 'قائمة الجهات')} error={found.error} onRetry={found.retry} />

@@ -40,7 +40,7 @@ const SECTIONS = 'select public.day_balance_sections($1) as v';
 const DECIDE = 'select public.decide_flock_reject($1, $2, $3) as v';
 const VOID = 'select public.void_flock_issue($1, $2, $3) as v';
 const SIG = {
-  day: 'public.save_flock_day(uuid, date, integer, integer, numeric, numeric, numeric, numeric, integer, integer, integer, text, integer, uuid, boolean)',
+  day: 'public.save_flock_day(uuid, date, integer, integer, numeric, numeric, numeric, numeric, integer, integer, integer, text, integer, uuid, boolean, integer[])',
   visit: 'public.save_flock_visit(uuid, uuid, date, timestamp with time zone, integer, integer, numeric, integer, integer, integer, text, integer, boolean, uuid, boolean)',
   weight: 'public.record_flock_weight(uuid, date, integer, numeric, uuid)',
   gas: 'public.set_flock_gas(uuid, date, integer, bigint, uuid, boolean)',
@@ -54,7 +54,7 @@ const SIG = {
   reportDay: 'private.report_day(public.flocks, date, date)',
   totals: 'private.halls_day_totals(jsonb)',
   activity: 'private.flock_activity_after(public.flocks, date)',
-  edit: 'public.edit_flock(uuid, integer, date, integer, integer, text, uuid)',
+  edit: 'public.edit_flock(uuid, integer, date, integer, integer, text, uuid, integer[])',
 };
 const VERIFY_ZERO = { for_day_range: 0, gas_days: 0, gas_versions: 0, gas_hall: 0, sheet_totals: 0, sheet_feed_by_day: 0, sheet_fcr_final: 0 };
 
@@ -419,10 +419,11 @@ async function scenario(t, db) {
     same([rowOf(a, TODAY).feed_kg, rowOf(a, TODAY).note, rowOf(a, TODAY).dead, rowOf(a, TODAY).eggs_total], ['100.000', 'جولة اليوم', 0, null], 'اليوم: علف اليوم (بلا الدواء)، والملاحظة، وبيض فارغ للّاحم');
     same([rowOf(a, day(5)).dead, rowOf(a, day(5)).gas, rowOf(a, day(5)).feed_kg, rowOf(a, day(5)).sold_birds, rowOf(a, day(5)).live_end], [null, null, null, 0, 892],
       'يوم قادم: صفّ فارغ والحيّ كما هو');
-    same(a.totals, { dead: 8, gas: 4, feed_kg: '150.000', feed_back_kg: '0.000', sold_birds: 100, sold_net_kg: '240.000', eggs_total: null },
+    // 0037: ومجموع الكاز (مفتاح جديد في المجاميع والخلاصة، صفر بلا كاز)؛ و0038 أقسام الهلاكات (dead_parts، فارغة لقاعة غير مقسومة).
+    same(a.totals, { dead: 8, gas: 4, kerosene: 0, feed_kg: '150.000', feed_back_kg: '0.000', sold_birds: 100, sold_net_kg: '240.000', eggs_total: null, dead_parts: null },
       'المجاميع: الهلاكات 1+5+2، والغاز 3+1، والعلف 100+50، ولا راجع لوجبة قائمة');
     same(a.summary, { placed: 1000, dead: 8, mortality_pct: '0.80', live: 892, feed_kg: '150.000', feed_back_kg: '0.000', feed_net_kg: '150.000', feed_bags: '3.000', gas: 4,
-      sold_birds: 100, sold_net_kg: '240.000', avg_weight_kg: '2.400', fcr: '0.625' },
+      kerosene: 0, sold_birds: 100, sold_net_kg: '240.000', avg_weight_kg: '2.400', fcr: '0.625' },
     'الخلاصة: النفوق 8 ÷ 1,000، والأكياس 150 ÷ 50، ومعدّل الوزن 240 ÷ 100، ومعامل التحويل (150 − 0) ÷ 240');
     same([rowOf(a, day(-20)).carry_in_kg, rowOf(a, day(-20)).feed_back_kg, rowOf(a, day(-30)).carry_in_kg], [null, null, null], 'بلا منقول ولا راجع: الخانتان فارغتان');
     const sums = a.days.reduce((s, d) => ({ dead: s.dead + (d.dead ?? 0), gas: s.gas + (d.gas ?? 0), feed: s.feed + Number(d.feed_kg ?? 0) }), { dead: 0, gas: 0, feed: 0 });

@@ -3,11 +3,9 @@ import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { PageHeader } from '../../components/PageHeader';
 import { Button } from '../../components/ui/Button';
-import { ConfirmDialog } from '../../components/ui/ConfirmDialog';
 import { DataTable, Num, type Column } from '../../components/ui/DataTable';
 import { LoadFailed } from '../../components/ui/LoadFailed';
 import { Notice } from '../../components/ui/Notice';
-import { toast } from '../../components/ui/Toast';
 import { localDay } from '../../domain/dates';
 import type { FlockKind } from '../../domain/flocks';
 import { naturalCompare } from '../../domain/naturalOrder';
@@ -15,13 +13,13 @@ import { can } from '../../domain/permissions';
 import { describeError, NotConnectedError } from '../../lib/errors';
 import { columnDecimals, fmtDay, fmtInt, fmtQtyCell, fmtScaledCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
-import { archiveHall, type FlockSummary, type HallView, type SiteView } from '../../lib/repo/flocks';
+import type { FlockSummary, HallView, SiteView } from '../../lib/repo/flocks';
 import { roundQueueStore } from '../../lib/roundUploads';
 import { useSession } from '../../lib/session';
 import { useStore } from '../../lib/store';
 import { useQueue } from './deviceQueue';
 import { BUTTON_LINK_CLASS, givePath, LINK_CLASS } from './feed';
-import { FlockEditDialogLazy as FlockEditDialog, HallDialogLazy as HallDialog, OpenFlockDialogLazy as OpenFlockDialog } from './flockEditLazy';
+import { DeleteHallDialogLazy as DeleteHallDialog, FlockEditDialogLazy as FlockEditDialog, HallDialogLazy as HallDialog, OpenFlockDialogLazy as OpenFlockDialog } from './flockEditLazy';
 import { deathsIn } from './roundText';
 import { farmPath, farmTitle, fmtPct, hallLabel, hallPath, TodayChip, useOverview, useStamp } from './shared';
 
@@ -31,12 +29,14 @@ import { farmPath, farmTitle, fmtPct, hallLabel, hallPath, TodayChip, useOvervie
 // (التاريخ والعدد والعمر والسلالة، أو حذفه إن فُتح غلطاً)؛ والقاعات بترتيب أرقامها («قاعة 5» قبل «قاعة 44»).
 // وكلمة المالك 2026-11-16 («طريقة الدخول الها واضحة… نسوي الجدول اكبر واوضح وبي تفاصيل مكتوبة بخط اكبر شوية»): الجدول بحجمه الكبير،
 // واسم القاعة رابط ظاهر لصفحتها، والصفّ كلّه يفتحها (والقاعة الفارغة أيضاً)، و«جولة اليوم» مكتوبة لكلّ قاعة مع نافق اليوم.
+// وكلمة الزبون 2026-11-26 («هذن القاعات أريد أحذف منهم… سوّيت تجريبيات»، عقد 0037): «احذف» لكلّ قاعة يديرها المستخدم بفوج أو بلا فوج (بدل «أرشف» للفارغة
+// وحدها)، ونافذتها من حزمة القاعات تقول ما سيُحذف قبل الحذف.
 
 type Editing =
   | { kind: 'add'; site: SiteView }
   | { kind: 'edit'; site: SiteView; hall: HallView }
   | { kind: 'open'; hall: HallView }
-  | { kind: 'archive'; hall: HallView }
+  | { kind: 'delete'; hall: HallView }
   | { kind: 'flock'; hall: HallView; flock: FlockSummary };
 
 export default function FarmPage({ kind }: { kind: FlockKind }) {
@@ -52,7 +52,6 @@ export default function FarmPage({ kind }: { kind: FlockKind }) {
   const queue = useQueue(stamp, uploads);
   const navigate = useNavigate();
   const [editing, setEditing] = useState<Editing | null>(null);
-  const [archiving, setArchiving] = useState(false);
   const base = farmPath(kind);
   // القاعدة ترتّب القاعات حرفاً حرفاً («قاعة 44» قبل «قاعة 5» في شاشة الزبون 2026-11-15)، فالترتيب هنا بأرقام الأسماء.
   const sites = (state.data?.overview.sites ?? []).filter((site) => site.kind === kind).map((site) => ({ ...site, halls: [...site.halls].sort((a, b) => naturalCompare(hallLabel(a.name), hallLabel(b.name))) }));
@@ -64,20 +63,6 @@ export default function FarmPage({ kind }: { kind: FlockKind }) {
   };
   const editFlockOf = (hall: HallView) => {
     if (hall.flock) setEditing({ kind: 'flock', hall, flock: hall.flock });
-  };
-
-  const archive = async (hall: HallView) => {
-    setArchiving(true);
-    try {
-      await archiveHall(hall.id, hall.version);
-      toast({ tone: 'success', title: t('farm.hall.archived', 'أُرشفت القاعة «{name}».', { name: hallLabel(hall.name) }) });
-      done();
-    } catch (failure) {
-      const { title, detail } = describeError(failure);
-      toast({ tone: 'danger', title, detail });
-    } finally {
-      setArchiving(false);
-    }
   };
 
   const columns = (site: SiteView): Column<HallView>[] => {
@@ -134,11 +119,9 @@ export default function FarmPage({ kind }: { kind: FlockKind }) {
                 <Button size="sm" variant="secondary" onClick={() => setEditing({ kind: 'edit', site, hall })} data-action="hall-edit">
                   {t('farm.hall.edit', 'عدّل القاعة')}
                 </Button>
-                {hall.flock ? null : (
-                  <Button size="sm" variant="ghost" onClick={() => setEditing({ kind: 'archive', hall })} data-action="hall-archive">
-                    {t('farm.hall.archive', 'أرشف')}
-                  </Button>
-                )}
+                <Button size="sm" variant="ghost" onClick={() => setEditing({ kind: 'delete', hall })} data-action="hall-delete">
+                  {t('farm.hall.delete', 'احذف')}
+                </Button>
               </>
             ) : null}
           </div>
@@ -204,22 +187,11 @@ export default function FarmPage({ kind }: { kind: FlockKind }) {
           />
         </section>
       ))}
-      {editing?.kind === 'add' || editing?.kind === 'edit' ? <HallDialog site={editing.site} hall={editing.kind === 'edit' ? editing.hall : null} onClose={() => setEditing(null)} onSaved={done} /> : null}
+      {editing?.kind === 'add' || editing?.kind === 'edit' ? <HallDialog site={editing.site} hall={editing.kind === 'edit' ? editing.hall : null} onClose={() => setEditing(null)} onSaved={done} onChanged={state.retry} onStale={state.retry} /> : null}
       {editing?.kind === 'open' ? <OpenFlockDialog hall={editing.hall} onClose={() => setEditing(null)} onOpened={done} /> : null}
       {/* القراءة من جديد بعد stale_flock لا تطوي النافذة: هي من حالة الصفحة لا من الجدول، فيبقى التلميح حتى تُغلق وتُفتح بالقيم الحالية. */}
       {editing?.kind === 'flock' ? <FlockEditDialog hallName={hallLabel(editing.hall.name)} flock={editing.flock} onClose={() => setEditing(null)} onSaved={done} onDeleted={done} onStale={state.retry} /> : null}
-      <ConfirmDialog
-        open={editing?.kind === 'archive'}
-        title={t('farm.hall.archive.title', 'أرشفة القاعة «{name}»', { name: editing?.kind === 'archive' ? hallLabel(editing.hall.name) : '' })}
-        consequence={t('farm.hall.archive.consequence', 'تختفي القاعة من الحقل والجولة اليومية، وتبقى أفواجها السابقة وأيامها محفوظة. لا تُحذف أبداً.')}
-        confirmLabel={t('farm.hall.archive.confirm', 'أرشف القاعة')}
-        busy={archiving}
-        action="hall-archive-confirm"
-        onCancel={() => setEditing(null)}
-        onConfirm={() => {
-          if (editing?.kind === 'archive') void archive(editing.hall);
-        }}
-      />
+      {editing?.kind === 'delete' ? <DeleteHallDialog key={editing.hall.id} hall={editing.hall} onClose={() => setEditing(null)} onDeleted={done} onStale={state.retry} /> : null}
     </div>
   );
 }

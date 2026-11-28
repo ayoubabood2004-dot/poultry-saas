@@ -20,6 +20,7 @@ import { normalizeCode, searchable } from '../../domain/normalize';
 import { itemAdmissible } from '../../domain/stock';
 import type { WarehouseKind } from '../../domain/stores';
 import { describeError, RejectedError, UnknownOutcomeError } from '../../lib/errors';
+import { noSubmit } from '../../lib/formKeys';
 import { fmtDay, fmtInt, fmtQtyCell, columnDecimals } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import * as counts from '../../lib/repo/counts';
@@ -260,12 +261,15 @@ export function ItemPicker({ id, label, value, onChange, filter, offline = false
         autoComplete="off"
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === 'Enter' && rows.length === 1 && rows[0]) {
-            event.preventDefault();
+          // Enter للمنتقي (0037 K): مطابقة واحدة تُختار، وغيرها لا شيء — لا ينتقل إلى الخانة التالية ولا يُرسل نموذج السطر بلا مادّة.
+          if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+          event.preventDefault();
+          if (rows.length === 1 && rows[0]) {
             onChange(rows[0]);
             setText('');
           }
         }}
+        data-enter="own"
         data-action="search-item"
       />
       {rows.length > 0 ? (
@@ -654,14 +658,14 @@ export function DraftDayField({ day, save, onSaved }: { day: string; save: (day:
       {outside ? (
         <Notice tone="warning" title={t('draft.day.outside', 'تاريخ هذه الورقة {day} خارج المسموح للحفظ النهائي (اليوم أو قبله حتى 7 أيام)؛ صحّحه هنا.', { day: fmtDay(day) })} />
       ) : null}
-      <div className="flex flex-wrap items-end gap-2">
+      <form className="flex flex-wrap items-end gap-2" onSubmit={noSubmit} noValidate>
         <div className="min-w-0 flex-1">
           <DayField id={`${id}-day`} label={t('payment.day', 'التاريخ')} value={text} onChange={(value) => setEdit({ base: day, text: value })} error={text.trim() !== '' ? parsed.error : null} hint={t('payment.day.hint', 'اليوم أو قبله حتى 7 أيام.')} />
         </div>
-        <Button variant="secondary" busy={busy} disabled={!changed} onClick={submit} data-action="save-draft-day">
+        <Button type="submit" variant="secondary" busy={busy} disabled={!changed} onClick={submit} data-action="save-draft-day">
           {t('draft.day.save', 'احفظ التاريخ')}
         </Button>
-      </div>
+      </form>
       {failed ? (
         <Notice tone="danger" title={failed.title}>
           {failed.detail}
@@ -699,13 +703,13 @@ export function VoidDocDialog({ title, consequence, busy, failure, onConfirm, on
           <Button variant="secondary" onClick={onClose} disabled={busy}>
             {t('confirm.cancel', 'لا، تراجع')}
           </Button>
-          <Button variant="danger" busy={busy} disabled={reason.trim() === '' || choice === null} onClick={() => choice && onConfirm(reason.trim(), choice)} data-action="confirm-void">
+          <Button type="submit" form={`${id}-form`} variant="danger" busy={busy} disabled={reason.trim() === '' || choice === null} onClick={() => choice && onConfirm(reason.trim(), choice)} data-action="confirm-void">
             {choose && choice ? label(choice) : title}
           </Button>
         </div>
       }
     >
-      <div className="flex flex-col gap-4">
+      <form id={`${id}-form`} className="flex flex-col gap-4" onSubmit={noSubmit} noValidate>
         <p className="text-ink-muted">{consequence}</p>
         {choose ? (
           <fieldset className="flex flex-col gap-2">
@@ -730,7 +734,7 @@ export function VoidDocDialog({ title, consequence, busy, failure, onConfirm, on
             {failed.detail}
           </Notice>
         ) : null}
-      </div>
+      </form>
     </Dialog>
   );
 }

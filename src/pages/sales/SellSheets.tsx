@@ -7,6 +7,7 @@ import { addDays, type Day } from '../../domain/dates';
 import { FILS_PER_DINAR, type Fils, type Milli } from '../../domain/money';
 import type { InvoiceMath } from '../../domain/saleInvoice';
 import { describeError } from '../../lib/errors';
+import { ownEnter } from '../../lib/formKeys';
 import { columnDecimals, fmtDay, fmtMoney, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import * as purchasing from '../../lib/repo/purchasing';
@@ -742,6 +743,8 @@ function CustomerSection({
             setSearch(event.target.value);
             setTwins(null);
           }}
+          onKeyDown={ownEnter}
+          data-enter="own"
           data-action="sale-party-search"
         />
       </div>

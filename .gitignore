@@ -6,3 +6,6 @@ dev-dist
 .env.*
 !.env.example
 *.tsbuildinfo
+
+# أشجار الوكلاء (Claude Code) خارج المستودع.
+.claude/worktrees/

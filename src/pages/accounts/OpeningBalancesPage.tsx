@@ -16,6 +16,7 @@ import type { Fils } from '../../domain/money';
 import { can } from '../../domain/permissions';
 import { parseDayText } from '../../lib/dayText';
 import { describeError, NotConnectedError, RejectedError } from '../../lib/errors';
+import { noSubmit } from '../../lib/formKeys';
 import { fmtDay, fmtInt } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import * as parties from '../../lib/repo/parties';
@@ -68,7 +69,7 @@ export function OpeningCell({ row, book, draft, busy, dayOk = true, onDraft, onS
   }
   const value = draft ?? { text: '', side: 'debit' as Side, ref: parties.newRef() };
   return (
-    <span className="flex w-72 items-center gap-2">
+    <form className="flex w-72 items-center gap-2" onSubmit={noSubmit} noValidate>
       <input
         aria-label={t('openings.amount.for', 'الرصيد عند البداية لـ{party} في {book}', { party: row.name, book: bookLabel(book) })}
         inputMode="decimal"
@@ -79,10 +80,10 @@ export function OpeningCell({ row, book, draft, busy, dayOk = true, onDraft, onS
         onChange={(event) => onDraft({ ...value, text: event.target.value })}
       />
       <SideToggle label={t('openings.side', 'الجهة')} value={value.side} onChange={(side) => onDraft({ ...value, side })} />
-      <Button size="sm" busy={busy} disabled={!dayOk || signedOpening(value.text, value.side) === null} onClick={onSave} data-action="save-opening">
+      <Button type="submit" size="sm" busy={busy} disabled={!dayOk || signedOpening(value.text, value.side) === null} onClick={onSave} data-action="save-opening">
         {t('openings.save', 'سجّل')}
       </Button>
-    </span>
+    </form>
   );
 }
 

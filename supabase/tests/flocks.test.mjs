@@ -200,15 +200,15 @@ async function scenario(t, db) {
 
   // base_version: أقدم من المحفوظ، أو null ويوم بيه صفّ، أو رقم ويوم بلا صفّ ← stale_day بصفّ الخادم.
   const stale = await save(U.worker, F1, '2026-10-28', { dead: 7 }, 1);
-  // 0036: صفّ اليوم يحمل علامة «سُجّلت هلاكات اليوم» (dead_entered).
-  same(stale.v, { status: 'stale_day', server: { on_date: '2026-10-28', version: 3, dead: 5, culled: 0, feed_kg: '450', water_l: '900', temp_min: null, temp_max: null, eggs_total: null, eggs_cracked: null, eggs_broken: null, note: null, dead_entered: true } }, 'base_version أقدم ← stale_day بصفّ الخادم كاملاً');
+  // 0036: صفّ اليوم يحمل علامة «سُجّلت هلاكات اليوم» (dead_entered)؛ و0038 أقسام هلاكاته (dead_parts، فارغة لقاعة غير مقسومة).
+  same(stale.v, { status: 'stale_day', server: { on_date: '2026-10-28', version: 3, dead: 5, culled: 0, feed_kg: '450', water_l: '900', temp_min: null, temp_max: null, eggs_total: null, eggs_cracked: null, eggs_broken: null, note: null, dead_entered: true, dead_parts: null } }, 'base_version أقدم ← stale_day بصفّ الخادم كاملاً');
   const staleResult = ui.dayAnswer(stale.v);
   same(
     [staleResult.kind, ui.parseDayRow(staleResult.server), ui.dayAnswer(d28.v)],
     [
       'stale_day',
       // 0036 (دمج شاشات الجولة): المحلّل يقرأ علامة «سُجّلت هلاكات اليوم» (deadEntered).
-      { onDate: '2026-10-28', version: 3, dead: 5, culled: 0, feedKg: 450000n, tempMin: null, tempMax: null, eggsTotal: null, eggsCracked: null, eggsBroken: null, note: null, deadEntered: true },
+      { onDate: '2026-10-28', version: 3, dead: 5, culled: 0, feedKg: 450000n, tempMin: null, tempMax: null, eggsTotal: null, eggsCracked: null, eggsBroken: null, note: null, deadEntered: true, deadParts: null },
       { kind: 'saved', version: 1 },
     ],
     'محلّل الشاشات (dayAnswer): stale_day لرفّ المراجعة بصفّ الخادم (العلف 450 كغم = 450,000 غرام؛ والماء خارج الشاشات منذ 0026 بكلمة المالك ولو بقي عموده)، وsaved برقم الإصدار',

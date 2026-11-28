@@ -1,5 +1,6 @@
-import { toBlob } from 'html-to-image';
+import { toBlob, toJpeg } from 'html-to-image';
 import type { Day } from '../../domain/dates';
+import { imagePdf, jpegSize, pageCapacity, paginate } from '../../lib/pdf';
 
 // «أرسل صورة» في تقرير القاعات اليومي (عقد 0031، كلمة المالك 2026-11-17: «اكدر ارسلهه»): التقرير المعروض صورة PNG بضغطة، ثمّ نافذة المشاركة في
 // الجهاز إن قبلت الملفّات، وإلّا تنزيله. html-to-image مستوردة هنا داخل حزمة القاعات (خارج التثبيت المسبق بالاسم)، لا استيراداً كسولاً: ذاك يفصلها
@@ -78,10 +79,11 @@ export interface ImageOptions {
 }
 
 /**
- * صورة الصفحة page (جذر التقرير): نسخة منها خارج الشاشة بـdata-capture وعرض width (IMAGE_WIDTH للتقرير؛ وورقة فاتورة البيع أضيق، عقد 0033)، تُرسم ثمّ
- * تُزال. يرمي إن تعذّر الرسم (لا صورة فارغة صامتة).
+ * نسخة الصفحة page خارج الشاشة بـdata-capture وعرض width، فاتحةً إن طُلب (ImageOptions)، تُعطى لـdraw ثمّ تُزال ولو رمى. المقياس ratio: 2 إلّا لتقرير
+ * طويل جدّاً (حدّ نقاط اللوحة)؛ وwhole (ملفّ PDF) مقياسٌ صحيح وحده، 2 أو 1: بمقياس كسريّ يلتصق كلّ صفّ بنقاط الجهاز فيتراكم الفرق بين الصورة وقياس
+ * النسخة (مقيس في Chromium، مراجعة 2026-11-27: 3 نقاط في 236 صفّاً و12 في 480، فانقسم صفّ بين صفحتين)، وبمقياس صحيح يبقى دون النقطة.
  */
-export async function reportImage(page: HTMLElement, name: string, width: number = IMAGE_WIDTH, options: ImageOptions = {}): Promise<File> {
+async function withCopy<T>(page: HTMLElement, width: number, options: ImageOptions, draw: (copy: HTMLElement, ratio: number) => Promise<T>, whole = false): Promise<T> {
   const host = document.createElement('div');
   host.setAttribute('aria-hidden', 'true');
   host.style.position = 'fixed';
@@ -102,18 +104,78 @@ export async function reportImage(page: HTMLElement, name: string, width: number
   document.body.appendChild(host);
   try {
     const height = copy.clientHeight || copy.scrollHeight || 0;
-    const ratio = height > 0 ? Math.min(PIXEL_RATIO, Math.sqrt(MAX_PIXELS / (width * height))) : PIXEL_RATIO;
-    const blob = await toBlob(
-      copy,
-      options.light
-        ? { width, pixelRatio: ratio, backgroundColor: options.background ?? LIGHT_SURFACE, preferredFontFormat: 'woff2', style: { margin: '0' }, imagePlaceholder: IMAGE_PLACEHOLDER }
-        : { width, pixelRatio: ratio, backgroundColor: surfaceColor(), preferredFontFormat: 'woff2', style: { margin: '0' } },
-    );
-    if (!blob) throw new Error('report_image_empty');
-    return new File([blob], name, { type: 'image/png' });
+    const fit = height > 0 ? Math.sqrt(MAX_PIXELS / (width * height)) : PIXEL_RATIO;
+    const ratio = whole ? (fit >= PIXEL_RATIO ? PIXEL_RATIO : 1) : Math.min(PIXEL_RATIO, fit);
+    return await draw(copy, ratio);
   } finally {
     host.parentNode?.removeChild(host);
   }
+}
+
+/** خيارات html-to-image للنسخة: العرض والمقياس والخلفية والخطّ، وصورة شفّافة مكان صورة فاشلة في الفاتحة. */
+const captureOptions = (width: number, ratio: number, options: ImageOptions) =>
+  options.light
+    ? { width, pixelRatio: ratio, backgroundColor: options.background ?? LIGHT_SURFACE, preferredFontFormat: 'woff2', style: { margin: '0' }, imagePlaceholder: IMAGE_PLACEHOLDER }
+    : { width, pixelRatio: ratio, backgroundColor: surfaceColor(), preferredFontFormat: 'woff2', style: { margin: '0' } };
+
+/**
+ * صورة الصفحة page (جذر التقرير): نسخة منها خارج الشاشة بـdata-capture وعرض width (IMAGE_WIDTH للتقرير؛ وورقة فاتورة البيع أضيق، عقد 0033)، تُرسم ثمّ
+ * تُزال. يرمي إن تعذّر الرسم (لا صورة فارغة صامتة).
+ */
+export async function reportImage(page: HTMLElement, name: string, width: number = IMAGE_WIDTH, options: ImageOptions = {}): Promise<File> {
+  return withCopy(page, width, options, async (copy, ratio) => {
+    const blob = await toBlob(copy, captureOptions(width, ratio, options));
+    if (!blob) throw new Error('report_image_empty');
+    return new File([blob], name, { type: 'image/png' });
+  });
+}
+
+/**
+ * حدود الصفحات المسموحة في ملفّ PDF: أسفل كلّ صفّ بيانات وكلّ صفّ مجموع، وأسفل رأس التقرير وكلّ قسم وتذييله (لا أسفل صفّ أسماء الأعمدة ولا شريط
+ * العنوان: لا ينفصلان عن جدولهما).
+ */
+const PDF_BREAKS = 'tbody > tr, tfoot > tr, header, section, footer';
+
+/** بايتات صورة من عنوان data: بترميز base64. */
+function dataUrlBytes(url: string): Uint8Array {
+  const binary = atob(url.slice(url.indexOf(',') + 1));
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return bytes;
+}
+
+/**
+ * ملفّ PDF بحجم A4 من الصفحة page (رسالة الزبون 2026-11-26: الرصيد اليومي يُرسل PDF لا رسالة): النسخة نفسها التي تُصوَّر، صورةً JPEG (ورقة بيضاء إن لم
+ * تُعطَ خلفية)، ثمّ تُقسم صفحاتٍ عند حدود الصفوف والأقسام وبصفّ أسماء الأعمدة مكرَّراً فوق كلّ صفحة تبدأ داخل جدول (paginate)، وتُلفّ بـimagePdf. يرمي إن
+ * تعذّر الرسم.
+ */
+export async function reportPdf(page: HTMLElement, name: string, title: string, width: number = IMAGE_WIDTH, options: ImageOptions = {}): Promise<File> {
+  return withCopy(page, width, options, async (copy, ratio) => {
+    const box = copy.getBoundingClientRect();
+    const top = box.top;
+    const breaks = Array.from(copy.querySelectorAll(PDF_BREAKS)).map((node) => node.getBoundingClientRect().bottom - top);
+    // صفّ أسماء أعمدة كلّ جدول وأسفله: يُكرَّر فوق كلّ صفحة تبدأ داخل جسمه.
+    const tables = Array.from(copy.querySelectorAll('table')).flatMap((table) => {
+      const head = table.tHead?.getBoundingClientRect();
+      return head && head.height > 0 ? [{ headTop: head.top - top, headBottom: head.bottom - top, bottom: table.getBoundingClientRect().bottom - top }] : [];
+    });
+    // ارتفاع النسخة يُعطى لـhtml-to-image صريحاً ويُستعمل نفسه ارتفاعاً للصورة في الملفّ: html-to-image يمطّ النسخة (عرضها × ارتفاعها) على لوحةٍ عرضها
+    // وارتفاعها مقرَّبان كلٌّ وحده، فارتفاعٌ من نسبة الصورة يختلف عنه بكسر نقطة. وانزياح القطع عن حدود الصفوف في تقرير طويل سببه المقياس الكسريّ لا هذا
+    // (withCopy بـwhole).
+    const measured = box.height;
+    const url = await toJpeg(copy, {
+      ...captureOptions(width, ratio, { ...options, background: options.background ?? 'rgb(255, 255, 255)' }),
+      ...(measured > 0 ? { height: measured } : {}),
+      quality: 0.92,
+    });
+    const bytes = dataUrlBytes(url);
+    const size = jpegSize(bytes);
+    if (!size) throw new Error('report_pdf_image');
+    // وبلا تخطيط يُقاس (لا يقع في متصفّح) فمن نسبة الصورة.
+    const height = measured > 0 ? measured : (width * size.height) / size.width;
+    const pdf = imagePdf({ bytes, pixelWidth: size.width, pixelHeight: size.height }, { cssWidth: width, cssHeight: height, pages: paginate(breaks, height, pageCapacity(width), tables), title });
+    return new File([pdf], name, { type: 'application/pdf' });
+  }, true);
 }
 
 /** تنزيل الملفّ برابط مؤقّت (حين لا تقبل نافذة المشاركة الملفّات، أو باختيار «نزّلها»). */

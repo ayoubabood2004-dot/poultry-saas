@@ -13,6 +13,7 @@ import { parseMoney } from '../../domain/money';
 import { searchable } from '../../domain/normalize';
 import { can } from '../../domain/permissions';
 import { describeError, IdentityError, NetworkError, NotConnectedError, RejectedError, RetryableError } from '../../lib/errors';
+import { noSubmit } from '../../lib/formKeys';
 import { fmtInt, fmtMoney } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { useDirtyForm } from '../../lib/pwa/dirty';
@@ -403,7 +404,8 @@ export default function RecipeBuilderPage() {
   const outsideBasis = view.some((row) => !row.inBasis);
 
   return (
-    <div className="flex flex-col gap-5">
+    // البانية نموذج واحد (0037 K): Enter ينقل بين خاناتها، وCtrl+Enter «احفظ الخلطة»؛ وخانات بزرّها (منتج جديد، فئة جديدة، الكثافة) لها Enter.
+    <form className="flex flex-col gap-5" onSubmit={noSubmit} noValidate>
       <BackButton to="/mill" label={t('back.mill', 'رجوع إلى المعمل')} action="back-to-mill" />
       <PageHeader
         title={t('mill.builder.title', 'خلطة جديدة')}
@@ -437,7 +439,22 @@ export default function RecipeBuilderPage() {
           {canCreateItem ? (
             <Field id={`${id}-new-output`} label={t('mill.builder.new_output', 'أو أنشئ منتجاً جديداً باسمه')} error={outputError} hint={t('mill.builder.new_output_hint', 'يُنشأ علفاً جاهزاً بالكيلوغرام، ويُختار منتجاً لهذه الخلطة.')}>
               <span className="flex items-center gap-2">
-                <input id={`${id}-new-output`} className="input" maxLength={120} value={newOutput} disabled={locked} onChange={(event) => setNewOutput(event.target.value)} data-action="new-output-name" />
+                <input
+                  id={`${id}-new-output`}
+                  className="input"
+                  maxLength={120}
+                  value={newOutput}
+                  disabled={locked}
+                  onChange={(event) => setNewOutput(event.target.value)}
+                  onKeyDown={(event) => {
+                    // Enter «أنشئ» (للخانة زرّها)، لا الانتقال ولا حفظ الخلطة (0037 K).
+                    if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+                    event.preventDefault();
+                    if (!locked && !outputBusy && newOutput.trim() !== '') void createOutput(false);
+                  }}
+                  data-enter="own"
+                  data-action="new-output-name"
+                />
                 <Button variant="secondary" icon={<Plus className="size-5" aria-hidden="true" />} busy={outputBusy} disabled={locked || newOutput.trim() === ''} onClick={() => void createOutput(false)} data-action="create-output">
                   {t('mill.builder.create_output', 'أنشئ')}
                 </Button>
@@ -565,7 +582,7 @@ export default function RecipeBuilderPage() {
         />
       ) : (
         <div className="flex flex-wrap gap-2">
-          <Button size="lg" icon={<CheckCircle2 className="size-5" aria-hidden="true" />} busy={saving} disabled={!canSave || locked} onClick={save} data-action="save-activate">
+          <Button type="submit" size="lg" icon={<CheckCircle2 className="size-5" aria-hidden="true" />} busy={saving} disabled={!canSave || locked} onClick={save} data-action="save-activate">
             {t('mill.builder.save_v4', 'احفظ الخلطة')}
           </Button>
         </div>
@@ -580,6 +597,6 @@ export default function RecipeBuilderPage() {
           </ul>
         </div>
       )}
-    </div>
+    </form>
   );
 }

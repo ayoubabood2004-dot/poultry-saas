@@ -10,7 +10,7 @@
 //   و«بانتظار الرفع»، والملاحظة، ولا كتابة ليوم قادم ولا لوجبة مغلقة، وحدّ الحيّ.
 // F العلف: ورقة اليوم بما أُرسل و«ألغِ» بتأكيد يسمّي المادّة والكمية واليوم، والإرسال من «رصيد العلف» بثلاث لمسات (آخر علف جاهز والكيس افتراضاً)، ويوم فات
 //   بيومه، والنتيجة المجهولة تُعاد بالمرجع نفسه بعد إعادة الفتح، وبلا اتصال جملة.
-// Q المركون على الجهاز يُدلّ عليه في الورقة. R تقرير الوجبة: الخلاصة من الخادم وحسابها من العيّنة، والجدول بالمجموعين التراكميين حتى اليوم، والصورة والطباعة.
+// Q المركون على الجهاز يُدلّ عليه في الورقة. R تقرير الوجبة: الخلاصة من الخادم وحسابها من العيّنة، والجدول حتى اليوم بمجموعه في آخره (بلا مجموع تراكميّ)، والصورة والطباعة.
 import 'fake-indexeddb/auto';
 import { build } from 'esbuild';
 import { readFileSync } from 'node:fs';
@@ -21,7 +21,13 @@ import { descendants, Element, fire, installDom, settle } from './dom.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const FIX = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sheet.hand.json'), 'utf8'));
 // عيّنات القاعدة الحقيقية (supabase/tests/hall-sheet.test.mjs بـHALL_SHEET_SAMPLES_OUT=1): تمرّ بالمحلّلات الحقيقية (تكامل 0035).
+// قاعة مقسومة قسمين (0038، عقد Part S): الورقة نفسها بأقسامها، مكتوبة باليد قبل الهجرة.
+const SPLIT = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sections.hand.json'), 'utf8')).hall_sheet;
 const REAL = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sheet-0035.json'), 'utf8'));
+// عيّنات الكاز الحقيقية (supabase/tests/kerosene.test.mjs بـKEROSENE_SAMPLES_OUT=1، اليوم المثبَّت 2026-11-26).
+const KERO = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'kerosene-0037.json'), 'utf8'));
+// عيّنات الأقسام الحقيقية (supabase/tests/hall-sections.test.mjs بـHALL_SECTIONS_SAMPLES_OUT=1، اليوم المثبَّت 2026-11-27): وجبة بقسمين 13,526 + 13,525.
+const HSEC = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sections-0038.json'), 'utf8'));
 const REAL_FLOCKS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'flocks.ts'));
 const REAL_SHEET = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'hallSheet.ts'));
 const STUBS = {
@@ -57,7 +63,8 @@ async function screens() {
     "export { openOutbox, pendingOps, reviewEntries, saveRound } from './src/lib/outbox/index.ts';",
     "export { uploadRounds } from './src/lib/roundUploads.ts';",
     "export { parseHallSheet, parseFeedSent, toBaseQty, HallSheetShapeError } from './src/lib/repo/hallSheet.ts';",
-    "export { gasAnswer } from './src/lib/repo/flocks.ts';",
+    "export { gasAnswer, keroseneAnswer, deadAnswer, parseDayRow, parseOverview } from './src/lib/repo/flocks.ts';",
+    "export { parseHallSections } from './src/lib/repo/hallAdmin.ts';",
     "export { UnknownOutcomeError } from './src/lib/errors.ts';",
     "export { fmtDay, fmtInt } from './src/lib/format.ts';",
     "export { wideStore } from './src/lib/wide.ts';",
@@ -184,6 +191,62 @@ export default async function (t) {
       t.same(m.parseFeedSent(clone(REAL.send_flock_feed)).issue.forDay ?? null, REAL.send_flock_feed.issue.for_day, 'I send_flock_feed الحقيقي');
       t.same([m.gasAnswer(clone(REAL.set_flock_gas_saved)).kind, m.gasAnswer(clone(REAL.set_flock_gas_stale)).kind], ['saved', 'stale_gas'], 'I set_flock_gas الحقيقي: saved وstale_gas');
     }
+    // ── I0037: عيّنات الكاز الحقيقية (kerosene.test بـKEROSENE_SAMPLES_OUT=1، يومها المثبَّت 2026-11-26) بالمحلّلات الحقيقية ──────────────────
+    {
+      const raw = KERO.hall_sheet;
+      const sheet = m.parseHallSheet(clone(raw));
+      const keroDays = (days, liters, version) => days.filter((day) => day[liters] !== null || day[version] !== null).map((day) => [day.on, day[liters], day[version]]);
+      t.same(keroDays(sheet.days, 'kerosene', 'keroseneVersion'), keroDays(raw.days, 'kerosene', 'kerosene_version'), 'I0037 الكاز ونسخته لكلّ يوم كما أرسلهما الخادم (اليوم الممسوح لتراته فارغة بنسخته)');
+      t.same(keroDays(sheet.days, 'kerosene', 'keroseneVersion').length, 3, 'I0037 العيّنة فيها يوما كاز ويوم ممسوح');
+      t.same([sheet.totals.kerosene, sheet.summary.kerosene], [raw.totals.kerosene, raw.summary.kerosene], 'I0037 مجموع الكاز في الورقة وخلاصتها كما أرسلهما الخادم');
+      t.same(
+        [KERO.set_flock_kerosene_saved, KERO.set_flock_kerosene_stale, KERO.set_flock_kerosene_parked].map((answer) => m.keroseneAnswer(clone(answer)).kind),
+        ['saved', 'stale_kerosene', 'parked'],
+        'I0037 set_flock_kerosene الحقيقي: saved وstale_kerosene وparked',
+      );
+    }
+    // ── I0038: عيّنات الأقسام الحقيقية (hall-sections.test بـHALL_SECTIONS_SAMPLES_OUT=1، يومها المثبَّت 2026-11-27) بالمحلّلات الحقيقية ──────────
+    {
+      const raw = HSEC.hall_sheet;
+      const sheet = m.parseHallSheet(clone(raw));
+      const partDays = (days, on, parts, version) => days.filter((day) => day[parts] !== null).map((day) => [day[on], day.dead, day[parts], day[version]]);
+      t.same(partDays(sheet.days, 'on', 'deadParts', 'dayVersion'), partDays(raw.days, 'on', 'dead_parts', 'day_version'), 'I0038 هلاكات كلّ قسم ومجموعها ونسخة الصفّ لكلّ يوم كما أرسلها الخادم');
+      t.same(
+        partDays(sheet.days, 'on', 'deadParts', 'dayVersion').map(([on, dead, parts]) => [on, dead, parts]),
+        [['2026-11-22', 5, [3, 2]], ['2026-11-24', 4, [1, 3]], ['2026-11-25', 0, [0, 0]], ['2026-11-26', 2, [2, 0]]],
+        'I0038 العيّنة: ثلاثة أيّام بهلاكات ويوم «لا هلاكات» بأصفار',
+      );
+      t.same(
+        [sheet.sections?.map((x) => [x.no, x.placed, x.dead, x.mortalityPct, x.remaining]), sheet.totals.deadParts, sheet.totals.dead],
+        [[[1, 13526, 6, 4n, 13520], [2, 13525, 5, 4n, 13520]], [6, 5], 11],
+        'I0038 الأقسام بأعدادها (27,051 بالتساوي) وهلاكاتها ونسبها وباقيها، ومجموع كلّ قسم، كما أرسلها الخادم',
+      );
+      const overview = m.parseOverview(clone(HSEC.flocks_overview));
+      const view = (halls, counts, dead) => halls.map((hall) => [hall.name, hall.sections, hall.flock?.[counts] ?? null, hall.flock?.[dead] ?? null]);
+      t.same(
+        view(overview.sites.flatMap((site) => site.halls), 'sectionCounts', 'sectionDead'),
+        view(HSEC.flocks_overview.sites.flatMap((site) => site.halls), 'section_counts', 'section_dead'),
+        'I0038 flocks_overview: أقسام كلّ قاعة، وعدد كلّ قسم في وجبتها وهلاكاته، كما أرسلها الخادم',
+      );
+      t.same(
+        overview.sites.flatMap((site) => site.halls).filter((hall) => hall.sections > 1 && hall.flock === null).length > 0,
+        true,
+        'I0038 العيّنة فيها قاعة مقسومة بلا وجبة (التسكين يقسم العدد عليها)',
+      );
+      const saved = m.deadAnswer(clone(HSEC.set_flock_dead_saved));
+      const recorded = m.deadAnswer(clone(HSEC.set_flock_dead_recorded));
+      t.same(
+        [saved.kind, saved.version, m.parseDayRow(saved.day).deadParts, recorded.kind, m.parseDayRow(recorded.server).deadParts],
+        ['saved', 1, [2, 0], 'dead_recorded', [3, 2]],
+        'I0038 set_flock_dead الحقيقي: saved بأقسام اليوم، وdead_recorded بأقسام المسجَّل قبل',
+      );
+      t.same(m.parseHallSections(clone(HSEC.set_hall_sections_saved)), { status: 'saved', version: 2, sections: 2 }, 'I0038 set_hall_sections الحقيقي: saved بنسخة القاعة وأقسامها');
+      t.same(
+        [HSEC.set_hall_sections_refused.code, /^في القاعة «.+» وجبة سُجّلت هلاكاتها/u.test(HSEC.set_hall_sections_refused.hint)],
+        ['sections_after_deaths', true],
+        'I0038 رفض set_hall_sections الحقيقي برمزه وتلميحه الذي تعرضه النافذة (sections-review-round HD1 بالتلميح نفسه)',
+      );
+    }
     // ── P: المحلّل ──────────────────────────────────────────────────────────────────────────────────────────────────
     {
       const sheet = m.parseHallSheet(clone(BROILER));
@@ -202,11 +265,30 @@ export default async function (t) {
       t.same(
         [sheet.totals, sheet.summary],
         [
-          { dead: 32, gas: 17, feedKg: 1000000n, feedBackKg: null, soldBirds: 1000, soldNetKg: 2350500n, eggsTotal: null },
-          { placed: 5000, dead: 32, mortalityPct: 64n, live: 3968, feedKg: 1000000n, feedBags: 20000n, feedBackKg: null, feedNetKg: 1000000n, gas: 17, soldBirds: 1000, soldNetKg: 2350500n, avgWeightKg: 2351n, fcr: 425n },
+          { dead: 32, deadParts: null, gas: 17, kerosene: 400, feedKg: 1000000n, feedBackKg: null, soldBirds: 1000, soldNetKg: 2350500n, eggsTotal: null },
+          { placed: 5000, dead: 32, mortalityPct: 64n, live: 3968, feedKg: 1000000n, feedBags: 20000n, feedBackKg: null, feedNetKg: 1000000n, gas: 17, kerosene: 400, soldBirds: 1000, soldNetKg: 2350500n, avgWeightKg: 2351n, fcr: 425n },
         ],
-        'P المجاميع والخلاصة من الخادم كما هي (بالآلاف والمئات)',
+        'P المجاميع والخلاصة من الخادم كما هي (بالآلاف والمئات)، والكاز (0037)',
       );
+      // الكاز (0037): اليوم بلتراته ونسخته، والممسوح نسخة بلا لترات، وقارئ قبل 0037 (البيّاض بلا المفاتيح) null وصفر.
+      const kero = (on) => sheet.days.find((day) => day.on === on);
+      const layerSheet = m.parseHallSheet(clone(LAYER));
+      t.same(
+        [[kero('2026-11-15').kerosene, kero('2026-11-15').keroseneVersion], [kero('2026-11-16').kerosene, kero('2026-11-16').keroseneVersion], [kero('2026-11-17').kerosene, kero('2026-11-17').keroseneVersion], [layerSheet.days[0].kerosene, layerSheet.days[0].keroseneVersion, layerSheet.totals.kerosene, layerSheet.summary.kerosene]],
+        [[400, 1], [null, 2], [null, null], [null, null, 0, 0]],
+        'P الكاز بلتراته ونسخته، والممسوح بنسخة بلا لترات، وبلا المفاتيح (قارئ قبل 0037) null وصفر',
+      );
+      const badKero = (patch) => {
+        const sample = clone(BROILER);
+        Object.assign(sample.days[2], patch);
+        try {
+          m.parseHallSheet(sample);
+          return 'parsed';
+        } catch (error) {
+          return error instanceof m.HallSheetShapeError ? error.field : `other:${error?.message}`;
+        }
+      };
+      t.same([badKero({ kerosene_version: null }), badKero({ kerosene: 20001 }), badKero({ kerosene: -1 })], ['kerosene', 'kerosene', 'kerosene'], 'P الكاز بلا نسخة، أو فوق 20,000، أو سالباً: يُرفض');
       t.same(
         [sheet.feedItems.map((item) => [item.name, item.onHand, item.units.map((unit) => [unit.name, unit.baseQty]), item.last]), sheet.rejects.map((reject) => [reject.on, reject.reason])],
         [[['علف بادئ', 1200000n, [['كيس 50 كغم', 50000000n]], false], ['علف نامي', 850500n, [['كيس 50 كغم', 50000000n]], true]], [['2026-11-19', 'date_too_old'], ['2026-11-21', 'period_locked']]],
@@ -253,6 +335,24 @@ export default async function (t) {
         'P جواب set_flock_gas ← نتيجة الطابور: saved بنسخة الصفّ، وstale_gas بقيمة الخادم، وparked بسببه',
       );
       t.throws(() => m.gasAnswer({ status: 'saved', gas: { on: TODAY, cylinders: 1001, version: 1 } }), 'P غاز فوق 1,000 قنينة شكلٌ غريب (يبقى بالطابور)');
+      // 0037: جواب set_flock_kerosene بأشكال العقد (D3): saved بالكاز كما حُفظ ونسخته، وstale_kerosene بقيمة الخادم، وparked بسببه.
+      const keroSaved = { status: 'saved', kerosene: { on: TODAY, liters: 400, version: 3 } };
+      const keroStale = { status: 'stale_kerosene', server: { on: TODAY, liters: 200, version: 2 } };
+      t.same(
+        [m.keroseneAnswer(clone(keroSaved)), m.keroseneAnswer(clone(keroStale)), m.keroseneAnswer({ status: 'parked', reason: 'flock_closed' })],
+        [{ kind: 'saved', version: 3, kerosene: keroSaved.kerosene }, { kind: 'stale_kerosene', server: keroStale.server }, { kind: 'parked', reason: 'flock_closed' }],
+        'P جواب set_flock_kerosene ← نتيجة الطابور: saved بنسخة صفّ الكاز، وstale_kerosene بقيمة الخادم، وparked بسببه',
+      );
+      t.same(
+        [
+          (() => { try { m.keroseneAnswer({ status: 'saved', kerosene: { on: TODAY, liters: 20001, version: 1 } }); return 'parsed'; } catch { return 'threw'; } })(),
+          (() => { try { m.keroseneAnswer({ status: 'saved', kerosene: { on: TODAY, liters: 5, version: 0 } }); return 'parsed'; } catch { return 'threw'; } })(),
+          (() => { try { m.keroseneAnswer({ status: 'stale_gas', server: keroStale.server }); return 'parsed'; } catch { return 'threw'; } })(),
+          m.keroseneAnswer({ status: 'saved', kerosene: { on: TODAY, liters: null, version: 4 } }).version,
+        ],
+        ['threw', 'threw', 'threw', 4],
+        'P الكاز فوق 20,000 لتر أو بلا نسخة أو بحالة غير حالاته شكلٌ غريب (يبقى بالطابور)، والممسوح بنسخته',
+      );
       const bag = sheet.feedItems[1].units[0];
       t.same([m.toBaseQty(2000n, bag), m.toBaseQty(1500n, bag), m.toBaseQty(120500n, null)], [100000n, 75000n, 120500n], 'P كيسان من 50 كغم = 100 كغم، وكيس ونصف = 75، والكيلو كما هو');
     }
@@ -353,19 +453,19 @@ export default async function (t) {
       await mount(`/broiler/hall/${H7}`);
       t.same(named(calls, 'hall_sheet'), [[F7]], 'S1 الورقة بقراءة hall_sheet واحدة لفوج القاعة');
       t.same([textOf('sheet-title'), textOf('sheet-batch')?.startsWith('وجبة 13/11/2026')], ['قاعة 7', true], 'S1 عنوان الصفحة اسم القاعة «قاعة 7» وتحته «وجبة 13/11/2026» («هلاكات قاعة (7)» شريط الجدول، لا عنواناً ثانياً فوقه، 0036)');
-      t.same(headers(sheetTable()), ['العمر', 'التاريخ', 'الهلاكات', 'الغاز', 'العلف (كغم)', 'الملاحظات'], 'S1 أعمدة الورقة: العمر | التاريخ | الهلاكات | الغاز | العلف | الملاحظات');
+      t.same(headers(sheetTable()), ['العمر', 'التاريخ', 'الهلاكات', 'الغاز', 'الكاز (لتر)', 'العلف (كغم)', 'الملاحظات'], 'S1 أعمدة الورقة: العمر | التاريخ | الهلاكات | الغاز | الكاز (لتر) | العلف | الملاحظات');
       const rows = bodyRows(sheetTable());
       t.same([rows.length, cells(rows[0]).slice(0, 2), cells(rows.at(-1)).slice(0, 2)], [46, ['0', '13/11'], ['45', '28/12']], 'S1 صفّ لكلّ يوم من عمر 0 حتى نهاية الوجبة، ولو بلا شيء (التاريخ يوم/شهر، والسنة في سطر «وجبة»)');
       const today = rowOn(TODAY);
-      t.same([today?.getAttribute('data-tone'), byAction('sheet-today').length, byAction('sheet-today', today ?? body()).length, cells(today).slice(0, 5)], ['mark', 1, 1, ['20', '03/12اليوم', '4', '', '300']], 'S1 صفّ اليوم معلَّم («اليوم» وخلفية الصفّ المختار) بقيمه');
+      t.same([today?.getAttribute('data-tone'), byAction('sheet-today').length, byAction('sheet-today', today ?? body()).length, cells(today).slice(0, 6)], ['mark', 1, 1, ['20', '03/12اليوم', '4', '', '', '300']], 'S1 صفّ اليوم معلَّم («اليوم» وخلفية الصفّ المختار) بقيمه');
       const box = ancestor(sheetTable(), (n) => (n.getAttribute?.('class') ?? '').includes('overflow-auto'));
       t.ok(box && box.scrollTop > 0, `S1 الجدول مُمرَّر إلى صفّ اليوم عند الفتح (scrollTop ${box?.scrollTop})`);
       t.same(
-        [cells(rowOn('2026-11-15')).slice(2, 4), cells(rowOn('2026-11-13')).slice(2, 5), cells(rowOn('2026-11-20')).slice(2, 5), cells(rowOn('2026-11-19')).slice(2, 6), cells(rowOn('2026-11-16'))[5]],
-        [['5', '3'], ['', '4', '100منقول'], ['5', '', '200'], ['', '', '', ''], 'تلقيح نيوكاسل'],
-        'S1 المستبعد القديم داخل الهلاكات (3 + 2)، واليوم بلا صفّ فارغ لا صفر، وعلف 20/11 الذي خرج يوم 01/12 في يومه، والملاحظة',
+        [cells(rowOn('2026-11-15')).slice(2, 5), cells(rowOn('2026-11-13')).slice(2, 6), cells(rowOn('2026-11-20')).slice(2, 6), cells(rowOn('2026-11-19')).slice(2, 7), cells(rowOn('2026-11-16'))[6], cells(rowOn('2026-11-16'))[4]],
+        [['5', '3', '400'], ['', '4', '', '100منقول'], ['5', '', '', '200'], ['', '', '', '', ''], 'تلقيح نيوكاسل', ''],
+        'S1 المستبعد القديم داخل الهلاكات (3 + 2)، والكاز بلتراته (والممسوح فارغ)، واليوم بلا صفّ فارغ لا صفر، وعلف 20/11 الذي خرج يوم 01/12 في يومه، والملاحظة',
       );
-      t.same(cells(footRow(sheetTable())), ['المجموع', '32', '17', '1,000', ''], 'S1 صفّ المجموع من الخادم (totals)');
+      t.same(cells(footRow(sheetTable())), ['المجموع', '32', '17', '400', '1,000', ''], 'S1 صفّ المجموع من الخادم (totals)، والكاز');
       t.ok(!text().includes('المستبعد'), 'S1 لا «المستبعد» في الورقة');
       const back = encodeURIComponent(`/broiler/hall/${H7}`);
       t.same(
@@ -395,7 +495,7 @@ export default async function (t) {
       fresh('manager', sheetSetup(LAYER));
       await mount(`/layers/hall/${LAYER.flock.hall_id}`);
       const table = tableBy('هلاكات قاعة (3)');
-      t.same([headers(table), cells(footRow(table))], [['العمر', 'التاريخ', 'الهلاكات', 'الغاز', 'العلف (كغم)', 'البيض', 'الملاحظات'], ['المجموع', '4', '3', '100', '11,240', '']], 'S3 البيّاض بعمود البيض ومجموعه');
+      t.same([headers(table), cells(footRow(table))], [['العمر', 'التاريخ', 'الهلاكات', 'الغاز', 'الكاز (لتر)', 'العلف (كغم)', 'البيض', 'الملاحظات'], ['المجموع', '4', '3', '0', '100', '11,240', '']], 'S3 البيّاض بعمود البيض ومجموعه، وكاز صفر بلا مفاتيحه');
     });
 
     // ── E: الخانات ──────────────────────────────────────────────────────────────────────────────────────────────────
@@ -894,6 +994,55 @@ export default async function (t) {
       t.same([sent.map((op) => [op.fn, op.day, op.payload, op.baseVersion]), cells(rowOn('2026-11-13'))[3]], [[['set_flock_gas', '2026-11-13', { cylinders: null }, 1]], ''], 'E8 المسح set_flock_gas بقناني null ونسخة الصفّ، والخانة فارغة');
     });
 
+    // ── K: الكاز (0037): باللتر أو بالبرميل، والمسح ─────────────────────────────────────────────────────────────────────
+    await step('K1 الكاز بالبرميل', async () => {
+      const { sent } = fresh('hall_worker', sheetSetup(), { userId: 'u-kero' });
+      await mount(`/broiler/hall/${H7}`);
+      await pencil();
+      const day = '2026-11-17';
+      await tap(cellIn(day, 'cell-kerosene'));
+      const dialog = dialogTitled('الكاز (لتر)');
+      const units = dialog ? descendants(dialog).filter((n) => n.getAttribute('role') === 'radio').map((n) => [n.textContent, n.getAttribute('aria-checked')]) : [];
+      t.same([dialog !== null, units, textOf('cell-current', dialog ?? body())], [true, [['لتر', 'true'], ['برميل', 'false']], 'لم يُسجَّل شيء لهذا اليوم بعد.'], 'K1 لمسة خانة الكاز: ورقته بـ«لتر | برميل» واللتر أوّلاً');
+      await click(descendants(dialog ?? body()).find((n) => n.getAttribute('role') === 'radio' && n.textContent === 'برميل') ?? null);
+      const hint = textOf('cell-barrels', dialog ?? body());
+      await click(key(dialog, '2'));
+      t.same([hint, textOf('cell-barrels', dialog ?? body())], ['البرميل 200 لتر.', 'برميلان = 400 لتر'], 'K1 بالبرميل: البرميل 200 لتر، وما يُكتب يُقال لتراً قبل الحفظ (برميلان = 400 لتر)');
+      await click(byAction('cell-done', dialog ?? body())[0], 120);
+      t.same([sent.map((op) => [op.fn, op.day, op.payload, op.baseVersion]), cells(rowOn(day))[4]], [[['set_flock_kerosene', day, { liters: 400 }, null]], '400'], 'K1 «تم»: set_flock_kerosene بـ400 لتر (برميلان) بلا نسخة (لا صفّ بعد)، والخانة 400');
+    });
+
+    await step('K2 امسح الكاز', async () => {
+      const { sent } = fresh('hall_worker', sheetSetup(), { userId: 'u-kero2' });
+      await mount(`/broiler/hall/${H7}`);
+      await pencil();
+      await tap(cellIn('2026-11-15', 'cell-kerosene'));
+      const dialog = dialogTitled('الكاز (لتر)');
+      t.same([textOf('cell-current', dialog ?? body()), textOf('cell-clear', dialog ?? body())], ['المسجّل الآن: 400 لتر', 'امسح الكاز'], 'K2 الكاز المسجّل بلتراته، ويُمسح بـ«امسح الكاز»');
+      await click(byAction('cell-clear', dialog ?? body())[0], 120);
+      t.same([sent.map((op) => [op.fn, op.day, op.payload, op.baseVersion]), cells(rowOn('2026-11-15'))[4]], [[['set_flock_kerosene', '2026-11-15', { liters: null }, 1]], ''], 'K2 المسح set_flock_kerosene بلترات null ونسخة الصفّ (1)، والخانة فارغة');
+      await tap(cellIn('2026-11-16', 'cell-kerosene'));
+      const cleared = dialogTitled('الكاز (لتر)');
+      await click(key(cleared, '5'));
+      await click(byAction('cell-done', cleared ?? body())[0], 120);
+      t.same(sent.at(-1) ? [sent.at(-1).fn, sent.at(-1).payload, sent.at(-1).baseVersion] : null, ['set_flock_kerosene', { liters: 5 }, 2], 'K2 يومٌ مُسح كازه من قبل: الكتابة بنسخة صفّه الممسوح (2) لا بلا نسخة');
+    });
+
+    // ── K3: قاعة مقسومة (0038) باللمس: خانة «هلاكات ق2» تفتح ورقتها، والحفظ بأقسام اليوم ومجموعها ─────────────────────────────────
+    await step('K3 الأقسام باللمس', async () => {
+      const { sent } = fresh('hall_worker', sheetSetup(SPLIT), { userId: 'u-split' });
+      await mount(`/broiler/hall/${H7}`);
+      await pencil();
+      const row = rowOn(TODAY);
+      const cellsOf = row ? byAction('cell-dead-part', row) : [];
+      await tap(cellsOf[1] ?? null);
+      const dialog = dialogTitled('هلاكات ق2');
+      t.same([cellsOf.length, dialog !== null, textOf('cell-current', dialog ?? body())], [2, true, 'المسجّل الآن: 2'], 'K3 لمسة «هلاكات ق2» تفتح ورقتها بقيمتها');
+      await click(key(dialog, '6'));
+      await click(byAction('cell-done', dialog ?? body())[0], 120);
+      t.same(sent.map((op) => [op.fn, op.day, op.payload, op.baseVersion]), [['save_flock_day', TODAY, { dead: 8, dead_parts: [2, 6], culled: null }, SPLIT.days.find((day) => day.on === TODAY).day_version]], 'K3 «تم»: save_flock_day بمجموع اليوم 8 وأقسامه [2، 6] بنسخة صفّه');
+    });
+
     await step('F6 الطلب المجمَّد يسمّي يومه', async () => {
       fresh('hall_worker', sheetSetup(BROILER, { send_flock_feed: () => { throw new m.UnknownOutcomeError(); } }), { userId: 'u-f6' });
       await mount(`/broiler/hall/${H7}`);
@@ -989,6 +1138,76 @@ export default async function (t) {
       t.throws(() => m.parseHallSheet((() => { const j = clone(BROILER); j.days[3].carry_in_kg = '10.000'; return j; })()), 'R3 منقول في غير يوم التسكين يُرفض');
     });
 
+    // ── Q: القاعة المقسومة (0038): المحلّل وتقرير الوجبة ───────────────────────────────────────────────────────────────────
+    await step('Q الأقسام', async () => {
+      const split = m.parseHallSheet(clone(SPLIT));
+      t.same(
+        [split.sections?.map((x) => [x.no, x.placed, x.dead, x.mortalityPct, x.remaining]), split.totals.deadParts, split.days[20].deadParts, split.days.find((day) => day.dayVersion === null)?.deadParts],
+        [[[1, 2500, 18, 72n, 2482], [2, 2500, 14, 56n, 2486]], [18, 14], [2, 2], null],
+        'Q المحلّل: الأقسام بأعدادها وهلاكاتها ونسبها وباقيها، ومجاميعها، وأقسام كلّ يوم (ويوم بلا جولة null)',
+      );
+      const bad = (mutate) => {
+        const json = clone(SPLIT);
+        mutate(json);
+        try {
+          m.parseHallSheet(json);
+          return 'parsed';
+        } catch (error) {
+          return error instanceof m.HallSheetShapeError ? error.field : `other:${error?.message}`;
+        }
+      };
+      t.same(
+        [
+          bad((j) => { j.days[20].dead_parts = [3, 2]; }),
+          bad((j) => { j.days[20].dead_parts = [4]; }),
+          bad((j) => { j.days[20].dead_parts = [2, 1, 1]; }),
+          bad((j) => { j.sections[0].remaining = 1; }),
+          bad((j) => { j.sections[1].dead = 15; }),
+          bad((j) => { j.sections = null; }),
+        ],
+        ['dead_parts', 'dead_parts', 'dead_parts', 'sections', 'sections', 'dead_parts'],
+        'Q الصرامة: أقسام يوم لا تساوي هلاكاته، أو بغير عدد الأقسام، وقسم باقيه غير عدده ناقص هلاكاته، أو هلاكاته غير مجموع أيّامه، وأقسام أيّام بلا أقسام الوجبة: يُرفض',
+      );
+      fresh('viewer', { hall_sheet: () => clone(SPLIT) });
+      await mount(`/halls/report/${F7}`, m.h(m.Routes, null, m.h(m.Route, { path: '/halls/report/:flockId', element: m.h(m.ReportPage) })));
+      const sections = tableBy('الأقسام');
+      t.same(
+        [headers(sections), bodyRows(sections).map(cells)],
+        [['القسم', 'الداخل', 'الهلاكات', 'نسبة الهلاكات', 'الباقي بعد الهلاكات'], [['ق1', '2,500', '18', '0.72%', '2,482'], ['ق2', '2,500', '14', '0.56%', '2,486']]],
+        'Q تقرير الوجبة: جدول «الأقسام» بعدد كلّ قسم وهلاكاته ونسبتها والباقي فيه بعد الهلاكات',
+      );
+      const days = tableBy('أيام الوجبة');
+      t.same(
+        [headers(days).slice(0, 5), cells(footRow(days)).slice(0, 4), bodyRows(days).map(cells).at(-1)?.slice(2, 4)],
+        [['العمر', 'التاريخ', 'هلاكات ق1', 'هلاكات ق2', 'الغاز'], ['المجموع', '18', '14', '17'], ['2', '2']],
+        'Q تقرير الوجبة: عمود هلاكات لكلّ قسم بمجموعه في آخره بدل «الهلاكات»',
+      );
+    });
+
+    // ── I0038 بالشاشات: ورقة القاعة وتقرير الوجبة بعيّنة القاعدة الحقيقية (لا المكتوبة باليد) ─────────────────────────────────────────
+    await step('I0038 الورقة والتقرير بالعيّنة الحقيقية', async () => {
+      const raw = HSEC.hall_sheet;
+      fresh('hall_worker', { loadOverviewJson: () => clone(HSEC.flocks_overview), hall_sheet: () => clone(raw) });
+      await mount(`/broiler/hall/${raw.flock.hall_id}`);
+      const sheet = tableBy('هلاكات قاعة (1)');
+      const dayCells = (on) => cells(bodyRows(sheet).find((tr) => cells(tr)[1]?.startsWith(m.fmtDay(on).slice(0, 5))) ?? null).slice(2, 4);
+      t.same(
+        [headers(sheet).slice(2, 4), dayCells('2026-11-22'), dayCells('2026-11-24'), dayCells('2026-11-25'), dayCells('2026-11-26')],
+        [['هلاكات ق1', 'هلاكات ق2'], ['3', '2'], ['1', '3'], ['0', '0'], ['2', '0']],
+        'I0038 ورقة القاعة بالعيّنة الحقيقية: عمود لكلّ قسم، وهلاكات كلّ قسم في يومها',
+      );
+      await unmount();
+      fresh('viewer', { hall_sheet: () => clone(raw) });
+      await mount(`/halls/report/${raw.flock.id}`, m.h(m.Routes, null, m.h(m.Route, { path: '/halls/report/:flockId', element: m.h(m.ReportPage) })));
+      const sections = tableBy('الأقسام');
+      const days = tableBy('أيام الوجبة');
+      t.same(
+        [bodyRows(sections).map(cells), cells(footRow(days)).slice(0, 3)],
+        [[['ق1', '13,526', '6', '0.04%', '13,520'], ['ق2', '13,525', '5', '0.04%', '13,520']], ['المجموع', '6', '5']],
+        'I0038 تقرير الوجبة بالعيّنة الحقيقية: جدول «الأقسام» ومجموع كلّ قسم في آخر جدول الأيّام',
+      );
+    });
+
     // ── R: تقرير الوجبة ─────────────────────────────────────────────────────────────────────────────────────────────
     await step('R تقرير الوجبة', async () => {
       fresh('viewer', { hall_sheet: () => clone(BROILER) });
@@ -999,7 +1218,7 @@ export default async function (t) {
         summary,
         [
           ['الداخل', '5,000'], ['الهلاكات', '32'], ['نسبة الهلاكات', '0.64%'], ['الباقي', '3,968'], ['العلف المرسل (كغم)', '1,000'], ['العلف المرسل (أكياس)', '20'], ['صافي العلف (كغم)', '1,000'],
-          ['الغاز (قناني)', '17'], ['المباع (طير)', '1,000'], ['صافي وزن المباع (كغم)', '2,350.5'], ['معدّل وزن الطير (كغم)', '2.351'], ['معامل التحويل (صافي العلف ÷ صافي المباع)', '0.425'],
+          ['الغاز (قناني)', '17'], ['الكاز (لتر)', '400'], ['المباع (طير)', '1,000'], ['صافي وزن المباع (كغم)', '2,350.5'], ['معدّل وزن الطير (كغم)', '2.351'], ['معامل التحويل (صافي العلف ÷ صافي المباع)', '0.425'],
         ],
         'R الخلاصة من الخادم: الداخل والهلاكات ونسبتها والباقي والعلف المرسل كغم وأكياساً وصافي العلف (بلا مرتجع: لا سطر له) والغاز والمباع وصافيه ومعدّله ومعامل التحويل على الصافي',
       );
@@ -1020,16 +1239,17 @@ export default async function (t) {
       const table = tableBy('أيام الوجبة');
       const rows = bodyRows(table).map(cells);
       t.same(
-        [headers(table), rows.length, rows.at(-1)?.slice(0, 7), rows.find((row) => row[1] === '20/11/2026')?.slice(2, 7)],
+        [headers(table), rows.length, rows.at(-1)?.slice(0, 6), rows.find((row) => row[1] === '20/11/2026')?.slice(2, 6), rows.find((row) => row[1] === '15/11/2026')?.[4]],
         [
-          ['العمر', 'التاريخ', 'الهلاكات', 'مجموع الهلاكات', 'الغاز', 'العلف (كغم)', 'مجموع العلف (كغم)', 'المباع (طير)', 'صافي المباع (كغم)', 'الملاحظات'],
+          ['العمر', 'التاريخ', 'الهلاكات', 'الغاز', 'الكاز (لتر)', 'العلف (كغم)', 'المباع (طير)', 'صافي المباع (كغم)', 'الملاحظات'],
           21,
-          ['20', '03/12/2026', '4', '32', '', '300', '1,000'],
-          ['5', '22', '', '200', '450'],
+          ['20', '03/12/2026', '4', '', '', '300'],
+          ['5', '', '', '200'],
+          '400',
         ],
-        'R جدول الورقة حتى اليوم بمجموعَي الهلاكات والعلف التراكميين (علف 20/11 في يومه)، والمباع وصافيه، بلا وزن يوميّ ولا علف مأكول',
+        'R جدول الورقة حتى اليوم بلا عمودَي مجموع تراكميّ (رسالة الزبون 2026-11-26؛ علف 20/11 في يومه)، والمباع وصافيه، بلا وزن يوميّ ولا علف مأكول',
       );
-      t.same(cells(footRow(table)).slice(0, 5), ['المجموع', '32', '', '17', '1,000'], 'R صفّ المجموع من الخادم (والتراكميّ بلا مجموع)');
+      t.same(cells(footRow(table)), ['المجموع', '32', '17', '400', '1,000', '1,000', '2,350.5', ''], 'R المجموع في آخر خلية من كلّ عمود (صفّ مجموع الخادم)، ولا مجموع إلّا فيه، والكاز بعموده');
       t.same(
         [textOf('batch-image'), textOf('batch-print'), hrefOf('batch-detailed'), text().includes('الوزن'), text().includes('المأكول')],
         ['أرسل صورة', 'اطبع / PDF', `/halls/cycle/${F7}?back=%2Fhalls%2Freport%2F${F7}`, false, false],

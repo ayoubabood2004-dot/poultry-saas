@@ -17,6 +17,7 @@ import { can } from '../../domain/permissions';
 import { parseQty, type BaseUnit } from '../../domain/units';
 import { parseDayText } from '../../lib/dayText';
 import { describeError, RejectedError } from '../../lib/errors';
+import { noSubmit } from '../../lib/formKeys';
 import { columnDecimals, fmtDay, fmtMoney, fmtQty, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import {
@@ -264,42 +265,44 @@ function InputDialog({
       dirty={item !== null || qty !== '' || reason !== ''}
       title={replacing ? t('mill.input.replace.title', 'بدّل «{name}» بمادّة أخرى', { name: replacing.itemName }) : t('mill.input.add.title', 'أضف مادّة إلى الدفعة')}
       footer={
-        <Button onClick={() => void save()} busy={busy} disabled={!ready} data-action="input-save">
+        <Button type="submit" form={`${id}-form`} onClick={() => void save()} busy={busy} disabled={!ready} data-action="input-save">
           {replacing ? t('mill.input.replace.save', 'بدّل') : t('mill.input.add.save', 'أضف')}
         </Button>
       }
     >
-      {replacing ? (
-        <p className="text-sm text-ink-muted">
-          {t('mill.input.replace.hint', 'يُحذف سطر «{name}» من الدفعة وتحلّ المادّة الجديدة محلّه، والسبب يبقى مكتوباً على السطر.', { name: replacing.itemName })}
-        </p>
-      ) : (
-        <p className="text-sm text-ink-muted">{t('mill.input.add.hint', 'المادّة الإضافية تُسحب من «{store}» وتدخل كتلتها في الدفعة.', { store: batch.inputWarehouse.name })}</p>
-      )}
-      {item ? (
-        <div className="flex items-center justify-between gap-2 rounded-2xl bg-surface-2 p-3">
-          <span className="font-medium">{item.name}</span>
-          <Button size="sm" variant="ghost" onClick={() => setItem(null)} data-action="input-change-item">
-            {t('mill.input.change', 'غيّر المادّة')}
-          </Button>
-        </div>
-      ) : (
-        <MaterialPicker id={`${id}-picker`} exclude={exclude} canCreate={false} canFixKind={canFixKind} onPick={setItem} />
-      )}
-      <Field
-        id={`${id}-qty`}
-        label={item ? t('mill.input.qty_unit', 'الكمية ({unit})', { unit: unitWord(item.baseUnit) }) : t('mill.line.qty', 'الكمية')}
-        error={qty.trim() !== '' && !qtyOk ? t('mill.line.qty_bad', 'اكتب كمية أكبر من صفر.') : undefined}
-        hint={replacing ? t('mill.input.replaced_qty', 'كان المخطّط من «{name}»: {qty}', { name: replacing.itemName, qty: fmtQty(replacing.plannedQty, replacing.baseUnit).main }) : undefined}
-      >
-        <input id={`${id}-qty`} className="input tabular-nums" inputMode="decimal" dir="ltr" value={qty} onChange={(event) => setQty(event.target.value)} data-action="input-qty" />
-      </Field>
-      {replacing ? (
-        <Field id={`${id}-reason`} label={t('mill.input.reason', 'سبب التبديل')} error={reason.trim() !== '' && !reasonOk ? t('mill.input.reason_short', 'اكتب السبب بثلاثة أحرف على الأقلّ.') : undefined}>
-          <input id={`${id}-reason`} className="input" maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} data-action="input-reason" />
+      <form id={`${id}-form`} onSubmit={noSubmit} noValidate>
+        {replacing ? (
+          <p className="text-sm text-ink-muted">
+            {t('mill.input.replace.hint', 'يُحذف سطر «{name}» من الدفعة وتحلّ المادّة الجديدة محلّه، والسبب يبقى مكتوباً على السطر.', { name: replacing.itemName })}
+          </p>
+        ) : (
+          <p className="text-sm text-ink-muted">{t('mill.input.add.hint', 'المادّة الإضافية تُسحب من «{store}» وتدخل كتلتها في الدفعة.', { store: batch.inputWarehouse.name })}</p>
+        )}
+        {item ? (
+          <div className="flex items-center justify-between gap-2 rounded-2xl bg-surface-2 p-3">
+            <span className="font-medium">{item.name}</span>
+            <Button size="sm" variant="ghost" onClick={() => setItem(null)} data-action="input-change-item">
+              {t('mill.input.change', 'غيّر المادّة')}
+            </Button>
+          </div>
+        ) : (
+          <MaterialPicker id={`${id}-picker`} exclude={exclude} canCreate={false} canFixKind={canFixKind} onPick={setItem} />
+        )}
+        <Field
+          id={`${id}-qty`}
+          label={item ? t('mill.input.qty_unit', 'الكمية ({unit})', { unit: unitWord(item.baseUnit) }) : t('mill.line.qty', 'الكمية')}
+          error={qty.trim() !== '' && !qtyOk ? t('mill.line.qty_bad', 'اكتب كمية أكبر من صفر.') : undefined}
+          hint={replacing ? t('mill.input.replaced_qty', 'كان المخطّط من «{name}»: {qty}', { name: replacing.itemName, qty: fmtQty(replacing.plannedQty, replacing.baseUnit).main }) : undefined}
+        >
+          <input id={`${id}-qty`} className="input tabular-nums" inputMode="decimal" dir="ltr" value={qty} onChange={(event) => setQty(event.target.value)} data-action="input-qty" />
         </Field>
-      ) : null}
-      {error ? <Notice tone="danger" title={error} /> : null}
+        {replacing ? (
+          <Field id={`${id}-reason`} label={t('mill.input.reason', 'سبب التبديل')} error={reason.trim() !== '' && !reasonOk ? t('mill.input.reason_short', 'اكتب السبب بثلاثة أحرف على الأقلّ.') : undefined}>
+            <input id={`${id}-reason`} className="input" maxLength={500} value={reason} onChange={(event) => setReason(event.target.value)} data-action="input-reason" />
+          </Field>
+        ) : null}
+        {error ? <Notice tone="danger" title={error} /> : null}
+      </form>
     </Dialog>
   );
 }
@@ -998,7 +1001,7 @@ export default function BatchPage() {
               <LoadFailed what={t('mill.costs.categories', 'فئات المصاريف')} error={categories.error} onRetry={categories.retry} />
             ) : (
               <>
-                <div className="flex flex-wrap items-end gap-3">
+                <form className="flex flex-wrap items-end gap-3" onSubmit={noSubmit} noValidate>
                   <Field id={`${fieldId}-new-cost-category`} label={t('mill.costs.category', 'التكلفة')}>
                     <select
                       id={`${fieldId}-new-cost-category`}
@@ -1029,6 +1032,7 @@ export default function BatchPage() {
                     />
                   </Field>
                   <Button
+                    type="submit"
                     variant="secondary"
                     icon={<Plus className="size-5" aria-hidden="true" />}
                     busy={busy}
@@ -1048,7 +1052,7 @@ export default function BatchPage() {
                   >
                     {t('mill.costs.add', 'أضف سطر تكلفة')}
                   </Button>
-                </div>
+                </form>
                 <NewCategoryField
                   id={`${fieldId}-new-category`}
                   categories={allCategories}
@@ -1126,76 +1130,78 @@ export default function BatchPage() {
           <p className="text-sm font-medium" data-action="output-plain">
             {t('mill.weigh.output_plain', 'الناتج قبل الهدر = مجموع المواد المستعملة: {kg}.', { kg: fmtQty(mass, 'kg').sub ?? fmtQty(mass, 'kg').main })}
           </p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <Field id={`${fieldId}-weight`} label={t('mill.weigh.kg', 'الوزن بالكيلوغرام')} error={weightBad ? t('mill.weigh.bad', 'اكتب وزناً أكبر من صفر.') : undefined}>
-              <input
-                id={`${fieldId}-weight`}
-                className="input tabular-nums"
-                inputMode="decimal"
-                dir="ltr"
-                value={shownWeight}
-                disabled={busy}
-                onChange={(event) => setWeight(event.target.value)}
-                data-action="output-weight"
-              />
-            </Field>
-            <Field id={`${fieldId}-reason`} label={t('mill.weigh.reason', 'سبب الهدر (إن خرج عن المدى)')}>
-              <input
-                id={`${fieldId}-reason`}
-                className="input"
-                maxLength={500}
-                value={shownReason}
-                disabled={busy}
-                onChange={(event) => setReason(event.target.value)}
-                data-action="waste-reason"
-              />
-            </Field>
-            {expiryShown ? (
+          <form className="flex flex-col gap-3" onSubmit={noSubmit} noValidate>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <Field id={`${fieldId}-weight`} label={t('mill.weigh.kg', 'الوزن بالكيلوغرام')} error={weightBad ? t('mill.weigh.bad', 'اكتب وزناً أكبر من صفر.') : undefined}>
+                <input
+                  id={`${fieldId}-weight`}
+                  className="input tabular-nums"
+                  inputMode="decimal"
+                  dir="ltr"
+                  value={shownWeight}
+                  disabled={busy}
+                  onChange={(event) => setWeight(event.target.value)}
+                  data-action="output-weight"
+                />
+              </Field>
+              <Field id={`${fieldId}-reason`} label={t('mill.weigh.reason', 'سبب الهدر (إن خرج عن المدى)')}>
+                <input
+                  id={`${fieldId}-reason`}
+                  className="input"
+                  maxLength={500}
+                  value={shownReason}
+                  disabled={busy}
+                  onChange={(event) => setReason(event.target.value)}
+                  data-action="waste-reason"
+                />
+              </Field>
+              {expiryShown ? (
+                <Field
+                  id={`${fieldId}-expiry`}
+                  label={t('mill.weigh.expiry', 'تاريخ انتهاء الناتج')}
+                  error={expiryBad ? t('mill.weigh.expiry_bad', 'اكتب التاريخ يوم/شهر/سنة، مثل 30/09/2026.') : undefined}
+                  hint={t('mill.weigh.expiry_hint', 'يوم/شهر/سنة، ولا يكون قبل يوم الإنتاج.')}
+                >
+                  <input
+                    id={`${fieldId}-expiry`}
+                    className="input tabular-nums"
+                    inputMode="numeric"
+                    dir="ltr"
+                    autoComplete="off"
+                    placeholder={t('mill.weigh.expiry_placeholder', 'يوم/شهر/سنة')}
+                    value={shownExpiry}
+                    disabled={busy}
+                    onChange={(event) => setExpiry(event.target.value)}
+                    data-action="output-expiry"
+                  />
+                </Field>
+              ) : null}
               <Field
-                id={`${fieldId}-expiry`}
-                label={t('mill.weigh.expiry', 'تاريخ انتهاء الناتج')}
-                error={expiryBad ? t('mill.weigh.expiry_bad', 'اكتب التاريخ يوم/شهر/سنة، مثل 30/09/2026.') : undefined}
-                hint={t('mill.weigh.expiry_hint', 'يوم/شهر/سنة، ولا يكون قبل يوم الإنتاج.')}
+                id={`${fieldId}-day`}
+                label={t('mill.weigh.day', 'يوم الإنتاج')}
+                error={dayBad ? t('mill.weigh.day_bad', 'اكتب يوم الإنتاج يوم/شهر/سنة، مثل 04/11/2026.') : undefined}
+                hint={t('mill.weigh.day_hint', 'يوم/شهر/سنة: بهذا اليوم تُسحب المواد ويدخل العلف مخزنه.')}
               >
                 <input
-                  id={`${fieldId}-expiry`}
+                  id={`${fieldId}-day`}
                   className="input tabular-nums"
                   inputMode="numeric"
                   dir="ltr"
                   autoComplete="off"
                   placeholder={t('mill.weigh.expiry_placeholder', 'يوم/شهر/سنة')}
-                  value={shownExpiry}
+                  value={shownDay}
                   disabled={busy}
-                  onChange={(event) => setExpiry(event.target.value)}
-                  data-action="output-expiry"
+                  onChange={(event) => setProducedDay(event.target.value)}
+                  // اليوم الممسوح غير مكتوب (ب٣٥): يعود إلى المحفوظ حين يُغادَر الحقل، فلا يبقى فارغاً بلا معنى.
+                  onBlur={() => setProducedDay((current) => (current !== null && current.trim() === '' ? null : current))}
+                  data-action="produced-on"
                 />
               </Field>
-            ) : null}
-            <Field
-              id={`${fieldId}-day`}
-              label={t('mill.weigh.day', 'يوم الإنتاج')}
-              error={dayBad ? t('mill.weigh.day_bad', 'اكتب يوم الإنتاج يوم/شهر/سنة، مثل 04/11/2026.') : undefined}
-              hint={t('mill.weigh.day_hint', 'يوم/شهر/سنة: بهذا اليوم تُسحب المواد ويدخل العلف مخزنه.')}
-            >
-              <input
-                id={`${fieldId}-day`}
-                className="input tabular-nums"
-                inputMode="numeric"
-                dir="ltr"
-                autoComplete="off"
-                placeholder={t('mill.weigh.expiry_placeholder', 'يوم/شهر/سنة')}
-                value={shownDay}
-                disabled={busy}
-                onChange={(event) => setProducedDay(event.target.value)}
-                // اليوم الممسوح غير مكتوب (ب٣٥): يعود إلى المحفوظ حين يُغادَر الحقل، فلا يبقى فارغاً بلا معنى.
-                onBlur={() => setProducedDay((current) => (current !== null && current.trim() === '' ? null : current))}
-                data-action="produced-on"
-              />
-            </Field>
-          </div>
-          <Button variant="secondary" busy={busy} disabled={weightBad || expiryBad || dayBad || !fieldsTouched} onClick={saveFields} data-action="save-weight">
-            {t('mill.weigh.save_typed', 'احفظ ما كتبته هنا')}
-          </Button>
+            </div>
+            <Button type="submit" variant="secondary" busy={busy} disabled={weightBad || expiryBad || dayBad || !fieldsTouched} onClick={saveFields} data-action="save-weight">
+              {t('mill.weigh.save_typed', 'احفظ ما كتبته هنا')}
+            </Button>
+          </form>
         </section>
       ) : null}
 

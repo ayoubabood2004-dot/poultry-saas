@@ -15,6 +15,7 @@ import type { DivisionKind } from '../../domain/divisions';
 import type { Fils } from '../../domain/money';
 import { parseDayText } from '../../lib/dayText';
 import { describeError, RejectedError, UnknownOutcomeError } from '../../lib/errors';
+import { ownEnter } from '../../lib/formKeys';
 import { fmtDay, fmtInt, fmtMoney } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import * as cash from '../../lib/repo/cash';
@@ -228,7 +229,7 @@ export function PartyPicker({ id, value, onChange }: { id: string; value: PartyR
   return (
     <div className="flex flex-col gap-2">
       <Field id={id} label={t('party.pick', 'الجهة')}>
-        <input id={id} type="search" className="input" autoComplete="off" value={search} onChange={(event) => setSearch(event.target.value)} placeholder={t('party.pick.search', 'ابحث بالاسم')} />
+        <input id={id} type="search" className="input" autoComplete="off" value={search} onChange={(event) => setSearch(event.target.value)} onKeyDown={ownEnter} placeholder={t('party.pick.search', 'ابحث بالاسم')} data-enter="own" />
       </Field>
       {found.error ? (
         <LoadFailed what={t('party.list', 'قائمة الجهات')} error={found.error} onRetry={found.retry} />

@@ -26,6 +26,8 @@ export interface SoFar {
   deadEntered: boolean;
   /** على هذا الجهاز عملية لم تُرفع تحمل هلاكات اليوم. */
   deadPending: boolean;
+  /** 0038: هلاكات اليوم لكلّ قسم في قاعة مقسومة (المحفوظة، أو عملية هذا الجهاز قبل تسجيلها)، أو null. */
+  deadParts: number[] | null;
 }
 
 const milli = (text: string | null | undefined): bigint | null => {
@@ -41,9 +43,12 @@ const addMilli = (sum: bigint | null, more: bigint | null): bigint | null => (mo
  * في الطريق (sending) أو المجهولة (unknown) ربّما صارت في المحفوظ بقراءة بعدها، فلا تُضاف: عدّها مرّتين يرفض بالفحص قبل الحفظ رقماً صحيحاً؛
  * والمنتظرة والمعلّقة بالهويّة أو الاشتراك لم تصل الخادم يقيناً.
  * وهلاكات اليوم مرّة (set_flock_dead، 0036) تُضاف إلى نافق يوم لم تُسجَّل هلاكاته وحده، كما يفعل الخادم (يوم سُجّلت هلاكاته لا يُكتب فيه شيء): فلا تُعدّ
- * مرّتين ولو كانت في المحفوظ بقراءة بعدها؛ والغاز بنوعيه خارج مجموع اليوم.
+ * مرّتين ولو كانت في المحفوظ بقراءة بعدها؛ والغاز بنوعيه والكاز خارج مجموع اليوم.
  */
-export function soFar(saved: (Pick<DayValues, 'dead' | 'culled' | 'feedKg' | 'eggsTotal' | 'eggsBroken'> & { deadEntered?: boolean | null }) | null, ops: readonly OutboxOp[]): SoFar {
+export function soFar(
+  saved: (Pick<DayValues, 'dead' | 'culled' | 'feedKg' | 'eggsTotal' | 'eggsBroken'> & { deadEntered?: boolean | null; deadParts?: number[] | null }) | null,
+  ops: readonly OutboxOp[],
+): SoFar {
   const total: SoFar = {
     dead: saved?.dead ?? 0,
     culled: saved?.culled ?? 0,
@@ -52,15 +57,21 @@ export function soFar(saved: (Pick<DayValues, 'dead' | 'culled' | 'feedKg' | 'eg
     eggsBroken: saved?.eggsBroken ?? null,
     deadEntered: saved === null ? false : (saved.deadEntered ?? (saved.dead ?? 0) + (saved.culled ?? 0) > 0),
     deadPending: false,
+    deadParts: saved?.deadParts ?? null,
   };
   const enter = () => {
     total.deadEntered = true;
     total.deadPending = true;
   };
   for (const op of [...ops].sort((a, b) => a.createdAt - b.createdAt)) {
-    if (op.fn === 'set_flock_gas' || op.fn === 'add_flock_gas') continue;
+    // الغاز بنوعيه والكاز (0037) خارج مجموع اليوم.
+    if (op.fn === 'set_flock_gas' || op.fn === 'add_flock_gas' || op.fn === 'set_flock_kerosene') continue;
     if (op.fn === 'set_flock_dead') {
-      if (!total.deadEntered) total.dead += op.payload.dead;
+      if (!total.deadEntered) {
+        total.dead += op.payload.dead;
+        // أقسام اليوم من العملية نفسها (0038): لا تُضاف إلى يوم سُجّل، كالمجموع.
+        if (op.payload.parts) total.deadParts = [...op.payload.parts];
+      }
       enter();
       continue;
     }
@@ -77,6 +88,8 @@ export function soFar(saved: (Pick<DayValues, 'dead' | 'culled' | 'feedKg' | 'eg
     }
     const day = op.payload;
     if ((day.dead ?? null) !== null || (day.culled ?? null) !== null) enter();
+    // تصحيح الورقة لقاعة مقسومة يحمل أقسامه مع مجموعه (0038).
+    if (day.dead_parts) total.deadParts = [...day.dead_parts];
     total.dead = day.dead ?? total.dead;
     total.culled = day.culled ?? total.culled;
     total.feedKg = milli(day.feed_kg) ?? total.feedKg;
@@ -158,6 +171,9 @@ export function parkText(reason: string | null): string {
   switch (reason) {
     case 'flock_closed':
       return t('sheet.park.closed', 'كانت الوجبة مغلقة حين وصل');
+    case 'flock_void':
+      // 0037: جولة من جهاز لم يعرف بعدُ أنّ القاعة حُذفت (كأنّها لم تكن) تُركن ولا تُكتب.
+      return t('sheet.park.void', 'كانت قاعة الوجبة محذوفة حين وصل');
     case 'out_of_scope':
       return t('sheet.park.scope', 'لم يكن لمن أرسله وصول إلى القاعة');
     case 'period_locked':

@@ -8,6 +8,7 @@ import { normalizeCode, searchable } from '../../domain/normalize';
 import type { ItemKind } from '../../domain/stores';
 import type { BaseUnit } from '../../domain/units';
 import { describeError, RejectedError } from '../../lib/errors';
+import { ownEnter } from '../../lib/formKeys';
 import { fmtQty } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { createExpenseCategory, createItem, findItemTwins, listItems, loadItem, updateItem, type ItemFields, type ItemRow, type ItemTwin } from '../../lib/repo/inventory';
@@ -344,7 +345,7 @@ export function MaterialPicker({
       </label>
       <div className="flex items-center gap-2">
         <Search aria-hidden="true" className="size-5 shrink-0 text-ink-muted" />
-        <input id={id} className="input" value={text} maxLength={120} autoComplete="off" disabled={disabled} onChange={(event) => onText(event.target.value)} data-action="search-material" />
+        <input id={id} className="input" value={text} maxLength={120} autoComplete="off" disabled={disabled} onChange={(event) => onText(event.target.value)} onKeyDown={ownEnter} data-enter="own" data-action="search-material" />
       </div>
       {listFits && query && !view && !problem ? <p className="text-sm text-ink-muted">{t('mill.picker.searching', 'جارٍ البحث…')}</p> : null}
       {buttons.length ? (
@@ -526,6 +527,13 @@ export function NewCategoryField({
             const text = event.target.value;
             onChange((current) => ({ ...current, text }));
           }}
+          onKeyDown={(event) => {
+            // Enter «أضف الفئة» (0037 K): الخانة لها زرّها، لا الانتقال إلى ما بعدها ولا حفظ الصفحة.
+            if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+            event.preventDefault();
+            void create();
+          }}
+          data-enter="own"
           data-action="new-category-name"
         />
         <Button
@@ -648,9 +656,12 @@ export function CellEdit({
         aria-invalid={invalid || undefined}
         onChange={(event) => onChange(event.target.value)}
         onKeyDown={(event) => {
-          // لا حفظ ثانٍ أثناء الحفظ (ب٣٢): Enter كان يرسل الكتابة الجديدة مشروطةً بما قبل الأولى، فيرفضها الخادم «من جهاز آخر».
-          if (event.key === 'Enter' && dirty && !invalid && !disabled && !busy) onSave();
+          if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+          // Enter للخلية (0037 K): يحفظها أو لا شيء. ولا حفظ ثانٍ أثناء الحفظ (ب٣٢): Enter كان يرسل الكتابة الجديدة مشروطةً بما قبل الأولى، فيرفضها الخادم «من جهاز آخر».
+          event.preventDefault();
+          if (dirty && !invalid && !disabled && !busy) onSave();
         }}
+        data-enter="own"
         data-action={action}
       />
       {dirty ? (

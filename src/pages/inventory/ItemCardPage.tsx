@@ -17,6 +17,7 @@ import type { BaseUnit } from '../../domain/units';
 import { columnDecimals, fmtCounted, fmtDay, fmtMoney, fmtPercent, fmtQty, fmtQtyCell, fmtScaledCell, fmtUnitCost } from '../../lib/format';
 import { toast } from '../../components/ui/Toast';
 import { describeError } from '../../lib/errors';
+import { noSubmit } from '../../lib/formKeys';
 import { t, Trans } from '../../lib/i18n';
 import * as inventory from '../../lib/repo/inventory';
 import type { ItemLots, ItemMoves, ItemPurchases, LastProduction, LotRow, MoveRow, PurchaseItem, PurchaseRow } from '../../lib/repo/inventory';
@@ -493,17 +494,17 @@ function PriceCard({ kind, itemId, item, lastCost, canEdit, onSaved }: { kind: P
         ) : null}
       </div>
       {editing ? (
-        <div className="flex flex-col gap-3">
+        <form className="flex flex-col gap-3" onSubmit={noSubmit} noValidate>
           <MoneyInput id={`${id}-${words.input}`} label={words.label} hint={words.clear} error={bad ? words.invalid : null} whole={false} value={text} onChange={setText} autoFocus />
           <div className="flex flex-col-reverse gap-2 sm:flex-row">
             <Button variant="secondary" onClick={() => setEditing(false)} disabled={busy}>
               {t('confirm.cancel', 'لا، تراجع')}
             </Button>
-            <Button onClick={() => void save()} busy={busy} data-action={words.save}>
+            <Button type="submit" onClick={() => void save()} busy={busy} data-action={words.save}>
               {t('org.save', 'احفظ')}
             </Button>
           </div>
-        </div>
+        </form>
       ) : kind === 'sell' ? (
         <SellPriceNumbers sellPrice={item.sellPrice} lastCost={lastCost} baseUnit={item.baseUnit} />
       ) : (

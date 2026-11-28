@@ -23,6 +23,8 @@ import { descendants, Element, fire, installDom, settle } from './dom.mjs';
 const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '..');
 const FIX = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sheet.hand.json'), 'utf8'));
 const REAL = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sheet-0035.json'), 'utf8'));
+// قاعة مقسومة قسمين (0038، عقد Part S): الورقة نفسها بأقسامها، مكتوبة باليد قبل الهجرة.
+const SPLIT = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sections.hand.json'), 'utf8')).hall_sheet;
 // أنماط الجدول كما تُنشر (sheetGrid.css): قواعدها التي يُعتمد عليها تُفحص بنصّها.
 const CSS = (() => {
   try {
@@ -259,6 +261,12 @@ export default async function (t) {
         [7, 12, 1234, 12, null, null, null, null, null, null],
         'G0 العدد: أرقام غربية وعربية، وفاصلة الآلاف في مكانها وحده («0,5» ليست 5)، ولا سالب ولا كسر',
       );
+      // 0037: لترات الكاز، أو براميل بعدها «ب» أو «برميل» أو «براميل» (البرميل 200 لتر، جواب المالك).
+      t.same(
+        ['400', '2ب', ' 2 ب ', '٣ براميل', '1 برميل', '1,000', 'ب', '2 كغم', '2.5ب', '-1ب'].map((text) => L.parseLiters(text)),
+        [400, 400, 400, 600, 200, 1000, null, null, null, null],
+        'G0 الكاز: لترات، أو براميل بعدها «ب» أو «برميل» أو «براميل» (× 200)، وغير ذلك لا',
+      );
       const fill = L.pasteTargets([['2']], { ...s(15, 3), end: { row: 17, col: 3 } }, { rows: 46, cols: 6 });
       const block = L.pasteTargets([['a', 'b'], ['c', 'd']], s(45, 5), { rows: 46, cols: 6 });
       t.same(
@@ -413,7 +421,7 @@ export default async function (t) {
       );
       t.same(
         [heads.map((n) => n.getAttribute('data-sel')), td(20, 0)?.getAttribute('data-rowsel'), td(20, 1)?.getAttribute('data-rowsel'), td(19, 0)?.getAttribute('data-rowsel')],
-        [[null, null, 'true', null, null, null], 'true', 'true', null],
+        [[null, null, 'true', null, null, null, null], 'true', 'true', null],
         'G2 رأس العمود المحدّد وخانتا الصفّ المحدّد (العمر والتاريخ) مظلّلة',
       );
       await click(byAction('sheet-edit-done')[0]);
@@ -429,7 +437,7 @@ export default async function (t) {
         await press(k);
         trail.push(cursorAt());
       }
-      t.same(trail, ['20:3', '20:4', '20:3', '21:3', '20:3', '19:3'], 'G3 ← إلى العمود التالي على الشاشة (rtl: الغاز ثمّ العلف)، و→ رجوعاً، و↓ و↑ بالأيّام');
+      t.same(trail, ['20:3', '20:4', '20:3', '21:3', '20:3', '19:3'], 'G3 ← إلى العمود التالي على الشاشة (rtl: الغاز ثمّ الكاز)، و→ رجوعاً، و↓ و↑ بالأيّام');
       t.same([focusedCell(), scrolled.at(-1)], ['19:3', '19:3'], 'G3 التركيز يتبع الخانة النشطة وتُمرَّر إليها');
       globalThis.document.documentElement.setAttribute('dir', 'ltr');
       await press('ArrowLeft');
@@ -446,13 +454,14 @@ export default async function (t) {
       await press('Enter', { shift: true });
       const afterShift = cursorAt();
       const tabs = [];
-      for (let i = 0; i < 4; i += 1) {
+      for (let i = 0; i < 5; i += 1) {
         await press('Tab');
         tabs.push(cursorAt());
       }
       await press('Tab', { shift: true });
       const shiftTab = cursorAt();
-      t.same([afterEnter, afterShift, tabs, shiftTab], ['20:2', '19:2', ['19:3', '19:4', '19:5', '20:2'], '19:5'], 'G4 Enter ينزل وShift+Enter يصعد، وTab إلى الخانة التالية التي تُكتب ومن آخرها إلى أوّل الصفّ التالي، وShift+Tab رجوعاً');
+      // 0037: الكاز (4) بعد الغاز يُكتب، فالعلف 5 والملاحظة 6.
+      t.same([afterEnter, afterShift, tabs, shiftTab], ['20:2', '19:2', ['19:3', '19:4', '19:5', '19:6', '20:2'], '19:6'], 'G4 Enter ينزل وShift+Enter يصعد، وTab إلى الخانة التالية التي تُكتب ومن آخرها إلى أوّل الصفّ التالي، وShift+Tab رجوعاً');
       await moveTo(17, 2);
       await press('Tab');
       await press('Enter');
@@ -478,7 +487,7 @@ export default async function (t) {
       await typeIn('12');
       await press('Enter', {}, 120);
       t.same(ops(sent).at(-1), ['save_flock_day', dayOf(19), { dead: 12, culled: null }, 1], 'G5 F2 ثمّ تعديل ثمّ Enter يحفظ القيمة الجديدة');
-      await moveTo(16, 5);
+      await moveTo(16, 6);
       await press('ت');
       t.same([input()?.value, input()?.getAttribute('data-kind')], ['ت', 'text'], 'G5 حرف على خانة الملاحظة يبدأ نصّها به');
       await typeIn('تهوية');
@@ -488,6 +497,58 @@ export default async function (t) {
       await press('5');
       await press('ArrowLeft', {}, 120);
       t.same([ops(sent).at(-1), cursorAt()], [['set_flock_gas', dayOf(17), { cylinders: 5 }, null], '17:4'], 'G5 السهم بعد الكتابة يحفظ وينتقل (كإكسل)');
+    });
+
+    // ── G5ك: الكاز يُكتب باللتر أو بالبراميل في خانته (0037) ────────────────────────────────────────────────────────────
+    await step('G5 الكاز', async () => {
+      const { sent } = await open();
+      await pencil();
+      await moveTo(19, 4);
+      t.eq(textOf('grid-name'), 'الكاز (لتر) · يوم 02/12/2026 (العمر 19)', 'G5 الكاز ضابط: خانة الكاز بعد الغاز');
+      await press('2');
+      await typeIn('2ب');
+      await press('Enter', {}, 120);
+      t.same([ops(sent).at(-1), cells(bodyRows(sheetTable())[19])[4]], [['set_flock_kerosene', dayOf(19), { liters: 400 }, null], '400'], 'G5 «2ب» في خانة الكاز = 400 لتر (برميلان)، بلا نسخة (لا صفّ بعد)');
+      await moveTo(18, 4);
+      await press('3');
+      await typeIn('30000');
+      await press('Enter', {}, 60);
+      const max = textOf('grid-error');
+      await typeIn('٢ كغم');
+      await press('Enter', {}, 60);
+      t.same([max, textOf('grid-error'), sent.length], ['الكاز من 0 إلى 20,000 لتر في اليوم (100 برميل).', 'اكتب اللترات بالأرقام، أو البراميل بعدها «ب» (2ب = 400 لتر).', 1], 'G5 الكاز فوق 20,000 لتر أو بغير اللتر والبرميل: الجملة في الخانة ولا شيء يُكتب');
+    });
+
+    // ── G5ق: القاعة المقسومة (0038): عمود هلاكات لكلّ قسم يُكتب بأقسام يومه ────────────────────────────────────────────────────
+    await step('G5 الأقسام', async () => {
+      const { sent } = await open(SPLIT);
+      const heads = descendants(section(sheetTable(), 'thead') ?? body()).filter((n) => n.localName === 'th').map((n) => n.textContent);
+      t.same(
+        [heads, cells((section(sheetTable(), 'tfoot')?.children ?? []).find((c) => c.localName === 'tr')).slice(0, 4)],
+        [['العمر', 'التاريخ', 'هلاكات ق1', 'هلاكات ق2', 'الغاز', 'الكاز (لتر)', 'العلف (كغم)', 'الملاحظات'], ['المجموع', '18', '14', '17']],
+        'G5 الأقسام: عمود هلاكات لكلّ قسم بدل «الهلاكات»، ومجموع كلّ قسم في آخره',
+      );
+      t.same(cells(bodyRows(sheetTable())[20]).slice(2, 4), ['2', '2'], 'G5 الأقسام: يوم بهلاكاته (4) مقسومة على قسميه');
+      await pencil();
+      t.same([cursorAt(), textOf('grid-name')], ['20:2', 'هلاكات ق1 · يوم 03/12/2026 (العمر 20)'], 'G5 الأقسام: الخانة النشطة هلاكات ق1 اليوم');
+      await press('5');
+      await press('Enter', {}, 120);
+      t.same(ops(sent), [['save_flock_day', SPLIT.days[20].on, { dead: 7, dead_parts: [5, 2], culled: null }, SPLIT.days[20].day_version]], 'G5 الأقسام: 5 في ق1 = مجموع اليوم 7 بأقسامه [5، 2] بنسخة صفّ اليوم');
+      await moveTo(19, 2);
+      await press('3');
+      await typeIn('3000');
+      await press('Enter', {}, 60);
+      t.same([textOf('grid-error'), sent.length], ['هلاكات ق1 أكثر من طيوره الباقية (2,483).', 1], 'G5 الأقسام: القسم لا يتجاوز الباقي فيه (عدده − هلاكاته في غير هذا اليوم)');
+      await press('Escape');
+      const paste = async (text) => {
+        await press('v', { ctrl: true });
+        fire(focused() ?? body(), 'paste', { clipboardData: { getData: (type) => (type === 'text/plain' ? text : '') } });
+        await settle(30);
+      };
+      await moveTo(15, 2);
+      await paste('4\t6');
+      await click(byAction('grid-batch-go')[0], 200);
+      t.same(ops(sent).at(-1), ['save_flock_day', SPLIT.days[15].on, { dead: 10, dead_parts: [4, 6], culled: null }, SPLIT.days[15].day_version], 'G5 الأقسام: لصق القسمين ليوم واحد عملية واحدة بالقسمين معاً (لا يمحو الثاني الأوّل)');
     });
 
     // ── G6: الحفظ بالترتيب، وبلا نت، والمردود ─────────────────────────────────────────────────────────────────────
@@ -510,6 +571,7 @@ export default async function (t) {
       await press('Tab', {}, 30);
       await press('Tab');
       await press('Tab');
+      await press('Tab');
       await press('ت');
       await typeIn('تهوية');
       await press('Enter', {}, 30);
@@ -524,7 +586,7 @@ export default async function (t) {
       open1();
       await settle(200);
       t.same(ops(sent), [['save_flock_day', dayOf(19), { dead: 5, culled: null }, 1], ['save_flock_day', dayOf(19), { note: 'تهوية' }, 2]], 'G6 الثاني يُرفع بعد الأوّل بنسخة ما حفظه (2) لا بنسخة القراءة (1)، فلا stale_day');
-      t.same([cells(bodyRows(sheetTable())[19])[2], cells(bodyRows(sheetTable())[19])[5]], ['5', 'تهوية'], 'G6 الخانتان بقيمتيهما بعد الرفع (والقراءة الجديدة لم تصل)');
+      t.same([cells(bodyRows(sheetTable())[19])[2], cells(bodyRows(sheetTable())[19])[6]], ['5', 'تهوية'], 'G6 الخانتان بقيمتيهما بعد الرفع (والقراءة الجديدة لم تصل)');
     });
 
     await step('G6 بلا نت والمردود', async () => {
@@ -575,7 +637,7 @@ export default async function (t) {
       await press('Enter', {}, 60);
       t.same([gasError, textOf('grid-error'), sent.length], ['عدد القناني من 0 إلى 1,000.', 'اكتب عدداً صحيحاً بالأرقام.', 1], 'G7 القناني حتى 1,000، و«0,5» ليست عدداً (لا 5)');
       await press('Escape');
-      await moveTo(20, 5);
+      await moveTo(20, 6);
       await press('ا');
       await typeIn('ا'.repeat(501));
       await press('Enter', {}, 60);
@@ -595,7 +657,8 @@ export default async function (t) {
       await pencil();
       await press('ArrowLeft');
       await press('ArrowLeft');
-      t.eq(cursorAt(), '20:4', 'G8 ضابط: على علف اليوم');
+      await press('ArrowLeft');
+      t.eq(cursorAt(), '20:5', 'G8 ضابط: على علف اليوم (بعد الغاز والكاز)');
       await press('5');
       t.same([dialogs().length, textOf('grid-message'), named(calls, 'send_flock_feed').length], [0, 'العلف يُرسل من نافذته: اضغط Enter أو F2 لفتحها، ولا يُكتب في الخانة.', 0], 'G8 رقم على خانة العلف لا يكتب ولا يصرف شيئاً');
       await press('Enter', {}, 60);
@@ -603,15 +666,15 @@ export default async function (t) {
       await press('Enter', {}, 60);
       t.eq(named(calls, 'send_flock_feed').length, 0, 'G8 ولا Enter في النافذة الفارغة يصرف شيئاً');
       await click(byAction('dialog-close')[0]);
-      await moveTo(14, 4);
+      await moveTo(14, 5);
       await press('F2', {}, 60);
       const f2 = dialogTitled('علف يوم 27/11/2026');
       await click(byAction('dialog-close')[0]);
       await press('Delete');
       t.same([f2 !== null, textOf('grid-message')], [true, 'العلف يُصحَّح بـ«ألغِ» من نافذته (Enter لفتحها).'], 'G8 F2 يفتحها أيضاً، وDelete على العلف لا يمسح بل يدلّ على «ألغِ»');
-      await moveTo(21, 4);
+      await moveTo(21, 5);
       await press('Enter');
-      t.same([dialogs().length, cursorAt()], [0, '22:4'], 'G8 علف يوم لم يأتِ (بلا علف): لا نافذة، وEnter ينزل');
+      t.same([dialogs().length, cursorAt()], [0, '22:5'], 'G8 علف يوم لم يأتِ (بلا علف): لا نافذة، وEnter ينزل');
     });
 
     // ── G9: Delete وBackspace ──────────────────────────────────────────────────────────────────────────────────────
@@ -620,7 +683,7 @@ export default async function (t) {
       await pencil();
       await moveTo(19, 3);
       await press('Delete', {}, 120);
-      await moveTo(18, 5);
+      await moveTo(18, 6);
       await press('Delete', {}, 120);
       t.same(ops(sent), [['set_flock_gas', dayOf(19), { cylinders: null }, 1], ['save_flock_day', dayOf(18), { note: '' }, 1]], 'G9 Delete يمسح الغاز (بلا قنانٍ) والملاحظة (نصّ فارغ) بلا سؤال');
       await moveTo(20, 2);
@@ -651,7 +714,7 @@ export default async function (t) {
         await press(k, mods);
         trail.push(cursorAt());
       }
-      t.same(trail, ['20:0', '20:5', '0:0', '45:5', '37:5', '29:5', '37:5'], 'G10 Home/End أوّل العمود وآخره، وCtrl+Home/End أوّل يوم وآخره، وPageUp/PageDown بشاشة (8 صفوف)');
+      t.same(trail, ['20:0', '20:6', '0:0', '45:6', '37:6', '29:6', '37:6'], 'G10 Home/End أوّل العمود وآخره، وCtrl+Home/End أوّل يوم وآخره، وPageUp/PageDown بشاشة (8 صفوف)');
       await press('Home', { ctrl: true });
       await press('ArrowDown');
       await press('ArrowLeft');
@@ -669,7 +732,7 @@ export default async function (t) {
       await press('a', { ctrl: true });
       const everything = selected().length;
       await press('Escape');
-      t.same([everything, selected(), cursorAt()], [46 * 6, ['18:2'], '18:2'], 'G10 Ctrl+A الكلّ، وEsc يطويه إلى الخانة النشطة');
+      t.same([everything, selected(), cursorAt()], [46 * 7, ['18:2'], '18:2'], 'G10 Ctrl+A الكلّ، وEsc يطويه إلى الخانة النشطة');
     });
 
     // ── G11: النسخ ─────────────────────────────────────────────────────────────────────────────────────────────────
@@ -747,7 +810,8 @@ export default async function (t) {
         'G12 بعد «الصق» وحده: عملية لكلّ يوم بنسخة صفّه (والغاز بنسخة صفّه)، وما لم يكن عدداً لا يُكتب',
       );
       t.eq(textOf('grid-message'), 'حُفظ: 5.', 'G12 الشريط يقول ما حُفظ');
-      await moveTo(20, 3);
+      // من الكاز (4): العمود التالي العلف (5).
+      await moveTo(20, 4);
       await paste('1\t9\r\n2\t9');
       t.same(
         bodyRows(tableBy('الصق في الجدول')).map((tr) => cells(tr)[4]),
@@ -755,8 +819,8 @@ export default async function (t) {
         'G12 العلف لا يُلصق (نافذته وحدها تصرف)، ويوم لم يأتِ لا يُكتب',
       );
       await click(byAction('grid-batch-cancel')[0], 60);
-      t.same([sent.length, dialogs().length, focusedCell()], [5, 0, '20:3'], 'G12 «لا، تراجع» لا يكتب شيئاً، والتركيز في الجدول');
-      await moveTo(20, 5);
+      t.same([sent.length, dialogs().length, focusedCell()], [5, 0, '20:4'], 'G12 «لا، تراجع» لا يكتب شيئاً، والتركيز في الجدول');
+      await moveTo(20, 6);
       await paste('ملاحظة\tزائدة');
       t.eq(textOf('grid-batch-outside'), 'وقيم خارج الورقة (بعد آخر يوم أو آخر عمود) لا تُلصق: 1.', 'G12 ما وقع خارج الورقة يُعدّ ولا يُلصق');
       await click(byAction('grid-batch-cancel')[0], 60);
@@ -843,11 +907,11 @@ export default async function (t) {
       await settle(10);
       t.same(selected().sort(), ['15:2', '15:3', '16:2', '16:3', '17:2', '17:3'], 'G15 السحب بالفأرة يحدّد نطاقاً');
       fire(globalThis.window, 'pointerup', { pointerType: 'mouse' });
-      fire(td(19, 5), 'dblclick', { button: 0, detail: 2 });
+      fire(td(19, 6), 'dblclick', { button: 0, detail: 2 });
       await settle(20);
       t.same([input()?.value, input()?.getAttribute('data-kind')], ['', 'text'], 'G15 نقرتان تعدّلان الخانة بقيمتها');
       await press('Escape');
-      fire(td(20, 4), 'dblclick', { button: 0, detail: 2 });
+      fire(td(20, 5), 'dblclick', { button: 0, detail: 2 });
       await settle(60);
       t.same([dialogTitled('علف يوم 03/12/2026') !== null, named(calls, 'send_flock_feed').length], [true, 0], 'G15 ونقرتان على العلف تفتحان نافذته');
     });
@@ -865,7 +929,7 @@ export default async function (t) {
         await click(td(18, 2));
         t.ok(dialogTitled('الهلاكات — يوم 01/12/2026') !== null, 'G16 شاشة لمس بلا حدث مؤشّر (pointer: coarse): النقرة تفتح الورقة');
         await click(byAction('dialog-close')[0]);
-        await click(td(20, 4), 60);
+        await click(td(20, 5), 60);
         t.ok(dialogTitled('علف يوم 03/12/2026') !== null, 'G16 ولمسة العلف تفتح نافذته');
       } finally {
         globalThis.window.matchMedia = savedMedia;
@@ -921,14 +985,14 @@ export default async function (t) {
       const ei = real.days.findIndex((day) => day.eggs_total !== null);
       await press('Home', { ctrl: true });
       for (let i = 0; i < ei; i += 1) await press('ArrowDown', {}, 3);
-      for (const k of ['Tab', 'Tab', 'Tab', 'Tab']) await press(k);
+      for (const k of ['Tab', 'Tab', 'Tab', 'Tab', 'Tab']) await press(k);
       const at = cursorAt();
       await press('1');
       await typeIn('1600');
       await press('Enter', {}, 120);
       t.same(
-        [heads[5], at, ops(sent)],
-        ['البيض', `${ei}:5`, [['save_flock_day', real.days[ei].on, { eggs_total: 1600 }, real.days[ei].day_version]]],
+        [heads[6], at, ops(sent)],
+        ['البيض', `${ei}:6`, [['save_flock_day', real.days[ei].on, { eggs_total: 1600 }, real.days[ei].day_version]]],
         'G17 البيّاض (عيّنة القاعدة): عمود البيض في Tab بعد العلف، ويُكتب بنسخة صفّ يومه',
       );
     });

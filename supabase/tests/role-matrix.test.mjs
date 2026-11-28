@@ -1008,6 +1008,34 @@ export default async function (t, db) {
       value: true,
       expect: all('ok:saved:2'),
     },
+    // 0037 («الكاز» بجانب الغاز في ورقة القاعة، كلمة المالك 2026-11-26) تحت 0034: كلّ عضو فعّال يكتب لترات الكاز كالمالك؛ والخانة بمعاملة تُرجَع، فكلّ دور
+    // يكتب 120 لتراً ليوم بلا كاز (saved بالنسخة 1).
+    set_flock_kerosene: {
+      sql: () => ["select (r ->> 'status') || ':' || (r -> 'kerosene' ->> 'liters') || ':' || (r -> 'kerosene' ->> 'version') as v from public.set_flock_kerosene($1, public.app_today(), 120, null, gen_random_uuid(), false) as r", [p2.flock]],
+      value: true,
+      expect: all('ok:saved:120:1'),
+    },
+    // 0038 (القاعة بأقسام، كلمة المالك 2026-11-26) تحت 0034: كلّ عضو فعّال يقسم القاعة كالمالك؛ والخانة بمعاملة تُرجَع، فكلّ دور يقسم «قاعة 2» (بلا وجبة)
+    // قسمين بنسختها (saved بقسمين). والكتّاب الأربعة التي زاد توقيعها معاملاً اختياريّاً (open_flock وedit_flock وsave_flock_day وset_flock_dead) تُنادى
+    // أعلاه بمعاملاتها القديمة بالترتيب كما هي.
+    set_hall_sections: {
+      sql: () => ["select (r ->> 'status') || ':' || (r -> 'hall' ->> 'sections') as v from public.set_hall_sections($1, 2, (select version from public.halls where id = $1), gen_random_uuid()) as r", [p2.empty]],
+      value: true,
+      expect: all('ok:saved:2'),
+    },
+    // 0039 («احذف القاعة» كأنها لم تكن) تحت 0034: المعاينة لكلّ دور بنتيجة المالك، والحذف (flock.manage، وvoid لصرف الفوج) لكلّ عضو؛ والخانة بمعاملة
+    // تُرجَع، فكلّ دور يحذف «قاعة 1» بفوجها القائم بنسخة المعاينة وبصمتها.
+    delete_hall_preview: {
+      sql: () => ["select jsonb_array_length(p -> 'blocks') || ':' || (p -> 'flock' ->> 'status') || ':' || (p -> 'hall' ->> 'name') as v from public.delete_hall_preview($1) as p", [p2.hall]],
+      value: true,
+      expect: all('ok:0:active:قاعة 1'),
+    },
+    delete_hall: {
+      sql: () => ["select (r ->> 'deleted') || ':' || (r ->> 'already') || ':' || ((r ->> 'flock_id') = $2::text)::text as v from public.delete_hall($1, (select version from public.halls where id = $1), public.delete_hall_preview($1) ->> 'plan', gen_random_uuid()) as r",
+        [p2.hall, p2.flock]],
+      value: true,
+      expect: all('ok:true:false:true'),
+    },
   };
 
   const allowlisted = ALLOWLIST.authenticated.map((signature) => signature.slice('public.'.length, signature.indexOf('('))).sort();
@@ -1400,6 +1428,9 @@ export default async function (t, db) {
     set_flock_dead_queued: ["select public.set_flock_dead($1, public.app_today(), 4, gen_random_uuid(), true) ->> 'status' as v", [otherFlock]],
     add_flock_gas: ["select public.add_flock_gas($1, public.app_today(), 2, gen_random_uuid(), false) ->> 'status' as v", [otherFlock]],
     add_flock_gas_queued: ["select public.add_flock_gas($1, public.app_today(), 2, gen_random_uuid(), true) ->> 'status' as v", [otherFlock]],
+    // 0037: الكاز على وجبة منشأة أخرى، بنداء مباشر ومن الطابور (لا ركن لما ليس في المنشأة).
+    set_flock_kerosene: ["select public.set_flock_kerosene($1, public.app_today(), 120, null, gen_random_uuid(), false) ->> 'status' as v", [otherFlock]],
+    set_flock_kerosene_queued: ["select public.set_flock_kerosene($1, public.app_today(), 120, null, gen_random_uuid(), true) ->> 'status' as v", [otherFlock]],
   };
   const across = {};
   for (const role of ROLES) {
@@ -1417,8 +1448,9 @@ export default async function (t, db) {
     all({
       identity: 'ok:false', stock_on_hand: 'out_of_scope', rows: 'ok:0', hall_sheet: 'flock_not_found', set_flock_gas: 'flock_not_found', send_flock_feed: 'flock_not_found',
       set_flock_dead: 'flock_not_found', set_flock_dead_queued: 'flock_not_found', add_flock_gas: 'flock_not_found', add_flock_gas_queued: 'flock_not_found',
+      set_flock_kerosene: 'flock_not_found', set_flock_kerosene_queued: 'flock_not_found',
     }),
-    'شيء منشأة أخرى: خارج النطاق لكلّ دور، ولا صفّ منها؛ ووجبة منشأة أخرى (0035) لا ورقة لها ولا غاز ولا علف، ولا هلاكات ولا غاز مضاف (0036) ولو من الطابور، لكلّ دور',
+    'شيء منشأة أخرى: خارج النطاق لكلّ دور، ولا صفّ منها؛ ووجبة منشأة أخرى (0035) لا ورقة لها ولا غاز ولا علف، ولا هلاكات ولا غاز مضاف (0036) ولا كاز (0037) ولو من الطابور، لكلّ دور',
   );
   // دوالّ التحقّق لـservice_role وحدها (catalog.test)، ومنها verify_hall_sheet (0035): لا يناديها دور ولو صار كالمالك (0034).
   const verifyAs = {};

@@ -16,6 +16,7 @@ import { parseMoney, type Fils } from '../../domain/money';
 import { can } from '../../domain/permissions';
 import { ITEM_KINDS, type ItemKind } from '../../domain/stores';
 import { describeError, RejectedError, ZeroRowsError } from '../../lib/errors';
+import { noSubmit } from '../../lib/formKeys';
 import { fmtInt, fmtMoney } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import {
@@ -905,7 +906,7 @@ export default function RecipePage() {
               </div>
             ) : null}
             {canRates ? (
-              <div className="flex flex-wrap items-end gap-3">
+              <form className="flex flex-wrap items-end gap-3" onSubmit={noSubmit} noValidate>
                 <Field id={`${fieldId}-new-rate-category`} label={t('mill.rates.category', 'فئة المصروف')}>
                   <select
                     id={`${fieldId}-new-rate-category`}
@@ -936,6 +937,7 @@ export default function RecipePage() {
                   />
                 </Field>
                 <Button
+                  type="submit"
                   variant="secondary"
                   icon={<Plus className="size-5" aria-hidden="true" />}
                   busy={busy}
@@ -956,7 +958,7 @@ export default function RecipePage() {
                 >
                   {t('mill.rates.add', 'أضف تكلفة')}
                 </Button>
-              </div>
+              </form>
             ) : null}
             {canRates ? (
               <NewCategoryField

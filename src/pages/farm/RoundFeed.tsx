@@ -3,6 +3,7 @@ import { Button } from '../../components/ui/Button';
 import { Notice } from '../../components/ui/Notice';
 import type { Day } from '../../domain/dates';
 import { parseDecimal, toScale } from '../../domain/decimal';
+import { noSubmit } from '../../lib/formKeys';
 import { fmtDay, fmtMilli } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import type { Stamp } from '../../lib/outbox';
@@ -182,7 +183,8 @@ function RoundFeedView({ flockId, hall, items, lastItemId, today, online, stamp,
           })}
         </div>
       ) : null}
-      <div className="flex min-w-0 flex-col gap-1">
+      {/* الكمية و«أرسل» نموذج واحد (0037 K): Enter في الكمية «أرسل» بقاعدة النماذج كلّها (lib/formKeys)، وزرّه المقفول لا يُرسل شيئاً. */}
+      <form id={`${id}-feed`} className="flex min-w-0 flex-col gap-1" onSubmit={noSubmit} noValidate>
         <label htmlFor={`${id}-feedQty`} className="text-sm font-medium">
           {choice ? t('round.feed.qty', 'الكمية ({unit})', { unit: choice.label }) : t('round.feed.qty_bare', 'الكمية')}
         </label>
@@ -198,12 +200,6 @@ function RoundFeedView({ flockId, hall, items, lastItemId, today, online, stamp,
             // الكمية تُكتب على العلف المختار الظاهر، فيُثبَّت اختياره (لا يتبدّل بعدها بقراءة جديدة).
             if (!found && item) setChosen({ id: item.itemId, name: item.name });
             setValue(event.target.value);
-          }}
-          onKeyDown={(event) => {
-            // Enter يرسل كنافذة الورقة (لوحة الحاسوب)، وما دام المكتوب لا يُرسل فلا شيء.
-            if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
-            event.preventDefault();
-            void go();
           }}
           data-action="round-feed-qty"
         />
@@ -227,13 +223,13 @@ function RoundFeedView({ flockId, hall, items, lastItemId, today, online, stamp,
             {t('round.feed.gone', '«{item}» لم يعد في «رصيد العلف»: اختر علفاً لترسل الكمية المكتوبة.', { item: gone.name })}
           </p>
         ) : null}
-      </div>
+      </form>
       {online ? null : (
         <p className="text-sm text-ink-muted" data-action="round-feed-offline">
           {t('sheet.feed.offline', 'إرسال العلف يحتاج اتصالاً بالإنترنت: يخرج من «رصيد العلف» لحظة الإرسال. أرسله حين يعود الاتصال.')}
         </p>
       )}
-      <Button size="lg" className="w-full" busy={feed.busy} disabled={!ready} onClick={() => void go()} data-action="round-feed-send">
+      <Button type="submit" form={`${id}-feed`} size="lg" className="w-full" busy={feed.busy} disabled={!ready} onClick={() => void go()} data-action="round-feed-send">
         {qty !== null && item ? (
           <TwoLines
             main={t('sheet.feed.send_amount', 'أرسل {amount}', { amount: feedAmount(qty, item.baseUnit) })}

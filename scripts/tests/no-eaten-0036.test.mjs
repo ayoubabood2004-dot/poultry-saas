@@ -23,7 +23,7 @@ const ERRORS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'errors.ts'));
 const STUBS = {
   session: 'export const useSession = () => globalThis.__ne.session; export const sessionStore = { get: () => globalThis.__ne?.session ?? { status: "loading" } };',
   Toast: 'export const toast = (spec) => { globalThis.__ne.toasts.push(spec); }; export function Toaster() { return null; }',
-  image: 'export const toBlob = async () => new Blob(["png"], { type: "image/png" });',
+  image: 'export const toBlob = async () => new Blob(["png"], { type: "image/png" }); export const toJpeg = () => Promise.reject(new Error("toJpeg_unused"));',
 };
 const CORE = `import { RejectedError, ZeroRowsError } from ${ERRORS};
 export const call = (fn, args) => globalThis.__ne.rpc(fn, args);

@@ -11,6 +11,7 @@ import type { Day } from '../../domain/dates';
 import { can } from '../../domain/permissions';
 import { parseDayText } from '../../lib/dayText';
 import { NotConnectedError, RejectedError } from '../../lib/errors';
+import { noSubmit } from '../../lib/formKeys';
 import { fmtDay, fmtInt } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { loadFlockSales, recordCountAdjust, type FlockSales } from '../../lib/repo/flockClose';
@@ -103,12 +104,12 @@ function CountDialog({
       dirty={count !== '' || reason !== '' || typedDay !== null}
       title={t('halls.card.count_title', 'سجّل «فرق العدّ»')}
       footer={
-        <Button size="lg" disabled={!ready} busy={busy} onClick={() => (ready && birds !== null && onDate !== null ? onSend(birds, onDate, reason) : undefined)} data-action="count-go">
+        <Button type="submit" form={`${id}-form`} size="lg" disabled={!ready} busy={busy} onClick={() => (ready && birds !== null && onDate !== null ? onSend(birds, onDate, reason) : undefined)} data-action="count-go">
           {birds === null ? t('halls.card.count_go', 'سجّل فرق العدّ') : t('halls.card.count_go_n', 'سجّل فرق العدّ {n}', { n: signedCount(birds) })}
         </Button>
       }
     >
-      <div className="flex flex-col gap-3">
+      <form id={`${id}-form`} className="flex flex-col gap-3" onSubmit={noSubmit} noValidate>
         <p className="text-sm text-ink-muted">{t('halls.card.count_hint', 'حين يختلف العدّ الفعليّ عن الحيّ بحسب النظام. يظهر في التقرير وحده لا مع النافق.')}</p>
         <Segmented
           label={t('halls.card.count_direction', 'الاتّجاه')}
@@ -149,7 +150,7 @@ function CountDialog({
           />
         ) : null}
         {failure ? <Notice tone="danger" title={failureText(failure)} /> : null}
-      </div>
+      </form>
     </Dialog>
   );
 }

@@ -359,6 +359,13 @@ function CardDensity({ line, picks, disabled, canWriteDensity }: { line: CardLin
                 disabled={disabled || line.densityBusy}
                 aria-invalid={(line.densityText.trim() !== '' && densityValue === null) || undefined}
                 onChange={(event) => picks.setDensityText(line.item.id, event.target.value)}
+                onKeyDown={(event) => {
+                  // Enter «حفظ» الكثافة (0037 K): للخانة زرّها في البطاقة.
+                  if (event.key !== 'Enter' || event.nativeEvent.isComposing) return;
+                  event.preventDefault();
+                  if (!disabled && !line.densityBusy && densityValue !== null) void picks.saveDensity(line.item.id);
+                }}
+                data-enter="own"
                 data-action="card-density-text"
               />
               <Button

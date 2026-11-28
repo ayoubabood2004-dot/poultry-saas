@@ -12,6 +12,7 @@ import type { Milli } from '../../domain/money';
 import { parseQty, type BaseUnit } from '../../domain/units';
 import { parseDayText } from '../../lib/dayText';
 import { RejectedError } from '../../lib/errors';
+import { noSubmit } from '../../lib/formKeys';
 import { fmtDay, fmtInt, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { useDirtyForm } from '../../lib/pwa/dirty';
@@ -118,7 +119,7 @@ function confirmText(pending: ClosePending): string {
 }
 
 /** رفوض تعني أنّ ما عرضته الشاشة تغيّر: يُقرأ النموذج من جديد ويبقى ما كُتب. */
-const REREAD = new Set(['live_changed', 'sales_changed', 'pool_changed', 'tickets_pending', 'activity_after_close', 'flock_closed', 'not_in_pool', 'pool_unit_mixed', 'not_from_store']);
+const REREAD = new Set(['live_changed', 'sales_changed', 'pool_changed', 'tickets_pending', 'activity_after_close', 'flock_closed', 'flock_void', 'not_in_pool', 'pool_unit_mixed', 'not_from_store']);
 
 function CloseView({ flockId }: { flockId: string }) {
   const id = useId();
@@ -423,7 +424,8 @@ function CloseView({ flockId }: { flockId: string }) {
   ];
 
   return (
-    <div className="flex flex-col gap-4" data-action="close-page">
+    // الإغلاق نموذج واحد (0037 K): Enter ينقل بين السبب واليوم والباقي والملاحظة، وفي آخر خانة يفتح التأكيد.
+    <form className="flex flex-col gap-4" data-action="close-page" onSubmit={noSubmit} noValidate>
       <BackLink to={back} label={ticketBackLabel(back)} />
       <header className="flex flex-col gap-1">
         <h1 className="text-2xl font-semibold" data-action="close-title">
@@ -573,7 +575,7 @@ function CloseView({ flockId }: { flockId: string }) {
           </p>
         ) : null}
         <div>
-          <Button size="lg" disabled={!ready} busy={busy} onClick={openConfirm} data-action="close-go">
+          <Button type="submit" size="lg" disabled={!ready} busy={busy} onClick={openConfirm} data-action="close-go">
             {t('halls.close.go', 'أغلق الدورة')}
           </Button>
         </div>
@@ -597,7 +599,7 @@ function CloseView({ flockId }: { flockId: string }) {
           onCancel={() => setConfirm(null)}
         />
       ) : null}
-    </div>
+    </form>
   );
 }
 

@@ -1,4 +1,5 @@
-import type { ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
+import { noSubmit } from '../../lib/formKeys';
 import { t } from '../../lib/i18n';
 import { Button } from './Button';
 import { Dialog } from './Dialog';
@@ -36,6 +37,8 @@ export function ConfirmDialog({
   onCancel,
 }: ConfirmDialogProps) {
   // وقت الشغل ماكو رجعة: «لا، ارجع» معطّل، وEsc والنقرة برّا وX مقفولين وياه (locked).
+  // وخانة في النتيجة (سبب الإلغاء): Enter فيها يضغط زرّ الفعل كأيّ نافذة (0037 K، lib/formKeys)، والتركيز يبدأ على «لا، تراجع» كما كان.
+  const formId = useId();
   return (
     <Dialog
       open={open}
@@ -47,13 +50,15 @@ export function ConfirmDialog({
           <Button variant="secondary" onClick={onCancel} disabled={busy} data-autofocus>
             {cancelLabel ?? t('confirm.cancel', 'لا، تراجع')}
           </Button>
-          <Button variant={tone === 'danger' ? 'danger' : 'primary'} busy={busy} onClick={onConfirm} data-action={action}>
+          <Button type="submit" form={formId} variant={tone === 'danger' ? 'danger' : 'primary'} busy={busy} onClick={onConfirm} data-action={action}>
             {confirmLabel}
           </Button>
         </div>
       }
     >
-      <div className="text-ink-muted">{consequence}</div>
+      <form id={formId} className="text-ink-muted" onSubmit={noSubmit} noValidate>
+        {consequence}
+      </form>
     </Dialog>
   );
 }

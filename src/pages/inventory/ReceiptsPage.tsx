@@ -27,6 +27,7 @@ import type { ItemKind } from '../../domain/stores';
 import { receiptValuation, type ReceiptValuation } from '../../domain/receipt';
 import { parseQty } from '../../domain/units';
 import { describeError, RejectedError } from '../../lib/errors';
+import { noSubmit } from '../../lib/formKeys';
 import { fmtCounted, fmtDay, fmtQty, fmtUnitCost } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { parseDayText, parseMomentText } from '../../lib/dayText';
@@ -580,7 +581,7 @@ function AmountsPanel({
   const dirty = plan.problem !== null || plan.lines.length > 0 || plan.amounts !== null;
   const failed = failure ? describeError(failure, 'once') : null;
   return (
-    <section className="card flex flex-col gap-3 p-4" aria-labelledby={`${id}-title`}>
+    <form className="card flex flex-col gap-3 p-4" aria-labelledby={`${id}-title`} onSubmit={noSubmit} noValidate>
       <h2 id={`${id}-title`} className="font-semibold">{t('receipt.amounts', 'مبالغ الفاتورة')}</h2>
       {conflicts.length > 0 ? (
         <Notice tone="warning" title={t('receipt.amounts.conflict', 'تغيّر {names} من نافذة أو جهاز آخر بعد أن بدأت تعديله؛ تُعرض القيمة المحفوظة الآن.', { names: conflicts.join(t('list.separator', '، ')) })} />
@@ -618,7 +619,7 @@ function AmountsPanel({
         </Notice>
       ) : null}
       <div className="flex flex-wrap gap-2">
-        <Button busy={busy} disabled={!dirty} onClick={onSave} data-action="save-amounts">
+        <Button type="submit" busy={busy} disabled={!dirty} onClick={onSave} data-action="save-amounts">
           {t('receipt.amounts.save', 'احفظ المبالغ')}
         </Button>
         {dirty ? (
@@ -627,7 +628,7 @@ function AmountsPanel({
           </Button>
         ) : null}
       </div>
-    </section>
+    </form>
   );
 }
 

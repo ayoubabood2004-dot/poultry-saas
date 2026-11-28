@@ -17,7 +17,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const REAL_FLOCKS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'flocks.ts'));
 const REAL_SHEET = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'hallSheet.ts'));
 const SHEET = JSON.parse(readFileSync(path.join(ROOT, 'scripts', 'tests', 'fixtures', 'hall-sheet.hand.json'), 'utf8')).hall_sheet.broiler;
-const OVERRIDES = ['loadOverviewJson', 'loadFlockDetail', 'loadFlockFeed', 'createHall', 'updateHall', 'archiveHall', 'openFlock', 'recordFlockWeight'];
+const OVERRIDES = ['loadOverviewJson', 'loadFlockDetail', 'loadFlockFeed', 'recordFlockWeight'];
+const ADMIN = ['createHall', 'updateHall', 'openFlock', 'setHallSections'];
 const STUBS = {
   flocks: `export * from ${REAL_FLOCKS}; import { parseOverview as __parseOverview } from ${REAL_FLOCKS}; ${OVERRIDES.map((n) => `export const ${n} = (...a) => globalThis.__hp.call('${n}', a);`).join(' ')}
     export const loadOverview = async () => __parseOverview(await globalThis.__hp.call('loadOverviewJson', []));
@@ -30,6 +31,8 @@ const STUBS = {
   hallSheet: `export * from ${REAL_SHEET}; import { parseHallSheet as __sheet } from ${REAL_SHEET};
     export const loadHallSheet = async (id) => __sheet(await globalThis.__hp.call('hall_sheet', [id]));`,
   FlockCard: 'export default function FlockCard() { return null; }',
+  // إدارة القاعات (hallAdmin: خارج flocks.ts لحجم التثبيت المسبق) عبر البديل نفسه.
+  hallAdmin: ADMIN.map((n) => `export const ${n} = (...a) => globalThis.__hp.call('${n}', a);`).join(' '),
   hallsChunk: `import FlockPage, { HallPage } from './src/pages/farm/FlockPage.tsx';
     import { HallDialog, OpenFlockDialog } from './src/pages/farm/hallDialogs.tsx';
     const nothing = () => null;
@@ -64,7 +67,7 @@ async function screens() {
       {
         name: 'hall-stubs',
         setup(b) {
-          b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/flocks$|\/lib\/repo\/hallSheet$|\/Toast$|\/lib\/hallsChunk$|\/halls\/FlockCard$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'hall-stub' }));
+          b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/flocks$|\/lib\/repo\/hallAdmin$|\/lib\/repo\/hallSheet$|\/Toast$|\/lib\/hallsChunk$|\/halls\/FlockCard$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'hall-stub' }));
           b.onLoad({ filter: /.*/, namespace: 'hall-stub' }, (args) => ({ contents: STUBS[args.path], resolveDir: ROOT, loader: 'js' }));
         },
       },

@@ -18,6 +18,7 @@ import { can } from '../../domain/permissions';
 import { BASE_UNITS, COUNTED_KINDS, dimensionOf, ITEM_KINDS, itemProblems, type ItemKind, type ItemProblem } from '../../domain/stores';
 import { parseDensity, parseFactor, parseQty, type BaseUnit } from '../../domain/units';
 import { describeError, NotConnectedError, ZeroRowsError } from '../../lib/errors';
+import { noSubmit } from '../../lib/formKeys';
 import { columnDecimals, fmtInt, fmtQtyCell, fmtScaledCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import * as inventory from '../../lib/repo/inventory';
@@ -357,6 +358,7 @@ export function ItemForm({ form, setForm, categories, errors, id, isNew = false 
                 addCode();
               }
             }}
+            data-enter="own"
           />
           <Button variant="secondary" onClick={addCode} data-action="add-code">
             {t('items.alt_codes.add', 'أضف')}
@@ -573,7 +575,7 @@ function UnitsDialog({ item, packs, onClose }: { item: ItemRow; packs: OrgSetup[
       <div className="flex flex-col gap-4">
         {units.error ? <LoadFailed what={t('items.units', 'التعبئة')} error={units.error} onRetry={units.retry} /> : <DataTable caption={t('items.units', 'التعبئة')} columns={columns} rows={rows} rowKey={(unit) => unit.id} empty={units.data ? t('items.units.empty', 'لا تعبئة أكبر بعد؛ تُكتب الكمية بالوحدة التي تُعدّ بها المادّة.') : t('page.loading', 'جارٍ الفتح…')} />}
         {item.baseUnit === 'pc' && units.data && named === null ? (
-          <div className="flex flex-col gap-2 rounded-2xl border border-line p-3">
+          <form className="flex flex-col gap-2 rounded-2xl border border-line p-3" onSubmit={noSubmit} noValidate>
             <Field id={`${id}-count-name`} label={t('items.count_name', 'ما اسم الوحدة؟')} hint={t('items.count_name.hint.edit', 'مثل قنينة أو ظرف، فتظهر الكمية «12 قنينة» بدل «12 قطعة».')}>
               <input id={`${id}-count-name`} className="input" maxLength={40} value={nameText} onChange={(event) => setNameText(event.target.value)} />
             </Field>
@@ -584,10 +586,10 @@ function UnitsDialog({ item, packs, onClose }: { item: ItemRow; packs: OrgSetup[
                 </Button>
               ))}
             </div>
-            <Button busy={busy} disabled={countUnitToCreate({ baseUnit: 'pc', countName: nameText }) === null} onClick={saveName} data-action="save-count-name">
+            <Button type="submit" busy={busy} disabled={countUnitToCreate({ baseUnit: 'pc', countName: nameText }) === null} onClick={saveName} data-action="save-count-name">
               {t('items.count_name.save', 'احفظ اسم الوحدة')}
             </Button>
-          </div>
+          </form>
         ) : null}
         <h3 className="font-semibold">{t('items.units.bigger', 'التعبئة الأكبر (اختياري)')}</h3>
         <p className="text-sm text-ink-muted">{t('items.units.example', 'مثل «كرتون» = 12 {unit}، فتُكتب الكمية بالكرتون أو بال{unit}.', { unit })}</p>

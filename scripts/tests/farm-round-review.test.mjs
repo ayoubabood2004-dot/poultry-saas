@@ -28,7 +28,8 @@ const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', '.
 const REAL_FLOCKS = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'flocks.ts'));
 const REAL_SHEET = JSON.stringify(path.join(ROOT, 'src', 'lib', 'repo', 'hallSheet.ts'));
 const HALLS = JSON.stringify(path.join(ROOT, 'src', 'pages', 'halls', 'HallsRoutes.tsx'));
-const OVERRIDES = ['loadOverviewJson', 'loadFlockDetail', 'createHall', 'updateHall', 'archiveHall', 'openFlock', 'recordFlockWeight'];
+const OVERRIDES = ['loadOverviewJson', 'loadFlockDetail', 'recordFlockWeight'];
+const ADMIN = ['createHall', 'updateHall', 'openFlock', 'setHallSections'];
 const STUBS = {
   flocks: `export * from ${REAL_FLOCKS}; import { parseOverview as __parseOverview } from ${REAL_FLOCKS}; ${OVERRIDES.map((n) => `export const ${n} = (...a) => globalThis.__r36.call('${n}', a);`).join(' ')}
     export const loadOverview = async () => __parseOverview(await globalThis.__r36.call('loadOverviewJson', []));
@@ -39,6 +40,8 @@ const STUBS = {
   Toast: 'export const toast = (spec) => { globalThis.__r36.toasts.push(spec); }; export function Toaster() { return null; }',
   home: 'export const loadHomeSummary = () => globalThis.__r36.call("loadHomeSummary", []);',
   // حزمة القاعات كما يحمّلها المتصفّح: الحقيقية، أو فشل تحميلها بلا نت (chunkDown).
+  // إدارة القاعات (hallAdmin: خارج flocks.ts لحجم التثبيت المسبق) عبر البديل نفسه.
+  hallAdmin: ADMIN.map((n) => `export const ${n} = (...a) => globalThis.__r36.call('${n}', a);`).join(' '),
   hallsChunk: `import * as halls from ${HALLS};
     export const loadHalls = () => {
       if (globalThis.__r36) globalThis.__r36.loads += 1;
@@ -79,7 +82,7 @@ async function screens() {
       {
         name: 'r36-stubs',
         setup(b) {
-          b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/flocks$|\/lib\/repo\/hallSheet$|\/Toast$|\/lib\/repo\/home$|\/lib\/hallsChunk$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'r36-stub' }));
+          b.onResolve({ filter: /\/lib\/session$|\/lib\/repo\/flocks$|\/lib\/repo\/hallAdmin$|\/lib\/repo\/hallSheet$|\/Toast$|\/lib\/repo\/home$|\/lib\/hallsChunk$/ }, (args) => ({ path: args.path.split('/').at(-1), namespace: 'r36-stub' }));
           b.onLoad({ filter: /.*/, namespace: 'r36-stub' }, (args) => ({ contents: STUBS[args.path], resolveDir: ROOT, loader: 'js' }));
         },
       },
@@ -548,7 +551,7 @@ export default async function (t) {
       const tellsRound = Boolean(shelf?.textContent.includes('أعد إدخال ما تراه صحيحاً في الجولة'));
       t.ok(links.includes('/broiler/hall/h-1') || !tellsRound, `R9 صفّ «سُجّلت هلاكات هذا اليوم من جهاز آخر» يدلّ على التصحيح (صفحة القاعة ← ✎ تعديل) لا على الجولة المقفولة (روابط الصفّ ${JSON.stringify(links)}، والرفّ يقول «أعد إدخال … في الجولة»: ${tellsRound})`);
       const fix = entry ? byAction('review-dead-fix', entry)[0] : null;
-      t.same([fix?.getAttribute('href') ?? null, fix?.textContent ?? null, fix?.parentNode?.textContent ?? null, shelf?.textContent.includes('والهلاكات المسجّلة من صفحة القاعة')], ['/broiler/hall/h-1', 'صفحة القاعة ← ✎ تعديل', 'للتصحيح: صفحة القاعة ← ✎ تعديل', true], 'R9 «للتصحيح: صفحة القاعة ← ✎ تعديل» رابطاً في الصفّ، والرفّ يقول إنّ الهلاكات المسجّلة من صفحة القاعة');
+      t.same([fix?.getAttribute('href') ?? null, fix?.textContent ?? null, fix?.parentNode?.textContent ?? null, shelf?.textContent.includes('(الهلاكات المسجّلة والغاز والكاز) من صفحة القاعة')], ['/broiler/hall/h-1', 'صفحة القاعة ← ✎ تعديل', 'للتصحيح: صفحة القاعة ← ✎ تعديل', true], 'R9 «للتصحيح: صفحة القاعة ← ✎ تعديل» رابطاً في الصفّ، والرفّ يقول إنّ الهلاكات المسجّلة (وغاز الورقة وكازها، مراجعة 2026-11-27) من صفحة القاعة');
     });
 
     // ── R10: علف اليوم كلّه بلا كتلة (feed_today_kg = null وسطوره موجودة): «أُرسل اليوم» بسطوره؛ وجواب إرسال كهذا (day.feed_kg = null) «حُفظ» ─────────

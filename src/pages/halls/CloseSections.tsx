@@ -7,6 +7,7 @@ import { Field } from '../../components/ui/Field';
 import { Notice } from '../../components/ui/Notice';
 import { toast } from '../../components/ui/Toast';
 import { can } from '../../domain/permissions';
+import { noSubmit } from '../../lib/formKeys';
 import { fmtDay, fmtInt, fmtQtyCell } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import { loadFlockSales, reopenFlock, returnHallCarry, type CloseLine, type CloseResult, type ReopenWhy } from '../../lib/repo/flockClose';
@@ -121,12 +122,12 @@ function ReturnCarryDialog({ line, onClose, onDone }: { line: CloseLine; onClose
       locked={busy || unknown}
       title={t('halls.close.return_title', 'أرجع «{item}» ({qty}) إلى مخزن', { item: line.itemName, qty: amountText(line.qty, line.baseUnit) })}
       footer={
-        <Button busy={busy} disabled={store === ''} onClick={() => void send()} data-action="carry-return-go">
+        <Button type="submit" form={`${id}-form`} busy={busy} disabled={store === ''} onClick={() => void send()} data-action="carry-return-go">
           {unknown ? t('issue.retry', 'أعد المحاولة') : t('halls.close.return_go', 'أرجعه إلى المخزن')}
         </Button>
       }
     >
-      <div className="flex flex-col gap-3">
+      <form id={`${id}-form`} className="flex flex-col gap-3" onSubmit={noSubmit} noValidate>
         <p className="text-sm text-ink-muted">{t('halls.close.return_body', 'يرجع إلى مخزن جاء منه بقيمته المنقولة، ولا تتغيّر كلفة الدورة المغلقة. ولا يُنقل بعدها إلى الدورة التالية.')}</p>
         <Field id={`${id}-store`} label={t('halls.close.col.store', 'المخزن')}>
           <select id={`${id}-store`} className="input" value={store} disabled={busy || unknown} onChange={(event) => setStore(event.target.value)} data-action="carry-return-store">
@@ -140,7 +141,7 @@ function ReturnCarryDialog({ line, onClose, onDone }: { line: CloseLine; onClose
         </Field>
         {unknown ? <Notice tone="warning" title={t('halls.close.return_unknown', 'لا نعرف إن أُرجع: أعد المحاولة؛ لن يُرجع مرّتين.')} /> : null}
         {failure ? <Notice tone="danger" title={failureText(failure)} /> : null}
-      </div>
+      </form>
     </Dialog>
   );
 }
@@ -181,6 +182,8 @@ export function reopenWhyText(why: ReopenWhy | null): string {
       return t('halls.reopen.why.hall_archived', 'لا يُعاد فتح هذه الدورة: القاعة أو حقلها مؤرشف. أعِد المؤرشف منهما من الأرشيف أوّلاً.');
     case 'hall_reused':
       return t('halls.reopen.why.hall_reused', 'لا يُعاد فتح هذه الدورة: سُكّن في القاعة فوجٌ بعدها.');
+    case 'sections_changed':
+      return t('halls.reopen.why.sections_changed', 'لا يُعاد فتح هذه الدورة: تغيّرت أقسام القاعة بعد إغلاقها. أعِد أقسام القاعة كما كانت ثمّ أعد فتحها.');
     case 'carry_used':
       return t('halls.reopen.why.carry_used', 'لا يُعاد فتح هذه الدورة: العلف المنقول منها نُقل إلى الفوج التالي في القاعة.');
     case 'lot_consumed':
@@ -231,20 +234,20 @@ function ReopenDialog({ close, onClose, onDone }: { close: CloseResult; onClose:
           <Button variant="secondary" disabled={busy || unknown} onClick={onClose}>
             {t('confirm.cancel', 'لا، تراجع')}
           </Button>
-          <Button variant="danger" busy={busy} disabled={reason.trim() === '' || reason.trim().length > 500} onClick={() => void send()} data-action="reopen-go">
+          <Button type="submit" form={`${id}-form`} variant="danger" busy={busy} disabled={reason.trim() === '' || reason.trim().length > 500} onClick={() => void send()} data-action="reopen-go">
             {unknown ? t('issue.retry', 'أعد المحاولة') : t('halls.reopen.go', 'أعد فتح الدورة')}
           </Button>
         </div>
       }
     >
-      <div className="flex flex-col gap-3">
+      <form id={`${id}-form`} className="flex flex-col gap-3" onSubmit={noSubmit} noValidate>
         <p data-action="reopen-text">{reopenText(close)}</p>
         <Field id={`${id}-reason`} label={t('halls.reopen.reason', 'سبب إعادة الفتح')} error={reason.trim().length > 500 ? t('halls.close.reason_long', 'السبب حتى 500 حرف.') : null}>
           <input id={`${id}-reason`} className="input" autoComplete="off" value={reason} disabled={busy || unknown} onChange={(event) => setReason(event.target.value)} data-action="reopen-reason" />
         </Field>
         {unknown ? <Notice tone="warning" title={t('halls.reopen.unknown', 'لا نعرف إن أُعيد فتح الدورة: أعد المحاولة؛ لن يتكرّر شيء.')} /> : null}
         {failure ? <Notice tone="danger" title={failureText(failure)} /> : null}
-      </div>
+      </form>
     </Dialog>
   );
 }

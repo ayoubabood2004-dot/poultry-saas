@@ -2,6 +2,7 @@ import { addDays, type Day } from '../../domain/dates';
 import { decimalText, parseDecimal, toScale } from '../../domain/decimal';
 import type { FlockKind } from '../../domain/flocks';
 import { roundHalfAway, type Milli } from '../../domain/money';
+import { validParts } from '../../domain/sections';
 import type { BaseUnit } from '../../domain/units';
 import { call } from './core';
 
@@ -75,6 +76,13 @@ const count = (row: Row, field: string): number => {
   return value;
 };
 const optCount = (row: Row, field: string): number | null => (row[field] === null ? null : count(row, field));
+/** أعداد الأقسام (0038): غائبة أو null = null، وإلّا عدد صحيح غير سالب لكلّ قسم من قسمين إلى أربعة. */
+const partsOf = (row: Row, field: string): number[] | null => {
+  const value = row[field];
+  if (value === undefined || value === null) return null;
+  if (!Array.isArray(value) || !validParts(value)) throw new HallSheetShapeError(field);
+  return [...value];
+};
 /**
  * مفتاح أضافته مراجعة 0035 للعقد (نسخة المركون، والمنقول والمرتجع، وصافي العلف): غيابه null (قارئ قبلها)، ووجوده بشكله وإلّا رُفض كغيره.
  */
@@ -116,6 +124,11 @@ export interface SheetDay {
   note: string | null;
   gas: number | null;
   gasVersion: number | null;
+  /** الكاز باللتر (0037، رقم فقط مثل الغاز)، أو null: لم يُسجَّل؛ ونسخة صفّه (الممسوح نسخة بلا لترات). قارئ قبل 0037 بلا المفتاحين: null. */
+  kerosene: number | null;
+  /** 0038: هلاكات اليوم لكلّ قسم في قاعة مقسومة (مجموعها dead)، أو null: غير مقسومة، أو يوم بلا جولة، أو قارئ قبل 0038. */
+  deadParts: number[] | null;
+  keroseneVersion: number | null;
   /** العلف المرسل لهذا اليوم بالكيلو (بالآلاف)، أو null: لا علف. ويوم التسكين يشمل المنقول من الوجبة السابقة (carryInKg). */
   feedKg: Milli | null;
   /** المنقول من الوجبة السابقة إلى هذه القاعة (يوم التسكين وحده)، داخل feedKg؛ أو null. */
@@ -133,7 +146,11 @@ export interface SheetDay {
 
 export interface SheetTotals {
   dead: number;
+  /** 0038: هلاكات كلّ قسم في الوجبة كلّها، أو null: غير مقسومة. */
+  deadParts: number[] | null;
   gas: number;
+  /** لترات الكاز (0037)؛ 0 من قارئ قبله. */
+  kerosene: number;
   feedKg: Milli;
   /** المرتجع والمنقول يوم الإغلاق؛ null من قارئ قبل مراجعة 0035 أو بلا شيء. */
   feedBackKg: Milli | null;
@@ -156,6 +173,8 @@ export interface SheetSummary {
   /** صافي العلف = المرسل − المرتجع والمنقول. */
   feedNetKg: Milli;
   gas: number;
+  /** لترات الكاز (0037)؛ 0 من قارئ قبله. */
+  kerosene: number;
   soldBirds: number;
   soldNetKg: Milli | null;
   /** كيلو بالآلاف. */
@@ -208,10 +227,21 @@ export interface SheetFlock {
   endAge: number | null;
 }
 
+/** قسم من قاعة مقسومة (0038): رقمه وعدده وهلاكاته ونسبتها (بالمئات، 16 = 0.16٪) والباقي بعد الهلاكات (المبيع لا يُقسم). */
+export interface SheetSection {
+  no: number;
+  placed: number;
+  dead: number;
+  mortalityPct: bigint;
+  remaining: number;
+}
+
 export interface HallSheet {
   /** يوم الخادم (app_today) لحظة القراءة. */
   today: Day;
   flock: SheetFlock;
+  /** 0038: أقسام الوجبة بترتيبها، أو null: غير مقسومة أو قارئ قبل 0038. */
+  sections: SheetSection[] | null;
   canWrite: boolean;
   through: Day;
   /** بترتيب الأيام من التسكين حتى through، يوماً بيوم. */
@@ -257,6 +287,9 @@ function dayOf(row: Row, kind: FlockKind): SheetDay {
     note: optStr(row, 'note'),
     gas: optCount(row, 'gas'),
     gasVersion: optCount(row, 'gas_version'),
+    kerosene: added(row, 'kerosene', optCount),
+    keroseneVersion: added(row, 'kerosene_version', optCount),
+    deadParts: partsOf(row, 'dead_parts'),
     feedKg: optScaled(row, 'feed_kg', 3),
     carryInKg: addedKg(row, 'carry_in_kg'),
     feedBackKg: addedKg(row, 'feed_back_kg'),
@@ -273,6 +306,10 @@ function dayOf(row: Row, kind: FlockKind): SheetDay {
   if (parsed.carryInKg !== null && (parsed.feedKg === null || parsed.carryInKg > parsed.feedKg)) throw new HallSheetShapeError('carry_in_kg');
   // الغاز الممسوح يبقى صفّه بنسخة أكبر وعدد null (لا حذف، درس ABA 2026-11-16)، فالنسخة بلا عدد صالحة؛ والعدد بلا نسخة لا.
   if (parsed.gas !== null && parsed.gasVersion === null) throw new HallSheetShapeError('gas_version');
+  // أقسام اليوم مجموعها هلاكاته (0038).
+  if (parsed.deadParts !== null && parsed.deadParts.reduce((sum, part) => sum + part, 0) !== parsed.dead) throw new HallSheetShapeError('dead_parts');
+  // والكاز كذلك (0037)، وحدّه حدّ الخادم.
+  if (parsed.kerosene !== null && (parsed.keroseneVersion === null || parsed.kerosene > 20000)) throw new HallSheetShapeError('kerosene');
   if (kind === 'broiler' && (parsed.eggsTotal !== null || parsed.eggsCracked !== null || parsed.eggsBroken !== null)) throw new HallSheetShapeError('eggs_total');
   return parsed;
 }
@@ -317,7 +354,9 @@ export function parseHallSheet(value: unknown): HallSheet {
     days,
     totals: {
       dead: count(totalsRow, 'dead'),
+      deadParts: partsOf(totalsRow, 'dead_parts'),
       gas: count(totalsRow, 'gas'),
+      kerosene: added(totalsRow, 'kerosene', count) ?? 0,
       feedKg: scaled(totalsRow, 'feed_kg', 3),
       feedBackKg: addedKg(totalsRow, 'feed_back_kg'),
       soldBirds: count(totalsRow, 'sold_birds'),
@@ -334,6 +373,7 @@ export function parseHallSheet(value: unknown): HallSheet {
       feedBackKg: addedKg(summaryRow, 'feed_back_kg'),
       feedNetKg: summaryRow.feed_net_kg === undefined ? scaled(summaryRow, 'feed_kg', 3) - (addedKg(summaryRow, 'feed_back_kg') ?? 0n) : scaled(summaryRow, 'feed_net_kg', 3),
       gas: count(summaryRow, 'gas'),
+      kerosene: added(summaryRow, 'kerosene', count) ?? 0,
       soldBirds: count(summaryRow, 'sold_birds'),
       soldNetKg: optScaled(summaryRow, 'sold_net_kg', 3),
       avgWeightKg: optScaled(summaryRow, 'avg_weight_kg', 3),
@@ -352,7 +392,34 @@ export function parseHallSheet(value: unknown): HallSheet {
       last: flag(row, 'last'),
     })),
     rejects: list(json.rejects, 'rejects').map(rejectOf),
+    sections: sectionsOf(json, days),
   };
+}
+
+/**
+ * أقسام الوجبة (0038) كما يرسلها الخادم: من قسمين إلى أربعة بترتيبها 1..n، وكلّ قسم بعدده وهلاكاته ونسبتها وباقيه (العدد − الهلاكات)، ومجموع هلاكاته في
+ * الأيّام هلاكاته؛ وغائبة (قارئ قبل 0038) أو null: غير مقسومة، وأيّامها بلا أقسام.
+ */
+function sectionsOf(json: Row, days: readonly SheetDay[]): SheetSection[] | null {
+  if (json.sections === undefined || json.sections === null) {
+    if (days.some((entry) => entry.deadParts !== null)) throw new HallSheetShapeError('dead_parts');
+    return null;
+  }
+  const sections = list(json.sections, 'sections').map((row) => ({
+    no: count(row, 'no'),
+    placed: count(row, 'placed'),
+    dead: count(row, 'dead'),
+    mortalityPct: scaled(row, 'mortality_pct', 2),
+    remaining: int(row, 'remaining'),
+  }));
+  if (sections.length < 2 || sections.length > 4 || sections.some((section, index) => section.no !== index + 1 || section.remaining !== section.placed - section.dead)) {
+    throw new HallSheetShapeError('sections');
+  }
+  // كلّ يوم مسجّل بأقسامها، ومجموع كلّ قسم في الأيّام هلاكاته.
+  if (days.some((entry) => entry.deadParts !== null && entry.deadParts.length !== sections.length)) throw new HallSheetShapeError('dead_parts');
+  const sums = sections.map((_, index) => days.reduce((sum, entry) => sum + (entry.deadParts?.[index] ?? 0), 0));
+  if (sums.some((sum, index) => sum !== sections[index]?.dead)) throw new HallSheetShapeError('sections');
+  return sections;
 }
 
 /** مركون من الأجهزة (في الورقة وفي جواب stale_reject). */

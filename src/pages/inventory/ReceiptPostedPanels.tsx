@@ -11,6 +11,7 @@ import { toast } from '../../components/ui/Toast';
 import { localDay } from '../../domain/dates';
 import type { Fils } from '../../domain/money';
 import { describeError, RejectedError } from '../../lib/errors';
+import { noSubmit } from '../../lib/formKeys';
 import { fmtDay, fmtMoney } from '../../lib/format';
 import { t } from '../../lib/i18n';
 import * as inventory from '../../lib/repo/inventory';
@@ -189,7 +190,7 @@ function RevalueForm({ receipt, line, current, onDone, onCancel }: { receipt: Re
   const ready = fresh && preview.ready && preview.problems.length === 0 && reason.trim() !== '';
   const failed = failure ? describeError(failure, 'once') : null;
   return (
-    <div className="flex flex-col gap-3 rounded-2xl border border-line p-3" data-action="revalue-form">
+    <form className="flex flex-col gap-3 rounded-2xl border border-line p-3" onSubmit={noSubmit} noValidate data-action="revalue-form">
       <p className="font-medium">
         {t('revalue.form.title', 'تصحيح سعر «{item}» في الاستلام {no}', { item: line.itemName, no: receipt.docNo ?? '' })}
       </p>
@@ -208,7 +209,7 @@ function RevalueForm({ receipt, line, current, onDone, onCancel }: { receipt: Re
         </Notice>
       ) : null}
       <div className="flex flex-wrap gap-2">
-        <Button variant="secondary" busy={busy && !confirm} disabled={amount === null} onClick={runPreview} data-action="preview-revalue">
+        <Button type="submit" variant="secondary" busy={busy && !confirm} disabled={amount === null} onClick={runPreview} data-action="preview-revalue">
           {t('revalue.preview', 'راجع التصحيح')}
         </Button>
         <Button variant="ghost" disabled={busy} onClick={onCancel} data-action="cancel-revalue">
@@ -269,7 +270,7 @@ function RevalueForm({ receipt, line, current, onDone, onCancel }: { receipt: Re
         onConfirm={() => void post()}
         onCancel={() => setConfirm(false)}
       />
-    </div>
+    </form>
   );
 }
 

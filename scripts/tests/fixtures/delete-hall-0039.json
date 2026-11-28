@@ -1,0 +1,842 @@
+{
+ "_note": "عيّنات القاعدة الحقيقية (supabase/tests/delete-hall.test.mjs بـDELETE_HALL_SAMPLES_OUT=1، اليوم المثبَّت 2026-11-26)؛ محلّلات الشاشات (الجزء H) تقرؤها. منشأة كمنشأة الزبون: «قاعة 8 تجريبي» بفوج قائم (14 يوماً من الجولات وغاز وسبع إرسالات علف من «رصيد العلف» وتأشير لقاح مصروف ودواء ووزن وفرق عدّ وتذكرة ملغاة)، و«قاعة الدورة المنتهية» بدورة منتهية، و«قاعة فارغة» بلا فوج، و«قاعة البيع» بفاتورة طيور، و«قاعة الجرد» و«قاعة السعر» و«قاعة الجرد والسعر» لمنعي counted وrevalued (جرد معتمد وسعر أُكمل بعد الإرسال)، و«قاعة مقسومة» بقسمين وكاز (0038 و0037_kerosene). والصلاحية (permission) لا تقع بعد 0034 لعضو في منشأته، فعيّناتها من معاملة ترجع ودالّة النطاق أو الفعل تقول لا.",
+ "preview_running": {
+  "hall": {
+   "id": "4e109eeb-80c5-4837-ba38-ff6fa6fd5a9d",
+   "name": "قاعة 8 تجريبي",
+   "site": "حقل لحم",
+   "site_id": "16867269-e970-425a-813c-dcac82e2251e",
+   "version": 1
+  },
+  "plan": "f4b25440186b64a732f38fb8df5530ed",
+  "ended": 0,
+  "flock": {
+   "id": "0448b5c2-2106-4e7f-a9f0-4df9c9b699dd",
+   "back": [
+    {
+     "qty": "10000.000",
+     "item": "علف م/1",
+     "item_id": "4bb88677-f228-4b6e-b32d-77800503f12d",
+     "base_unit": "kg",
+     "warehouse": "رصيد العلف",
+     "warehouse_id": "86d0e01f-3712-4e5d-b3df-9f5dc35e50a6"
+    },
+    {
+     "qty": "2000.000",
+     "item": "علف م/2",
+     "item_id": "21207b11-7881-4c88-9f66-f8cb46021ffd",
+     "base_unit": "kg",
+     "warehouse": "رصيد العلف",
+     "warehouse_id": "86d0e01f-3712-4e5d-b3df-9f5dc35e50a6"
+    },
+    {
+     "qty": "25.000",
+     "item": "لقاح نيوكاسل",
+     "item_id": "0cb6d786-1c62-43c4-ba07-69f2a3c2b111",
+     "base_unit": "pc",
+     "warehouse": "مخزن الأدوية",
+     "warehouse_id": "0d2ee7f7-b73f-4664-bb53-8edb0d40a4a9"
+    }
+   ],
+   "days": 14,
+   "logs": 1,
+   "issues": 8,
+   "status": "active",
+   "visits": 14,
+   "version": 1,
+   "weights": 1,
+   "gas_days": 13,
+   "placed_on": "2026-11-13",
+   "placed_count": 25250,
+   "vaccinations": 1
+  },
+  "blocks": []
+ },
+ "preview_ended": {
+  "hall": {
+   "id": "cce64967-88ce-41c8-8fb3-b599e834dea8",
+   "name": "قاعة الدورة المنتهية",
+   "site": "حقل لحم",
+   "site_id": "16867269-e970-425a-813c-dcac82e2251e",
+   "version": 1
+  },
+  "plan": "1d9295af2f17abb90a01477fbce3a97b",
+  "ended": 1,
+  "flock": null,
+  "blocks": []
+ },
+ "preview_empty": {
+  "hall": {
+   "id": "f81a01e3-529f-4cac-875e-36180e235244",
+   "name": "قاعة فارغة",
+   "site": "حقل لحم",
+   "site_id": "16867269-e970-425a-813c-dcac82e2251e",
+   "version": 1
+  },
+  "plan": "bcf1c3f7696b7fe77554791bfcae0cf9",
+  "ended": 0,
+  "flock": null,
+  "blocks": []
+ },
+ "preview_sales": {
+  "hall": {
+   "id": "dc59ce66-4259-45ec-aae1-ef7a835fa24c",
+   "name": "قاعة البيع",
+   "site": "حقل لحم",
+   "site_id": "16867269-e970-425a-813c-dcac82e2251e",
+   "version": 1
+  },
+  "plan": "3e5dde14d2e818eef5a707bbb5f88ae9",
+  "ended": 0,
+  "flock": {
+   "id": "642e54a9-f3ca-46f6-80cd-e33445527599",
+   "back": [],
+   "days": 0,
+   "logs": 0,
+   "issues": 0,
+   "status": "active",
+   "visits": 0,
+   "version": 1,
+   "weights": 0,
+   "gas_days": 0,
+   "placed_on": "2026-11-06",
+   "placed_count": 5000,
+   "vaccinations": 0
+  },
+  "blocks": [
+   {
+    "code": "sales",
+    "text": "في الفوج بيع طيور (فاتورة BR-2026-0002)؛ ألغِ الفاتورة أوّلاً ثمّ احذف القاعة."
+   },
+   {
+    "code": "tickets",
+    "text": "في الفوج تذكرة وزن (WT-2026-0002)؛ ألغِ التذكرة أوّلاً ثمّ احذف القاعة."
+   }
+  ]
+ },
+ "preview_tickets": {
+  "hall": {
+   "id": "d7d65a3f-a3ed-487d-b310-c188c7c156b2",
+   "name": "قاعة التذكرة",
+   "site": "حقل لحم",
+   "site_id": "16867269-e970-425a-813c-dcac82e2251e",
+   "version": 1
+  },
+  "plan": "e569cc4b026aa5c57f2ede22c832fcdd",
+  "ended": 0,
+  "flock": {
+   "id": "c9b06d42-b616-42af-ae01-c3c7d7f24483",
+   "back": [],
+   "days": 0,
+   "logs": 0,
+   "issues": 0,
+   "status": "active",
+   "visits": 0,
+   "version": 1,
+   "weights": 0,
+   "gas_days": 0,
+   "placed_on": "2026-11-16",
+   "placed_count": 3000,
+   "vaccinations": 0
+  },
+  "blocks": [
+   {
+    "code": "tickets",
+    "text": "في الفوج تذكرة وزن (مسوّدة 26/11/2026)؛ ألغِ التذكرة أوّلاً ثمّ احذف القاعة."
+   }
+  ]
+ },
+ "preview_carry_pending": {
+  "hall": {
+   "id": "7c9ccb57-4eba-400d-98f6-b35c862765ae",
+   "name": "قاعة النقل المعلّق",
+   "site": "حقل لحم",
+   "site_id": "16867269-e970-425a-813c-dcac82e2251e",
+   "version": 1
+  },
+  "plan": "7f8be4d3c3902b4e92b1ba69833b057f",
+  "ended": 1,
+  "flock": null,
+  "blocks": [
+   {
+    "code": "carry",
+    "text": "في القاعة «قاعة النقل المعلّق» علف منقول للدورة التالية («علف م/1»)؛ أرجِعه إلى مخزن أوّلاً ثمّ احذف القاعة."
+   }
+  ]
+ },
+ "preview_carry_applied": {
+  "hall": {
+   "id": "0fbfceb1-bf04-4b42-8ef9-2e43ac69593b",
+   "name": "قاعة النقل المطبّق",
+   "site": "حقل لحم",
+   "site_id": "16867269-e970-425a-813c-dcac82e2251e",
+   "version": 1
+  },
+  "plan": "6bb1f658d749418f6115ff854344f9c1",
+  "ended": 1,
+  "flock": {
+   "id": "b6879a7a-1f53-41f9-b80f-80189c5d80ab",
+   "back": [],
+   "days": 0,
+   "logs": 0,
+   "issues": 0,
+   "status": "active",
+   "visits": 0,
+   "version": 1,
+   "weights": 0,
+   "gas_days": 0,
+   "placed_on": "2026-11-22",
+   "placed_count": 1500,
+   "vaccinations": 0
+  },
+  "blocks": [
+   {
+    "code": "carry",
+    "text": "في الفوج علف منقول من الدورة السابقة («علف م/1»)، والنقل المطبَّق لا يُلغى، فلا تُحذف القاعة وفوجها قائم. أغلق الدورة أوّلاً ثمّ احذف القاعة."
+   }
+  ]
+ },
+ "refusal_hall_has_sales": {
+  "code": "hall_has_sales",
+  "hint": "في الفوج بيع طيور (فاتورة BR-2026-0002)؛ ألغِ الفاتورة أوّلاً ثمّ احذف القاعة."
+ },
+ "refusal_hall_has_tickets": {
+  "code": "hall_has_tickets",
+  "hint": "في الفوج تذكرة وزن (مسوّدة 26/11/2026)؛ ألغِ التذكرة أوّلاً ثمّ احذف القاعة."
+ },
+ "refusal_hall_has_carry": {
+  "code": "hall_has_carry",
+  "hint": "في الفوج علف منقول من الدورة السابقة («علف م/1»)، والنقل المطبَّق لا يُلغى، فلا تُحذف القاعة وفوجها قائم. أغلق الدورة أوّلاً ثمّ احذف القاعة."
+ },
+ "refusal_hall_has_carry_pending": {
+  "code": "hall_has_carry",
+  "hint": "في القاعة «قاعة النقل المعلّق» علف منقول للدورة التالية («علف م/1»)؛ أرجِعه إلى مخزن أوّلاً ثمّ احذف القاعة."
+ },
+ "preview_period_locked": {
+  "hall": {
+   "id": "4853bf62-758a-4093-bb3b-3c707f41b691",
+   "name": "قاعه 1 تجريبي",
+   "site": "حقل لحم",
+   "site_id": "16867269-e970-425a-813c-dcac82e2251e",
+   "version": 1
+  },
+  "plan": "34c5e149d4375ddb8640ef41597ba698",
+  "ended": 0,
+  "flock": {
+   "id": "f01ed65f-84ff-4e84-9b51-217e5dfcac8d",
+   "back": [
+    {
+     "qty": "1500.000",
+     "item": "علف م/1",
+     "item_id": "4bb88677-f228-4b6e-b32d-77800503f12d",
+     "base_unit": "kg",
+     "warehouse": "رصيد العلف",
+     "warehouse_id": "86d0e01f-3712-4e5d-b3df-9f5dc35e50a6"
+    }
+   ],
+   "days": 2,
+   "logs": 0,
+   "issues": 1,
+   "status": "active",
+   "visits": 2,
+   "version": 1,
+   "weights": 0,
+   "gas_days": 0,
+   "placed_on": "2026-11-14",
+   "placed_count": 20000,
+   "vaccinations": 0
+  },
+  "blocks": [
+   {
+    "code": "period_locked",
+    "text": "الحسابات مقفلة حتى 16/11/2026، وأيّام الفوج من 14/11/2026 داخلها؛ اطلب من مالك المنشأة فتح الفترة ثمّ احذف القاعة."
+   }
+  ]
+ },
+ "refusal_period_locked": {
+  "code": "period_locked",
+  "hint": "الحسابات مقفلة حتى 16/11/2026، وأيّام الفوج من 14/11/2026 داخلها؛ اطلب من مالك المنشأة فتح الفترة ثمّ احذف القاعة."
+ },
+ "preview_out_of_scope": {
+  "hall": {
+   "id": "4e109eeb-80c5-4837-ba38-ff6fa6fd5a9d",
+   "name": "قاعة 8 تجريبي",
+   "site": "حقل لحم",
+   "site_id": "16867269-e970-425a-813c-dcac82e2251e",
+   "version": 1
+  },
+  "plan": "f4b25440186b64a732f38fb8df5530ed",
+  "ended": 0,
+  "flock": null,
+  "blocks": [
+   {
+    "code": "permission",
+    "text": "القاعة «قاعة 8 تجريبي» خارج نطاقك، فلا تحذفها. اطلب من مالك المنشأة إضافة حقلها إلى نطاقك."
+   }
+  ]
+ },
+ "preview_store_out_of_scope": {
+  "hall": {
+   "id": "4e109eeb-80c5-4837-ba38-ff6fa6fd5a9d",
+   "name": "قاعة 8 تجريبي",
+   "site": "حقل لحم",
+   "site_id": "16867269-e970-425a-813c-dcac82e2251e",
+   "version": 1
+  },
+  "plan": "f4b25440186b64a732f38fb8df5530ed",
+  "ended": 0,
+  "flock": {
+   "id": "0448b5c2-2106-4e7f-a9f0-4df9c9b699dd",
+   "back": [
+    {
+     "qty": "10000.000",
+     "item": "علف م/1",
+     "item_id": "4bb88677-f228-4b6e-b32d-77800503f12d",
+     "base_unit": "kg",
+     "warehouse": "رصيد العلف",
+     "warehouse_id": "86d0e01f-3712-4e5d-b3df-9f5dc35e50a6"
+    },
+    {
+     "qty": "2000.000",
+     "item": "علف م/2",
+     "item_id": "21207b11-7881-4c88-9f66-f8cb46021ffd",
+     "base_unit": "kg",
+     "warehouse": "رصيد العلف",
+     "warehouse_id": "86d0e01f-3712-4e5d-b3df-9f5dc35e50a6"
+    },
+    {
+     "qty": "25.000",
+     "item": "لقاح نيوكاسل",
+     "item_id": "0cb6d786-1c62-43c4-ba07-69f2a3c2b111",
+     "base_unit": "pc",
+     "warehouse": "مخزن الأدوية",
+     "warehouse_id": "0d2ee7f7-b73f-4664-bb53-8edb0d40a4a9"
+    }
+   ],
+   "days": 14,
+   "logs": 1,
+   "issues": 8,
+   "status": "active",
+   "visits": 14,
+   "version": 1,
+   "weights": 1,
+   "gas_days": 13,
+   "placed_on": "2026-11-13",
+   "placed_count": 25250,
+   "vaccinations": 1
+  },
+  "blocks": [
+   {
+    "code": "permission",
+    "text": "صُرف لفوج القاعة من مخزن خارج نطاقك («رصيد العلف»، «مخزن الأدوية»)، فلا يرجع إليه شيء منك. اطلب الحذف من مالك المنشأة."
+   }
+  ]
+ },
+ "preview_no_void_permission": {
+  "hall": {
+   "id": "4e109eeb-80c5-4837-ba38-ff6fa6fd5a9d",
+   "name": "قاعة 8 تجريبي",
+   "site": "حقل لحم",
+   "site_id": "16867269-e970-425a-813c-dcac82e2251e",
+   "version": 1
+  },
+  "plan": "f4b25440186b64a732f38fb8df5530ed",
+  "ended": 0,
+  "flock": {
+   "id": "0448b5c2-2106-4e7f-a9f0-4df9c9b699dd",
+   "back": [
+    {
+     "qty": "10000.000",
+     "item": "علف م/1",
+     "item_id": "4bb88677-f228-4b6e-b32d-77800503f12d",
+     "base_unit": "kg",
+     "warehouse": "رصيد العلف",
+     "warehouse_id": "86d0e01f-3712-4e5d-b3df-9f5dc35e50a6"
+    },
+    {
+     "qty": "2000.000",
+     "item": "علف م/2",
+     "item_id": "21207b11-7881-4c88-9f66-f8cb46021ffd",
+     "base_unit": "kg",
+     "warehouse": "رصيد العلف",
+     "warehouse_id": "86d0e01f-3712-4e5d-b3df-9f5dc35e50a6"
+    },
+    {
+     "qty": "25.000",
+     "item": "لقاح نيوكاسل",
+     "item_id": "0cb6d786-1c62-43c4-ba07-69f2a3c2b111",
+     "base_unit": "pc",
+     "warehouse": "مخزن الأدوية",
+     "warehouse_id": "0d2ee7f7-b73f-4664-bb53-8edb0d40a4a9"
+    }
+   ],
+   "days": 14,
+   "logs": 1,
+   "issues": 8,
+   "status": "active",
+   "visits": 14,
+   "version": 1,
+   "weights": 1,
+   "gas_days": 13,
+   "placed_on": "2026-11-13",
+   "placed_count": 25250,
+   "vaccinations": 1
+  },
+  "blocks": [
+   {
+    "code": "permission",
+    "text": "في فوج القاعة صرف من المخزن يُلغى بحذفها، وإلغاء المستندات ليس من صلاحية دورك."
+   }
+  ]
+ },
+ "refusal_forbidden": {
+  "code": "forbidden",
+  "hint": "القاعة «قاعة 8 تجريبي» خارج نطاقك، فلا تحذفها. اطلب من مالك المنشأة إضافة حقلها إلى نطاقك."
+ },
+ "refusal_stale_hall": {
+  "code": "stale_hall",
+  "hint": "تغيّرت القاعة «قاعه 1 تجريبي» من جهاز آخر بعد فتح النافذة. حدّث الشاشة ثمّ احذفها."
+ },
+ "refusal_stale_plan": {
+  "code": "stale_plan",
+  "hint": "تغيّر ما في القاعة بعد فتح النافذة. راجع ما سيُحذف ثمّ احذف."
+ },
+ "delete_running": {
+  "back": [
+   {
+    "qty": "10000.000",
+    "item": "علف م/1",
+    "item_id": "4bb88677-f228-4b6e-b32d-77800503f12d",
+    "base_unit": "kg",
+    "warehouse": "رصيد العلف",
+    "warehouse_id": "86d0e01f-3712-4e5d-b3df-9f5dc35e50a6"
+   },
+   {
+    "qty": "2000.000",
+    "item": "علف م/2",
+    "item_id": "21207b11-7881-4c88-9f66-f8cb46021ffd",
+    "base_unit": "kg",
+    "warehouse": "رصيد العلف",
+    "warehouse_id": "86d0e01f-3712-4e5d-b3df-9f5dc35e50a6"
+   },
+   {
+    "qty": "25.000",
+    "item": "لقاح نيوكاسل",
+    "item_id": "0cb6d786-1c62-43c4-ba07-69f2a3c2b111",
+    "base_unit": "pc",
+    "warehouse": "مخزن الأدوية",
+    "warehouse_id": "0d2ee7f7-b73f-4664-bb53-8edb0d40a4a9"
+   }
+  ],
+  "name": "قاعة 8 تجريبي",
+  "already": false,
+  "deleted": true,
+  "hall_id": "4e109eeb-80c5-4837-ba38-ff6fa6fd5a9d",
+  "flock_id": "0448b5c2-2106-4e7f-a9f0-4df9c9b699dd",
+  "voided_issues": 8
+ },
+ "delete_retry_same_ref": {
+  "back": [
+   {
+    "qty": "10000.000",
+    "item": "علف م/1",
+    "item_id": "4bb88677-f228-4b6e-b32d-77800503f12d",
+    "base_unit": "kg",
+    "warehouse": "رصيد العلف",
+    "warehouse_id": "86d0e01f-3712-4e5d-b3df-9f5dc35e50a6"
+   },
+   {
+    "qty": "2000.000",
+    "item": "علف م/2",
+    "item_id": "21207b11-7881-4c88-9f66-f8cb46021ffd",
+    "base_unit": "kg",
+    "warehouse": "رصيد العلف",
+    "warehouse_id": "86d0e01f-3712-4e5d-b3df-9f5dc35e50a6"
+   },
+   {
+    "qty": "25.000",
+    "item": "لقاح نيوكاسل",
+    "item_id": "0cb6d786-1c62-43c4-ba07-69f2a3c2b111",
+    "base_unit": "pc",
+    "warehouse": "مخزن الأدوية",
+    "warehouse_id": "0d2ee7f7-b73f-4664-bb53-8edb0d40a4a9"
+   }
+  ],
+  "name": "قاعة 8 تجريبي",
+  "already": false,
+  "deleted": true,
+  "hall_id": "4e109eeb-80c5-4837-ba38-ff6fa6fd5a9d",
+  "flock_id": "0448b5c2-2106-4e7f-a9f0-4df9c9b699dd",
+  "voided_issues": 8
+ },
+ "delete_already": {
+  "back": [],
+  "name": "قاعة 8 تجريبي",
+  "already": true,
+  "deleted": true,
+  "hall_id": "4e109eeb-80c5-4837-ba38-ff6fa6fd5a9d"
+ },
+ "refusal_hall_not_found": {
+  "code": "hall_not_found",
+  "hint": "هذه القاعة غير موجودة في منشأتك (ربّما حُذفت من جهاز آخر). حدّث الشاشة."
+ },
+ "refusal_flock_void": {
+  "code": "flock_void",
+  "hint": "حُذفت قاعة هذا الفوج، فلا يُعرض ولا يُسجَّل له شيء."
+ },
+ "ticket_after_delete": {
+  "id": "d3909000-0000-4000-8000-000000000320",
+  "can": {
+   "edit": false,
+   "void": false,
+   "finish": false,
+   "invoice": false
+  },
+  "note": null,
+  "sale": null,
+  "birds": 100,
+  "stops": [
+   {
+    "id": "d3909000-0000-4000-8000-000000000321",
+    "live": 25014,
+    "birds": 100,
+    "avg_kg": "2.400",
+    "crates": 10,
+    "net_kg": "240.000",
+    "hall_id": "4e109eeb-80c5-4837-ba38-ff6fa6fd5a9d",
+    "stop_no": 1,
+    "flock_id": "0448b5c2-2106-4e7f-a9f0-4df9c9b699dd",
+    "gross_kg": "7300.000",
+    "crates_kg": "60.000",
+    "hall_name": "قاعة 8 تجريبي",
+    "weighings": [],
+    "flock_status": "void",
+    "prev_gross_kg": "7000.000",
+    "other_ticketed": 0
+   }
+  ],
+  "avg_kg": "2.400",
+  "crates": 10,
+  "driver": null,
+  "method": "scale",
+  "net_kg": "240.000",
+  "status": "void",
+  "on_date": "2026-11-26",
+  "site_id": "16867269-e970-425a-813c-dcac82e2251e",
+  "vehicle": null,
+  "version": 2,
+  "crate_kg": "6.000",
+  "empty_kg": "7000.000",
+  "gross_kg": "7300.000",
+  "invoiced": false,
+  "warnings": [],
+  "site_name": "حقل لحم",
+  "ticket_no": null,
+  "voided_at": "2026-11-27T22:25:37.221192+00:00",
+  "division_id": "2fcdd343-3f08-4c9d-b72d-78bb6272066f",
+  "finished_at": null,
+  "invoice_why": null,
+  "void_reason": "تذكرة تجريبية",
+  "invoice_late": false,
+  "created_by_name": "المالك",
+  "empty_with_crates": false
+ },
+ "parked_flock_void": {
+  "reason": "flock_void",
+  "status": "parked"
+ },
+ "parked_kerosene_flock_void": {
+  "reason": "flock_void",
+  "status": "parked"
+ },
+ "delete_ended": {
+  "back": [],
+  "name": "قاعة الدورة المنتهية",
+  "already": false,
+  "deleted": true,
+  "hall_id": "cce64967-88ce-41c8-8fb3-b599e834dea8",
+  "flock_id": null,
+  "voided_issues": 0
+ },
+ "delete_empty": {
+  "back": [],
+  "name": "قاعة فارغة",
+  "already": false,
+  "deleted": true,
+  "hall_id": "f81a01e3-529f-4cac-875e-36180e235244",
+  "flock_id": null,
+  "voided_issues": 0
+ },
+ "delete_flock_without_records": {
+  "back": [],
+  "name": "قاعه 5 تجريبي",
+  "already": false,
+  "deleted": true,
+  "hall_id": "a0b8ba76-6b2d-462b-9054-214ad72527a1",
+  "flock_id": "cbd19279-af9c-4ffc-9a45-b85ef1ad534e",
+  "voided_issues": 0
+ },
+ "preview_running_with_ended": {
+  "hall": {
+   "id": "34eae7a1-d5e6-45f5-9e0c-c95a4ba08e2d",
+   "name": "قاعة الدورتين",
+   "site": "حقل لحم",
+   "site_id": "16867269-e970-425a-813c-dcac82e2251e",
+   "version": 1
+  },
+  "plan": "b310c78d5ebe0e1d23d44ea9c790ade9",
+  "ended": 1,
+  "flock": {
+   "id": "0f28d254-d687-414c-84ff-94edda9f27ea",
+   "back": [
+    {
+     "qty": "750.000",
+     "item": "علف م/2",
+     "item_id": "21207b11-7881-4c88-9f66-f8cb46021ffd",
+     "base_unit": "kg",
+     "warehouse": "رصيد العلف",
+     "warehouse_id": "86d0e01f-3712-4e5d-b3df-9f5dc35e50a6"
+    }
+   ],
+   "days": 1,
+   "logs": 0,
+   "issues": 1,
+   "status": "active",
+   "visits": 1,
+   "version": 1,
+   "weights": 0,
+   "gas_days": 0,
+   "placed_on": "2026-11-23",
+   "placed_count": 6000,
+   "vaccinations": 0
+  },
+  "blocks": []
+ },
+ "delete_running_with_ended": {
+  "back": [
+   {
+    "qty": "750.000",
+    "item": "علف م/2",
+    "item_id": "21207b11-7881-4c88-9f66-f8cb46021ffd",
+    "base_unit": "kg",
+    "warehouse": "رصيد العلف",
+    "warehouse_id": "86d0e01f-3712-4e5d-b3df-9f5dc35e50a6"
+   }
+  ],
+  "name": "قاعة الدورتين",
+  "already": false,
+  "deleted": true,
+  "hall_id": "34eae7a1-d5e6-45f5-9e0c-c95a4ba08e2d",
+  "flock_id": "0f28d254-d687-414c-84ff-94edda9f27ea",
+  "voided_issues": 1
+ },
+ "preview_counted": {
+  "hall": {
+   "id": "2c1e84d7-72e5-4b3f-8947-e8077917bd6c",
+   "name": "قاعة الجرد",
+   "site": "حقل لحم",
+   "site_id": "16867269-e970-425a-813c-dcac82e2251e",
+   "version": 1
+  },
+  "plan": "67c5b52bd61293daa8b46bbb434fe8ad",
+  "ended": 0,
+  "flock": {
+   "id": "3dca99e5-593c-4d54-b91e-124cc3a8aaa2",
+   "back": [
+    {
+     "qty": "100.000",
+     "item": "علف م/3",
+     "item_id": "3281bf50-54af-4e5c-b00e-3f22bacafc87",
+     "base_unit": "kg",
+     "warehouse": "رصيد العلف",
+     "warehouse_id": "86d0e01f-3712-4e5d-b3df-9f5dc35e50a6"
+    },
+    {
+     "qty": "50.000",
+     "item": "علف م/5",
+     "item_id": "f9d7300b-24da-4a91-8ef2-1321bd44b984",
+     "base_unit": "kg",
+     "warehouse": "رصيد العلف",
+     "warehouse_id": "86d0e01f-3712-4e5d-b3df-9f5dc35e50a6"
+    }
+   ],
+   "days": 0,
+   "logs": 0,
+   "issues": 2,
+   "status": "active",
+   "visits": 0,
+   "version": 1,
+   "weights": 0,
+   "gas_days": 0,
+   "placed_on": "2026-11-21",
+   "placed_count": 1000,
+   "vaccinations": 0
+  },
+  "blocks": [
+   {
+    "code": "counted",
+    "text": "أُرسل إلى الفوج قبل جرد مخزنه: «علف م/3» (الجرد CT-2026-0003 في «رصيد العلف» بتاريخ 26/11/2026)؛ ألغِ الجرد أوّلاً ثمّ احذف القاعة."
+   }
+  ]
+ },
+ "preview_revalued": {
+  "hall": {
+   "id": "216e1666-5920-415f-8739-fb07b62e3e78",
+   "name": "قاعة السعر",
+   "site": "حقل لحم",
+   "site_id": "16867269-e970-425a-813c-dcac82e2251e",
+   "version": 1
+  },
+  "plan": "9e1c28c007fb70110966a323e6b34111",
+  "ended": 0,
+  "flock": {
+   "id": "e7da9bbd-7301-48c4-997c-79b82a29fc05",
+   "back": [
+    {
+     "qty": "200.000",
+     "item": "علف م/4",
+     "item_id": "803ddd19-db6e-4640-99c9-fc20758a4b70",
+     "base_unit": "kg",
+     "warehouse": "رصيد العلف",
+     "warehouse_id": "86d0e01f-3712-4e5d-b3df-9f5dc35e50a6"
+    }
+   ],
+   "days": 0,
+   "logs": 0,
+   "issues": 1,
+   "status": "active",
+   "visits": 0,
+   "version": 1,
+   "weights": 0,
+   "gas_days": 0,
+   "placed_on": "2026-11-21",
+   "placed_count": 1000,
+   "vaccinations": 0
+  },
+  "blocks": [
+   {
+    "code": "revalued",
+    "text": "أُرسل إلى الفوج قبل تصحيح سعره: «علف م/4» (سعر PU-2026-0001)؛ ألغِ التصحيح أوّلاً ثمّ احذف القاعة."
+   }
+  ]
+ },
+ "preview_revalued_counted": {
+  "hall": {
+   "id": "2728f510-9c18-4f5f-b5f4-5f467abc82ff",
+   "name": "قاعة الجرد والسعر",
+   "site": "حقل لحم",
+   "site_id": "16867269-e970-425a-813c-dcac82e2251e",
+   "version": 1
+  },
+  "plan": "64c78d5aad09bedb6ecc051bffbacbbb",
+  "ended": 0,
+  "flock": {
+   "id": "baa4c70c-478f-49e7-b150-0061961ed4a9",
+   "back": [
+    {
+     "qty": "100.000",
+     "item": "علف م/3",
+     "item_id": "3281bf50-54af-4e5c-b00e-3f22bacafc87",
+     "base_unit": "kg",
+     "warehouse": "رصيد العلف",
+     "warehouse_id": "86d0e01f-3712-4e5d-b3df-9f5dc35e50a6"
+    },
+    {
+     "qty": "200.000",
+     "item": "علف م/4",
+     "item_id": "803ddd19-db6e-4640-99c9-fc20758a4b70",
+     "base_unit": "kg",
+     "warehouse": "رصيد العلف",
+     "warehouse_id": "86d0e01f-3712-4e5d-b3df-9f5dc35e50a6"
+    }
+   ],
+   "days": 0,
+   "logs": 0,
+   "issues": 2,
+   "status": "active",
+   "visits": 0,
+   "version": 1,
+   "weights": 0,
+   "gas_days": 0,
+   "placed_on": "2026-11-21",
+   "placed_count": 1000,
+   "vaccinations": 0
+  },
+  "blocks": [
+   {
+    "code": "revalued",
+    "text": "أُرسل إلى الفوج قبل تصحيح سعره: «علف م/4» (سعر PU-2026-0001)؛ ألغِ التصحيح أوّلاً ثمّ احذف القاعة."
+   },
+   {
+    "code": "counted",
+    "text": "أُرسل إلى الفوج قبل جرد مخزنه: «علف م/3» (الجرد CT-2026-0003 في «رصيد العلف» بتاريخ 26/11/2026)؛ ألغِ الجرد أوّلاً ثمّ احذف القاعة."
+   }
+  ]
+ },
+ "refusal_count_superseded": {
+  "code": "count_superseded",
+  "hint": "أُرسل إلى الفوج قبل جرد مخزنه: «علف م/3» (الجرد CT-2026-0003 في «رصيد العلف» بتاريخ 26/11/2026)؛ ألغِ الجرد أوّلاً ثمّ احذف القاعة."
+ },
+ "refusal_lot_consumed": {
+  "code": "lot_consumed",
+  "hint": "أُرسل إلى الفوج قبل تصحيح سعره: «علف م/4» (سعر PU-2026-0001)؛ ألغِ التصحيح أوّلاً ثمّ احذف القاعة."
+ },
+ "refusal_sections_hall_archived": {
+  "code": "hall_archived",
+  "hint": "حُذفت القاعة «قاعة 8 تجريبي»، فلا تتغيّر أقسامها."
+ },
+ "preview_sectioned": {
+  "hall": {
+   "id": "351701c2-11eb-47bb-ac61-be9b0cddcca2",
+   "name": "قاعة مقسومة",
+   "site": "حقل لحم",
+   "site_id": "16867269-e970-425a-813c-dcac82e2251e",
+   "version": 1
+  },
+  "plan": "794efc81912464f46eca4c03ae7d153b",
+  "ended": 0,
+  "flock": {
+   "id": "05dc3064-e904-4395-880b-7aa5773c917b",
+   "back": [
+    {
+     "qty": "100.000",
+     "item": "علف م/1",
+     "item_id": "4bb88677-f228-4b6e-b32d-77800503f12d",
+     "base_unit": "kg",
+     "warehouse": "رصيد العلف",
+     "warehouse_id": "86d0e01f-3712-4e5d-b3df-9f5dc35e50a6"
+    }
+   ],
+   "days": 2,
+   "logs": 0,
+   "issues": 1,
+   "status": "active",
+   "visits": 2,
+   "version": 1,
+   "weights": 0,
+   "gas_days": 0,
+   "placed_on": "2026-11-20",
+   "placed_count": 2000,
+   "vaccinations": 0
+  },
+  "blocks": []
+ },
+ "delete_sectioned": {
+  "back": [
+   {
+    "qty": "100.000",
+    "item": "علف م/1",
+    "item_id": "4bb88677-f228-4b6e-b32d-77800503f12d",
+    "base_unit": "kg",
+    "warehouse": "رصيد العلف",
+    "warehouse_id": "86d0e01f-3712-4e5d-b3df-9f5dc35e50a6"
+   }
+  ],
+  "name": "قاعة مقسومة",
+  "already": false,
+  "deleted": true,
+  "hall_id": "351701c2-11eb-47bb-ac61-be9b0cddcca2",
+  "flock_id": "05dc3064-e904-4395-880b-7aa5773c917b",
+  "voided_issues": 1
+ }
+}
